@@ -12,3 +12,7 @@ WORKER_INTERVAL = int(os.getenv("NEXUS_WORKER_INTERVAL", "20"))
 MAX_ATTEMPTS = int(os.getenv("NEXUS_MAX_ATTEMPTS", "3"))
 DIGEST_ENABLED = os.getenv("NEXUS_DIGEST", "on").lower() == "on"
 DIGEST_MIN_CHARS = int(os.getenv("NEXUS_DIGEST_MIN_CHARS", "1200"))
+WHISPER_MODEL = os.getenv("NEXUS_WHISPER_MODEL", "small")
+WHISPER_LANG = os.getenv("NEXUS_WHISPER_LANG", "es")
+WHISPER_THREADS = int(os.getenv("NEXUS_WHISPER_THREADS", "4"))
+WHISPER_DIR = os.getenv("NEXUS_WHISPER_DIR", "/models/whisper")

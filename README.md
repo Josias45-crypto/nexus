@@ -44,6 +44,7 @@ curl http://localhost:8000/health
 ```
 
 La primera vez se descarga la imagen de Ollama (~3,8 GB) y luego el modelo (~1 GB). Si se interrumpe, repite el comando: continúa donde quedó.
+Para usar **audio**, la primera transcripción requiere descargar el modelo de voz Whisper (~500 MB, una sola vez; después funciona sin internet).
 
 ## Uso
 
@@ -76,6 +77,8 @@ Se define en `.env` (plantilla en `.env.example`).
 | `NEXUS_MAX_ATTEMPTS` | `3` | Intentos antes de marcar un elemento como fallido |
 | `NEXUS_DIGEST` | `on` | Resúmenes y conceptos automáticos por documento |
 | `NEXUS_DIGEST_MIN_CHARS` | `1200` | Tamaño mínimo para digerir un documento |
+| `NEXUS_WHISPER_MODEL` | `small` | Modelo de voz (`base` es más rápido, `small` más preciso) |
+| `NEXUS_WHISPER_LANG` | `es` | Idioma del audio (vacío = detectar solo) |
 | `NEXUS_DATA_DIR`     | `/data`                  | Carpeta de datos dentro del contenedor         |
 
 **Cambiar de modelo:** edita `NEXUS_LLM_MODEL` en `.env`, descárgalo con `docker exec nexus-ollama ollama pull NOMBRE` y ejecuta `docker compose up -d --force-recreate core`.
@@ -132,7 +135,7 @@ docker compose up -d --build core  # reconstruir tras cambiar código
 - [ ] 5. Ingesta de texto y búsqueda semántica
 - [x] 6. Preguntar con fuentes
 - [x] 7. Digestión en segundo plano (resúmenes y conceptos)
-- [ ] 8. Sentido del oído (audio)
+- [x] 8. Sentido del oído (audio)
 - [ ] 9. Contador de crecimiento y respaldos
 - [ ] 10. Despliegue en servidor y GPU remota
 

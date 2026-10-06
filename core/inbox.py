@@ -9,8 +9,8 @@ from core.db import connect
 RAW_DIR = Path(settings.DATA_DIR) / "raw"
 
 
-def _kind(mime: str) -> str:
-    if mime.startswith("audio/"):
+def _kind(mime: str, filename: str = "") -> str:
+    if mime.startswith("audio/") or Path(filename).suffix.lower() in {".mp3", ".wav", ".m4a", ".ogg", ".opus", ".flac", ".aac"}:
         return "audio"
     if mime.startswith("image/"):
         return "image"
@@ -36,7 +36,7 @@ def save(data: bytes, filename: str, mime: str, source: str, kind: str | None = 
         path = folder / f"{event_id}_{safe_name}"
         path.write_bytes(data)
 
-        kind = kind or _kind(mime)
+        kind = kind or _kind(mime, safe_name)
         conn.execute(
             "INSERT INTO events (id, created_at, kind, source, filename, mime, size, sha256, raw_path)"
             " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",

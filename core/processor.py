@@ -11,6 +11,7 @@ from providers.embeddings import get_embedder
 
 log = logging.getLogger("nexus.processor")
 
+AUDIO_EXT = {".mp3", ".wav", ".m4a", ".ogg", ".opus", ".flac", ".aac"}
 TEXT_EXT = {".txt", ".md", ".markdown", ".csv", ".json", ".log"}
 
 # Evita que el worker y una llamada manual a /process procesen lo mismo a la vez
@@ -19,6 +20,10 @@ _lock = asyncio.Lock()
 
 def extract_text(path: Path, mime: str) -> str | None:
     ext = path.suffix.lower()
+    if mime.startswith("audio/") or ext in AUDIO_EXT:
+        from core.transcriber import transcribe
+
+        return transcribe(str(path))
     if ext == ".pdf" or mime == "application/pdf":
         from pypdf import PdfReader
 
@@ -61,7 +66,7 @@ async def _process_pending(limit: int) -> dict:
     with connect() as conn:
         rows = conn.execute(
             "SELECT id, raw_path, mime FROM events"
-            " WHERE status = 'pending' AND kind IN ('text', 'document')"
+            " WHERE status = 'pending' AND kind IN ('text', 'document', 'audio')"
             " ORDER BY created_at LIMIT ?",
             (limit,),
         ).fetchall()

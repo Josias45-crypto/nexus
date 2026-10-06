@@ -14,9 +14,11 @@ services:
       - "127.0.0.1:8000:8000"
     volumes:
       - ./data:/data
+      - whisper_models:/models
     depends_on:
       - ollama
     restart: unless-stopped
 
 volumes:
   ollama_models:
+  whisper_models:
