@@ -20,7 +20,8 @@ async def search(query: str, k: int = 5) -> list[dict]:
 
     with connect() as conn:
         vec_rows = conn.execute(
-            "SELECT rowid FROM vec_chunks WHERE embedding MATCH ? AND k = ? ORDER BY distance",
+            "SELECT rowid, distance FROM vec_chunks"
+            " WHERE embedding MATCH ? AND k = ? ORDER BY distance",
             (sqlite_vec.serialize_float32(qvec), pool),
         ).fetchall()
         fts_rows = (
@@ -32,6 +33,7 @@ async def search(query: str, k: int = 5) -> list[dict]:
             else []
         )
 
+        distances = {r["rowid"]: r["distance"] for r in vec_rows}
         scores: dict[int, float] = {}
         for ranking in (vec_rows, fts_rows):
             for rank, r in enumerate(ranking):
@@ -46,5 +48,12 @@ async def search(query: str, k: int = 5) -> list[dict]:
                 (cid,),
             ).fetchone()
             if row:
-                results.append({**dict(row), "score": round(scores[cid], 5)})
+                d = distances.get(cid)
+                results.append(
+                    {
+                        **dict(row),
+                        "score": round(scores[cid], 5),
+                        "distance": round(d, 4) if d is not None else None,
+                    }
+                )
     return results

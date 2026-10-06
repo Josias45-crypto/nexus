@@ -2,7 +2,7 @@ from fastapi import FastAPI, File, UploadFile
 from pydantic import BaseModel
 
 from config import settings
-from core import inbox, processor, search
+from core import ask, inbox, processor, search
 from core.db import connect, init_db
 from providers.factory import get_provider
 
@@ -85,3 +85,13 @@ async def process(limit: int = 10):
 @app.get("/search")
 async def search_memory(q: str, k: int = 5):
     return await search.search(q, k)
+
+
+class AskRequest(BaseModel):
+    question: str
+    k: int = 4
+
+
+@app.post("/ask")
+async def ask_memory(req: AskRequest):
+    return await ask.ask(req.question, req.k)
