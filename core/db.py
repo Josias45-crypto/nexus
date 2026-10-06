@@ -32,6 +32,17 @@ CREATE TABLE IF NOT EXISTS chunks (
 );
 CREATE INDEX IF NOT EXISTS idx_chunks_event ON chunks(event_id);
 
+CREATE TABLE IF NOT EXISTS digests (
+    event_id TEXT PRIMARY KEY REFERENCES events(id),
+    status TEXT NOT NULL,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    summary TEXT,
+    concepts TEXT,
+    model TEXT,
+    error TEXT,
+    created_at TEXT NOT NULL
+);
+
 CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
     content, content='chunks', content_rowid='id',
     tokenize='unicode61 remove_diacritics 2'

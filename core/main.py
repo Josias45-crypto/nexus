@@ -1,3 +1,5 @@
+import json
+
 from fastapi import FastAPI, File, UploadFile
 from pydantic import BaseModel
 
@@ -111,6 +113,34 @@ def requeue():
     with connect() as conn:
         n = conn.execute(
             "UPDATE events SET status = 'pending', attempts = 0, error = NULL"
+            " WHERE status = 'failed'"
+        ).rowcount
+    return {"reencolados": n}
+
+
+@app.get("/knowledge")
+def knowledge(limit: int = 20):
+    with connect() as conn:
+        counts = conn.execute(
+            "SELECT status, COUNT(*) AS total FROM digests GROUP BY status"
+        ).fetchall()
+        rows = conn.execute(
+            "SELECT e.id AS event_id, e.filename, d.summary, d.concepts, d.model, d.created_at"
+            " FROM digests d JOIN events e ON e.id = d.event_id"
+            " WHERE d.status = 'done' ORDER BY d.created_at DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+    return {
+        "por_estado": {r["status"]: r["total"] for r in counts},
+        "resumenes": [{**dict(r), "concepts": json.loads(r["concepts"] or "[]")} for r in rows],
+    }
+
+
+@app.post("/requeue/digests")
+def requeue_digests():
+    with connect() as conn:
+        n = conn.execute(
+            "UPDATE digests SET status = 'retry', attempts = 0, error = NULL"
             " WHERE status = 'failed'"
         ).rowcount
     return {"reencolados": n}

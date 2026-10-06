@@ -74,6 +74,8 @@ Se define en `.env` (plantilla en `.env.example`).
 | `NEXUS_WORKER` | `on` | Procesamiento automático en segundo plano |
 | `NEXUS_WORKER_INTERVAL` | `20` | Segundos entre revisiones de la bandeja |
 | `NEXUS_MAX_ATTEMPTS` | `3` | Intentos antes de marcar un elemento como fallido |
+| `NEXUS_DIGEST` | `on` | Resúmenes y conceptos automáticos por documento |
+| `NEXUS_DIGEST_MIN_CHARS` | `1200` | Tamaño mínimo para digerir un documento |
 | `NEXUS_DATA_DIR`     | `/data`                  | Carpeta de datos dentro del contenedor         |
 
 **Cambiar de modelo:** edita `NEXUS_LLM_MODEL` en `.env`, descárgalo con `docker exec nexus-ollama ollama pull NOMBRE` y ejecuta `docker compose up -d --force-recreate core`.
@@ -129,7 +131,7 @@ docker compose up -d --build core  # reconstruir tras cambiar código
 - [ ] 4. Bandeja de entrada (guardar originales)
 - [ ] 5. Ingesta de texto y búsqueda semántica
 - [x] 6. Preguntar con fuentes
-- [ ] 7. Digestión en segundo plano (resúmenes y conceptos)
+- [x] 7. Digestión en segundo plano (resúmenes y conceptos)
 - [ ] 8. Sentido del oído (audio)
 - [ ] 9. Contador de crecimiento y respaldos
 - [ ] 10. Despliegue en servidor y GPU remota
