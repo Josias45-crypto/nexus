@@ -6,4 +6,4 @@ LLM_PROVIDER = os.getenv("NEXUS_LLM_PROVIDER", "ollama")
 DATA_DIR = os.getenv("NEXUS_DATA_DIR", "/data")
 EMBED_MODEL = os.getenv("NEXUS_EMBED_MODEL", "nomic-embed-text")
 EMBED_DIM = 768
-MAX_DISTANCE = float(os.getenv("NEXUS_MAX_DISTANCE", "1.2"))
+MAX_DISTANCE = float(os.getenv("NEXUS_MAX_DISTANCE", "0.8"))

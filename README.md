@@ -70,7 +70,7 @@ Se define en `.env` (plantilla en `.env.example`).
 | `OLLAMA_BASE_URL`    | `http://ollama:11434`    | Dirección de Ollama                            |
 | `NEXUS_LLM_MODEL`    | `qwen2.5:1.5b`           | Modelo de lenguaje                             |
 | `NEXUS_EMBED_MODEL`  | `nomic-embed-text`       | Modelo de embeddings (se usa desde el Paso 5)  |
-| `NEXUS_MAX_DISTANCE` | `1.2` | Distancia máxima para considerar relevante un recuerdo |
+| `NEXUS_MAX_DISTANCE` | `0.8` | Distancia máxima para considerar relevante un recuerdo |
 | `NEXUS_DATA_DIR`     | `/data`                  | Carpeta de datos dentro del contenedor         |
 
 **Cambiar de modelo:** edita `NEXUS_LLM_MODEL` en `.env`, descárgalo con `docker exec nexus-ollama ollama pull NOMBRE` y ejecuta `docker compose up -d --force-recreate core`.
