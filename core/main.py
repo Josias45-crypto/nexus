@@ -2,7 +2,7 @@ from fastapi import FastAPI, File, UploadFile
 from pydantic import BaseModel
 
 from config import settings
-from core import inbox
+from core import inbox, processor, search
 from core.db import connect, init_db
 from providers.factory import get_provider
 
@@ -75,3 +75,13 @@ def stats():
             "SELECT COUNT(*) FROM events WHERE status = 'pending'"
         ).fetchone()[0]
     return {"por_tipo": [dict(r) for r in rows], "pendientes_de_digerir": pending}
+
+
+@app.post("/process")
+async def process(limit: int = 10):
+    return await processor.process_pending(limit)
+
+
+@app.get("/search")
+async def search_memory(q: str, k: int = 5):
+    return await search.search(q, k)
