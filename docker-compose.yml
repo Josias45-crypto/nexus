@@ -1,0 +1,22 @@
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: nexus-ollama
+    volumes:
+      - ollama_models:/root/.ollama
+    restart: unless-stopped
+
+  core:
+    build: .
+    container_name: nexus-core
+    env_file: .env
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - ./data:/data
+    depends_on:
+      - ollama
+    restart: unless-stopped
+
+volumes:
+  ollama_models:
