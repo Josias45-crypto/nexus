@@ -2,11 +2,11 @@ from fastapi import FastAPI, File, UploadFile
 from pydantic import BaseModel
 
 from config import settings
-from core import ask, inbox, processor, search
+from core import ask, inbox, processor, search, worker
 from core.db import connect, init_db
 from providers.factory import get_provider
 
-app = FastAPI(title="NEXUS")
+app = FastAPI(title="NEXUS", lifespan=worker.lifespan)
 provider = get_provider()
 init_db()
 
@@ -58,7 +58,7 @@ async def inbox_file(file: UploadFile = File(...), source: str = "api"):
 def inbox_list(limit: int = 20):
     with connect() as conn:
         rows = conn.execute(
-            "SELECT id, created_at, kind, source, filename, size, status"
+            "SELECT id, created_at, kind, source, filename, size, status, attempts, error"
             " FROM events ORDER BY created_at DESC LIMIT ?",
             (limit,),
         ).fetchall()
@@ -95,3 +95,22 @@ class AskRequest(BaseModel):
 @app.post("/ask")
 async def ask_memory(req: AskRequest):
     return await ask.ask(req.question, req.k)
+
+
+@app.get("/worker")
+def worker_status():
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT status, COUNT(*) AS total FROM events GROUP BY status"
+        ).fetchall()
+    return {**worker.state, "eventos_por_estado": {r["status"]: r["total"] for r in rows}}
+
+
+@app.post("/requeue")
+def requeue():
+    with connect() as conn:
+        n = conn.execute(
+            "UPDATE events SET status = 'pending', attempts = 0, error = NULL"
+            " WHERE status = 'failed'"
+        ).rowcount
+    return {"reencolados": n}

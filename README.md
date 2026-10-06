@@ -71,6 +71,9 @@ Se define en `.env` (plantilla en `.env.example`).
 | `NEXUS_LLM_MODEL`    | `qwen2.5:1.5b`           | Modelo de lenguaje                             |
 | `NEXUS_EMBED_MODEL`  | `nomic-embed-text`       | Modelo de embeddings (se usa desde el Paso 5)  |
 | `NEXUS_MAX_DISTANCE` | `0.8` | Distancia máxima para considerar relevante un recuerdo |
+| `NEXUS_WORKER` | `on` | Procesamiento automático en segundo plano |
+| `NEXUS_WORKER_INTERVAL` | `20` | Segundos entre revisiones de la bandeja |
+| `NEXUS_MAX_ATTEMPTS` | `3` | Intentos antes de marcar un elemento como fallido |
 | `NEXUS_DATA_DIR`     | `/data`                  | Carpeta de datos dentro del contenedor         |
 
 **Cambiar de modelo:** edita `NEXUS_LLM_MODEL` en `.env`, descárgalo con `docker exec nexus-ollama ollama pull NOMBRE` y ejecuta `docker compose up -d --force-recreate core`.

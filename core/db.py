@@ -19,7 +19,9 @@ CREATE TABLE IF NOT EXISTS events (
     size INTEGER NOT NULL,
     sha256 TEXT NOT NULL UNIQUE,
     raw_path TEXT NOT NULL,
-    status TEXT NOT NULL DEFAULT 'pending'
+    status TEXT NOT NULL DEFAULT 'pending',
+    attempts INTEGER NOT NULL DEFAULT 0,
+    error TEXT
 );
 
 CREATE TABLE IF NOT EXISTS chunks (
@@ -55,7 +57,17 @@ def connect():
         conn.close()
 
 
-def init_db():
+def _migrate(conn) -> None:
+    """Agrega columnas nuevas a bases creadas por versiones anteriores."""
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(events)")}
+    if "attempts" not in cols:
+        conn.execute("ALTER TABLE events ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0")
+    if "error" not in cols:
+        conn.execute("ALTER TABLE events ADD COLUMN error TEXT")
+
+
+def init_db() -> None:
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     with connect() as conn:
         conn.executescript(SCHEMA)
+        _migrate(conn)

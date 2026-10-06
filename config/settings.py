@@ -7,3 +7,6 @@ DATA_DIR = os.getenv("NEXUS_DATA_DIR", "/data")
 EMBED_MODEL = os.getenv("NEXUS_EMBED_MODEL", "nomic-embed-text")
 EMBED_DIM = 768
 MAX_DISTANCE = float(os.getenv("NEXUS_MAX_DISTANCE", "0.8"))
+WORKER_ENABLED = os.getenv("NEXUS_WORKER", "on").lower() == "on"
+WORKER_INTERVAL = int(os.getenv("NEXUS_WORKER_INTERVAL", "20"))
+MAX_ATTEMPTS = int(os.getenv("NEXUS_MAX_ATTEMPTS", "3"))
