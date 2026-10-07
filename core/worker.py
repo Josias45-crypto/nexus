@@ -7,7 +7,6 @@ from datetime import datetime, timezone
 from config import settings
 from core import backup, digest, processor
 
-logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("nexus.worker")
 
 state: dict = {
@@ -69,6 +68,7 @@ async def lifespan(app):
         if settings.BACKUP_HOURS > 0:
             tasks.append(asyncio.create_task(_loop("respaldo", _backup_step, "ultimo_respaldo", 300)))
     yield
+    log.info("Apagando: se detiene el worker (lo que quedó a medias vuelve a la cola)")
     for t in tasks:
         t.cancel()
     for t in tasks:

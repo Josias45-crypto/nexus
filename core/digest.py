@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import re
+import time
 from datetime import datetime, timezone
 
 import sqlite_vec
@@ -169,8 +170,12 @@ async def digest_pending(limit: int = 5) -> dict:
 
         result = {"digeridos": 0, "omitidos": 0, "a_reintentar": 0, "fallidos": 0}
         for row in rows:
+            started = time.monotonic()
             try:
                 outcome = await _digest_event(row["id"])
+                log.info(
+                    "Digestión %s: %s en %.1f s", row["id"], outcome, time.monotonic() - started
+                )
                 result["digeridos" if outcome == "done" else "omitidos"] += 1
             except Exception as exc:
                 log.exception("Fallo digiriendo %s", row["id"])

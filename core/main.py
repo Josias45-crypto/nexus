@@ -9,9 +9,11 @@ from pydantic import BaseModel, Field
 from config import settings
 from core import ask, backup, brain, dashboard, events, growth, inbox, processor, search, ui, worker
 from core.db import connect, init_db
+from core.logs import setup_logging
 from providers import factory, fallback
 from providers.factory import get_provider
 
+setup_logging()
 app = FastAPI(title="NEXUS", lifespan=worker.lifespan)
 provider = get_provider()
 init_db()

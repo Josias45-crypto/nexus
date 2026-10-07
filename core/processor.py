@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import time
 from pathlib import Path
 
 import sqlite_vec
@@ -99,6 +100,7 @@ async def _process_pending(limit: int, kinds: tuple[str, ...]) -> dict:
     }
     for row in rows:
         events.publish("processing", {"id": row["id"]})
+        started = time.monotonic()
         try:
             text = await asyncio.to_thread(
                 extract_text, Path(row["raw_path"]), row["mime"] or ""
@@ -137,6 +139,10 @@ async def _process_pending(limit: int, kinds: tuple[str, ...]) -> dict:
                     "UPDATE events SET status = 'processed', error = NULL WHERE id = ?",
                     (row["id"],),
                 )
+            log.info(
+                "Procesado %s: %d trozos en %.1f s",
+                row["id"], len(chunks), time.monotonic() - started,
+            )
             events.publish("processed", {"id": row["id"], "trozos": len(chunks)})
             result["procesados"] += 1
             result["trozos"] += len(chunks)

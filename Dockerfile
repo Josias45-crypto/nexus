@@ -9,4 +9,4 @@ COPY providers ./providers
 RUN useradd -m nexus && mkdir -p /data /models && chown nexus /data /models
 USER nexus
 EXPOSE 8000
-CMD ["uvicorn", "core.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "core.main:app", "--host", "0.0.0.0", "--port", "8000", "--timeout-graceful-shutdown", "10"]
