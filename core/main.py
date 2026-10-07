@@ -1,10 +1,11 @@
 import json
 
 from fastapi import FastAPI, File, UploadFile
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
 from config import settings
-from core import ask, inbox, processor, search, worker
+from core import ask, backup, dashboard, growth, inbox, processor, search, worker
 from core.db import connect, init_db
 from providers.factory import get_provider
 
@@ -144,3 +145,23 @@ def requeue_digests():
             " WHERE status = 'failed'"
         ).rowcount
     return {"reencolados": n}
+
+
+@app.get("/growth")
+def growth_stats(days: int = 14):
+    return growth.growth(days)
+
+
+@app.get("/dashboard", response_class=HTMLResponse)
+def dashboard_page():
+    return dashboard.render(growth.growth(14), backup.status())
+
+
+@app.post("/backup")
+async def run_backup_endpoint():
+    return await backup.backup_now()
+
+
+@app.get("/backup")
+def backup_status():
+    return backup.status()

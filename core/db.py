@@ -55,8 +55,8 @@ CREATE VIRTUAL TABLE IF NOT EXISTS vec_chunks USING vec0(
 
 
 @contextmanager
-def connect():
-    conn = sqlite3.connect(DB_PATH)
+def connect(path=None):
+    conn = sqlite3.connect(path or DB_PATH)
     conn.row_factory = sqlite3.Row
     conn.enable_load_extension(True)
     sqlite_vec.load(conn)

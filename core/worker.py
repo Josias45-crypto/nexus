@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
 from config import settings
-from core import digest, processor
+from core import backup, digest, processor
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("nexus.worker")
@@ -15,6 +15,7 @@ state: dict = {
     "ultima_revision": None,
     "ultimo_resultado": None,
     "ultima_digestion": None,
+    "ultimo_respaldo": None,
 }
 
 
@@ -28,8 +29,14 @@ async def _digest_step() -> dict:
     return await digest.digest_pending(limit=5)
 
 
-async def _loop(label: str, step, result_key: str) -> None:
-    log.info("%s iniciado (cada %s s)", label, settings.WORKER_INTERVAL)
+async def _backup_step() -> dict:
+    if not backup.is_due():
+        return {}
+    return await backup.backup_now()
+
+
+async def _loop(label: str, step, result_key: str, interval: int) -> None:
+    log.info("%s iniciado (revisa cada %s s)", label, interval)
     while True:
         try:
             result = await step()
@@ -40,7 +47,7 @@ async def _loop(label: str, step, result_key: str) -> None:
             raise
         except Exception:
             log.exception("Error en %s", label)
-        await asyncio.sleep(settings.WORKER_INTERVAL)
+        await asyncio.sleep(interval)
 
 
 @asynccontextmanager
@@ -48,9 +55,12 @@ async def lifespan(app):
     tasks: list[asyncio.Task] = []
     if settings.WORKER_ENABLED:
         state["activo"] = True
-        tasks.append(asyncio.create_task(_loop("procesador", _process_step, "ultimo_resultado")))
+        every = settings.WORKER_INTERVAL
+        tasks.append(asyncio.create_task(_loop("procesador", _process_step, "ultimo_resultado", every)))
         if settings.DIGEST_ENABLED:
-            tasks.append(asyncio.create_task(_loop("digestor", _digest_step, "ultima_digestion")))
+            tasks.append(asyncio.create_task(_loop("digestor", _digest_step, "ultima_digestion", every)))
+        if settings.BACKUP_HOURS > 0:
+            tasks.append(asyncio.create_task(_loop("respaldo", _backup_step, "ultimo_respaldo", 300)))
     yield
     for t in tasks:
         t.cancel()

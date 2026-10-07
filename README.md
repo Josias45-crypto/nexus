@@ -131,12 +131,12 @@ docker compose up -d --build core  # reconstruir tras cambiar código
 - [x] 1. Repositorio y base profesional
 - [x] 2. Esqueleto en Docker (FastAPI + Ollama)
 - [x] 3. Proveedor de modelo intercambiable y `/chat`
-- [ ] 4. Bandeja de entrada (guardar originales)
-- [ ] 5. Ingesta de texto y búsqueda semántica
+- [x] 4. Bandeja de entrada (guardar originales)
+- [x] 5. Ingesta de texto y búsqueda semántica
 - [x] 6. Preguntar con fuentes
 - [x] 7. Digestión en segundo plano (resúmenes y conceptos)
 - [x] 8. Sentido del oído (audio)
-- [ ] 9. Contador de crecimiento y respaldos
+- [x] 9. Contador de crecimiento y respaldos
 - [ ] 10. Despliegue en servidor y GPU remota
 
 ## Contribuir

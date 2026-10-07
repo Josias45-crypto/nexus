@@ -15,6 +15,7 @@ services:
     volumes:
       - ./data:/data
       - whisper_models:/models
+      - ${NEXUS_BACKUP_HOST_DIR:-./backups}:/backups
     depends_on:
       - ollama
     restart: unless-stopped

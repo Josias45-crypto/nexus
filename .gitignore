@@ -7,3 +7,4 @@ venv/
 .venv/
 *.gguf
 .pytest_cache/
+backups/
