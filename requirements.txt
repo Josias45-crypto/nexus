@@ -6,5 +6,7 @@ sqlite-vec==0.1.6
 pypdf==5.1.0
 faster-whisper==1.1.1
 av==18.1.0
+# pypdf la necesita para abrir PDF cifrados con AES
 cryptography==50.0.2
+# la usa huggingface_hub (descarga del modelo de Whisper)
 requests==2.34.2
