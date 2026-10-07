@@ -202,7 +202,7 @@ async def digest_pending(limit: int = 5) -> dict:
         with connect() as conn:
             rows = conn.execute(
                 "SELECT e.id FROM events e LEFT JOIN digests d ON d.event_id = e.id"
-                " WHERE e.status = 'processed' AND e.kind IN ('text', 'document', 'audio')"
+                " WHERE e.status = 'processed' AND e.kind IN ('text', 'document', 'audio', 'image', 'video')"
                 " AND (d.event_id IS NULL OR d.status = 'retry')"
                 " ORDER BY e.created_at LIMIT ?",
                 (limit,),

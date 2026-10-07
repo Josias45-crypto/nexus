@@ -16,6 +16,8 @@ log = logging.getLogger("nexus.processor")
 # que el worker y una llamada manual a /process no procesen lo mismo a la vez.
 QUEUES = {"texto": ("text", "document", "image"), "audio": ("audio", "video")}
 _locks = {name: asyncio.Lock() for name in QUEUES}
+# Eventos que se están procesando ahora (para la interfaz)
+current: set[str] = set()
 
 EMPTY_REASON = {
     "image": "No se encontró texto en la imagen. Para describir fotos sin texto, activa"
@@ -30,6 +32,7 @@ def _set_status(event_id: str, status: str, reason: str | None = None) -> None:
         conn.execute(
             "UPDATE events SET status = ?, error = ? WHERE id = ?", (status, reason, event_id)
         )
+    events.publish("processing_error", {"id": event_id, "estado": status, "error": reason})
 
 
 def _register_failure(event_id: str, error: str) -> str:
@@ -79,6 +82,7 @@ async def _process_pending(limit: int, kinds: tuple[str, ...]) -> dict:
     }
     for row in rows:
         events.publish("processing", {"id": row["id"]})
+        current.add(row["id"])
         started = time.monotonic()
         try:
             try:
@@ -123,9 +127,11 @@ async def _process_pending(limit: int, kinds: tuple[str, ...]) -> dict:
         except Exception as exc:
             log.exception("Fallo procesando %s", row["id"])
             status = _register_failure(row["id"], f"{type(exc).__name__}: {exc}")
-            events.publish("processing_error", {"id": row["id"], "estado": status})
+            events.publish("processing_error", {"id": row["id"], "estado": status, "error": str(exc)[:300]})
             if status == "failed":
                 result["fallidos"] += 1
             else:
                 result["a_reintentar"] += 1
+        finally:
+            current.discard(row["id"])
     return result

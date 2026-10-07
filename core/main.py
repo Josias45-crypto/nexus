@@ -167,11 +167,16 @@ async def inbox_file(
 def inbox_list(limit: int = Query(20, ge=1, le=500)):
     with connect() as conn:
         rows = conn.execute(
-            "SELECT id, created_at, kind, source, filename, size, status, attempts, error, private"
-            " FROM events ORDER BY created_at DESC LIMIT ?",
+            "SELECT e.id, e.created_at, e.kind, e.source, e.filename, e.size, e.status, e.attempts,"
+            " e.error, e.private, d.status AS digest"
+            " FROM events e LEFT JOIN digests d ON d.event_id = e.id"
+            " ORDER BY e.created_at DESC LIMIT ?",
             (limit,),
         ).fetchall()
-    return [dict(r) for r in rows]
+    return [
+        {**dict(r), "procesando": r["id"] in processor.current, "reintentable": r["status"] in REQUEUE_STATES}
+        for r in rows
+    ]
 
 
 @app.get("/stats")

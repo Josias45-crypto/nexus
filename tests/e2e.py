@@ -622,6 +622,32 @@ class Suite:
         video = "video transcrito" if audio else "video sin audio -> sin texto"
         return f"{len(docs)} formatos encontrados con su origen, 2 no soportados con motivo, {video}"
 
+    def t17_ui_retry(self):
+        """La interfaz muestra estado y motivo, y el reintento por elemento funciona."""
+        r = uuid.uuid4().hex[:8]
+        eid = event_id(self.api.upload(f"viejo-{r}.doc", b"\xd0\xcf\x11\xe0" + r.encode() * 40, "application/msword"))
+        ev = wait_final(self.api, eid, PROCESS_TIMEOUT)
+        if ev["status"] != "unsupported" or not ev.get("reintentable") or ".docx" not in (ev.get("error") or ""):
+            raise Fail(f"la bandeja no muestra el motivo ni permite reintentar: {ev}")
+        node = next((n for n in self.api.ok("GET", "/brain/graph")["nodes"] if n["id"] == eid), None)
+        if not node or ".docx" not in (node.get("error") or ""):
+            raise Fail(f"/brain/graph no trae el motivo: {node}")
+        if self.api.ok("POST", f"/requeue/{eid}").get("reencolados") != 1:
+            raise Fail("POST /requeue/{id} no reencoló")
+        ev = wait_final(self.api, eid, PROCESS_TIMEOUT)
+        if ev["status"] != "unsupported":
+            raise Fail(f"tras reintentar quedó en '{ev['status']}'")
+        ok_id = next(e["id"] for e in self.api.ok("GET", "/inbox?limit=500") if e["status"] == "processed")
+        status, _ = self.api.call("POST", f"/requeue/{ok_id}")
+        if status != 409:
+            raise Fail(f"reintentar algo ya procesado debería dar 409, dio {status}")
+        for path, marks in (("/", ("inboxBtn", "Reintentar")), ("/brain", ("Reintentar", "Imagen"))):
+            status, html = self.api.call("GET", path, raw=True)
+            missing = [m for m in marks if m.encode() not in html]
+            if status != 200 or missing:
+                raise Fail(f"{path}: HTTP {status}, falta {missing}")
+        return "motivo visible en bandeja y cerebro, reintento por elemento, 409 si ya está listo"
+
 
 TESTS = [
     ("1 health", "t1_health"),
@@ -640,6 +666,7 @@ TESTS = [
     ("14 cascada de nube", "t14_cloud"),
     ("15 conocimiento", "t15_knowledge"),
     ("16 formatos", "t16_formats"),
+    ("17 interfaz y reintento", "t17_ui_retry"),
 ]
 
 # Programador acelerado en la instancia aislada: avisos e insistencias en segundos

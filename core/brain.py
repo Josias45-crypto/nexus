@@ -13,7 +13,7 @@ KNN_POOL = 12  # vecinos de trozo a revisar para encontrar 3 eventos distintos
 def graph() -> dict:
     with connect() as conn:
         events = conn.execute(
-            "SELECT e.id, e.kind, e.filename, e.status, e.created_at,"
+            "SELECT e.id, e.kind, e.filename, e.status, e.error, e.created_at,"
             " (SELECT COUNT(*) FROM chunks c WHERE c.event_id = e.id AND c.position >= 0) AS trozos,"
             " d.summary, d.concepts"
             " FROM events e LEFT JOIN digests d ON d.event_id = e.id AND d.status = 'done'"
@@ -36,6 +36,7 @@ def graph() -> dict:
                     "type": e["kind"],
                     "label": e["filename"],
                     "status": e["status"],
+                    "error": e["error"] if e["status"] != "processed" else None,
                     "created_at": e["created_at"],
                     "trozos": e["trozos"],
                     "summary": e["summary"],
@@ -111,6 +112,9 @@ PAGE = r"""<!doctype html>
   #tip b{font-size:13px}
   #tip .m{color:var(--mut)}
   #toast{position:fixed;right:12px;bottom:12px;background:rgba(24,28,51,.95);padding:8px 12px;border-radius:10px;font-size:12px;color:var(--mut);z-index:2;transition:opacity .6s}
+  #sel{position:fixed;right:12px;top:58px;max-width:340px;background:rgba(24,28,51,.97);border:1px solid #2d3360;border-radius:10px;padding:10px 12px;font-size:12px;line-height:1.45;z-index:3}
+  #sel .err{color:#ffab91;margin-top:6px;white-space:pre-wrap}
+  #sel button{margin-top:8px;background:#2d3360}
   #empty{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;color:var(--mut);pointer-events:none}
 </style></head><body>
 <header>
@@ -120,11 +124,13 @@ PAGE = r"""<!doctype html>
 <canvas id="c"></canvas>
 <div id="legend"></div>
 <div id="tip" hidden></div>
+<div id="sel" hidden></div>
 <div id="toast" hidden></div>
 <div id="empty" hidden>Aún no hay recuerdos. Enséñame algo y aparecerá aquí.</div>
 <script>
-const COLORS = {text:'#6c7bff', document:'#26a69a', audio:'#ffa726', concept:'#ec407a', other:'#8f96b8'};
-const NAMES = {text:'Texto', document:'Documento', audio:'Audio', concept:'Concepto', other:'Otro'};
+const COLORS = {text:'#6c7bff', document:'#26a69a', audio:'#ffa726', image:'#66bb6a', video:'#ab47bc', concept:'#ec407a', other:'#8f96b8'};
+const NAMES = {text:'Texto', document:'Documento', audio:'Audio', image:'Imagen', video:'Video', concept:'Concepto', other:'Otro'};
+const RETRY = ['failed', 'unsupported', 'empty'];
 const canvas = document.getElementById('c'), ctx = canvas.getContext('2d');
 const tip = document.getElementById('tip'), statusEl = document.getElementById('status');
 let W = 0, H = 0, DPR = 1;
@@ -133,9 +139,9 @@ let alpha = 1, paused = false, running = false;
 let view = {x: 0, y: 0, k: 1};
 let hover = null, drag = null;
 
-document.getElementById('legend').innerHTML = ['text','document','audio','concept']
+document.getElementById('legend').innerHTML = ['text','document','audio','image','video','concept']
   .map(t => '<div><i style="background:' + COLORS[t] + '"></i>' + NAMES[t] + '</div>').join('') +
-  '<div class="m" style="color:var(--mut)">Tamaño = nº de trozos</div>';
+  '<div class="m" style="color:var(--mut)">Tamaño = nº de trozos · tenue = con aviso (clic para ver)</div>';
 
 function color(n) { return COLORS[n.type] || COLORS.other; }
 function radius(n) {
@@ -167,7 +173,9 @@ function placeNear(n, other) {
 }
 
 async function loadGraph() {
-  const g = await (await fetch('/brain/graph')).json();
+  const r = await fetch('/brain/graph');
+  if (!r.ok) { toast('No pude cargar el cerebro (error ' + r.status + ')'); return; }
+  const g = await r.json();
   const first = nodes.length === 0;
   g.nodes.forEach(d => addNode(d, false));
   g.links.forEach(addLink);
@@ -234,7 +242,7 @@ function draw() {
       a = p;
       if (p >= 1) n.born = 0;
     }
-    ctx.globalAlpha = n.status === 'failed' ? 0.35 * a : a;
+    ctx.globalAlpha = RETRY.includes(n.status) ? 0.35 * a : a;
     ctx.fillStyle = color(n);
     ctx.beginPath(); ctx.arc(n.x, n.y, r, 0, Math.PI * 2); ctx.fill();
     if (n.processing) {  // procesándose: anillo punteado
@@ -335,7 +343,10 @@ function handle(ev) {
       resyncSoon();
       break;
     case 'processing_error':
-      if (n) { n.processing = false; n.status = ev.estado; wake(0); }
+      if (n) {
+        n.processing = false; n.status = ev.estado; n.error = ev.error; wake(0);
+        if (RETRY.includes(ev.estado)) toast(n.label + ': ' + (ev.error || ev.estado) + ' (clic en el punto para reintentar)');
+      }
       break;
     case 'digested':
       if (n) {
@@ -393,6 +404,7 @@ function showTip(n, x, y) {
   let h = '<b>' + esc(n.label) + '</b><div class="m">' + NAMES[n.type in NAMES ? n.type : 'other'];
   if (n.type !== 'concept') {
     h += ' · ' + (n.trozos || 0) + ' trozo(s) · ' + esc(n.status || '') + '</div>';
+    if (n.error) h += '<div style="margin-top:6px;color:#ffab91">' + esc(n.error) + '</div>';
     h += n.summary ? '<div style="margin-top:6px">' + esc(n.summary.length > 320 ? n.summary.slice(0, 320) + '…' : n.summary) + '</div>'
                    : '<div class="m" style="margin-top:6px">Sin resumen</div>';
   } else {
@@ -403,8 +415,38 @@ function showTip(n, x, y) {
   tip.style.top = Math.min(y + 14, innerHeight - tip.offsetHeight - 10) + 'px';
 }
 
-let panning = null;
+// Clic en un recuerdo: detalle fijo, con reintento si tiene aviso
+const sel = document.getElementById('sel');
+function select(n) {
+  if (!n || n.type === 'concept') { sel.hidden = true; return; }
+  sel.innerHTML = '<b>' + esc(n.label) + '</b><div class="m">' + NAMES[n.type in NAMES ? n.type : 'other'] +
+    ' · ' + esc(n.status || '') + ' · ' + (n.trozos || 0) + ' trozo(s)</div>' +
+    (n.error ? '<div class="err">' + esc(n.error) + '</div>' : '') +
+    (n.summary ? '<div style="margin-top:6px">' + esc(n.summary) + '</div>' : '');
+  if (RETRY.includes(n.status)) {
+    const b = document.createElement('button');
+    b.textContent = 'Reintentar';
+    b.onclick = async () => {
+      b.disabled = true;
+      try {
+        const r = await fetch('/requeue/' + encodeURIComponent(n.id), {method: 'POST'});
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.detail || 'error ' + r.status);
+        n.status = 'pending'; n.error = null; wake(0);
+        b.textContent = 'En cola de nuevo';
+      } catch (e) { b.textContent = 'No se pudo: ' + e.message; }
+    };
+    sel.appendChild(b);
+  }
+  const c = document.createElement('button');
+  c.textContent = 'Cerrar'; c.style.marginLeft = '6px'; c.onclick = () => sel.hidden = true;
+  sel.appendChild(c);
+  sel.hidden = false;
+}
+
+let panning = null, downAt = null;
 canvas.addEventListener('mousedown', e => {
+  downAt = {x: e.clientX, y: e.clientY};
   const n = pick(e.clientX, e.clientY);
   if (n) { drag = n; wake(0.1); } else panning = {x: e.clientX - view.x, y: e.clientY - view.y};
   canvas.style.cursor = 'grabbing';
@@ -417,7 +459,10 @@ addEventListener('mousemove', e => {
   if (n !== hover) { hover = n; wake(0); }
   showTip(n, e.clientX, e.clientY);
 });
-addEventListener('mouseup', () => { drag = null; panning = null; canvas.style.cursor = 'grab'; });
+addEventListener('mouseup', e => {
+  if (downAt && e.target === canvas && Math.hypot(e.clientX - downAt.x, e.clientY - downAt.y) < 4) select(pick(e.clientX, e.clientY));
+  downAt = null;
+  drag = null; panning = null; canvas.style.cursor = 'grab'; });
 canvas.addEventListener('mouseleave', () => { if (!drag) { hover = null; tip.hidden = true; wake(0); } });
 canvas.addEventListener('wheel', e => {
   e.preventDefault();
