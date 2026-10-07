@@ -29,10 +29,11 @@ el resumen se indexa como chunk position=-1). 8 Audio con faster-whisper small e
 9 /growth, /dashboard y respaldos verificados (backups/db + espejo de raw, retención 7).
 
 ## Pendiente
-- Paso 10: desplegar en el servidor casero (Intel i5, 8 GB RAM, sin GPU, SSD 1 TB) y conectar
-  la PC Windows con GTX 1650 (4 GB VRAM) cambiando solo OLLAMA_BASE_URL (red local o Tailscale,
-  sin exponer puertos). Fijar versión de Ollama si sigue en :latest. Sincronizar respaldos con
-  otro equipo. Pedir al usuario los datos del servidor y la IP de la PC con GPU.
+- Paso 10: probar en la laptop y desplegar en un VPS de pago (Ubuntu 24.04, 16 GB RAM, 8 vCPU,
+  sin GPU), accesible solo por Tailscale y SSH con llave, sin exponer puertos. Todo corre en CPU
+  en el VPS. Fijar versión de Ollama si sigue en :latest. Respaldos del VPS sincronizados a la
+  laptop. NEXUS_LLM_URL (LLM remoto con respaldo local, ya implementado) queda como opción para
+  apuntar a un Ollama con GPU si algún día hay uno; los embeddings siempre van al local.
 - Después: canales (Telegram, voz, que NEXUS escriba o llame) y más sentidos (imágenes, actividad).
 - Mejoras anotadas: /reindex, cola separada para audios largos, recalibrar NEXUS_MAX_DISTANCE
   con datos reales, timestamps en audio, regenerar resúmenes con un modelo mejor.
