@@ -8,3 +8,4 @@ venv/
 *.gguf
 .pytest_cache/
 backups/
+tests/eval_last.json
