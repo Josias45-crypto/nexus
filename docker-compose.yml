@@ -4,7 +4,31 @@ services:
     container_name: nexus-ollama
     volumes:
       - ollama_models:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 20s
     restart: unless-stopped
+
+  # Descarga los modelos solo si faltan (sin internet arranca igual si ya están).
+  ollama-models:
+    image: ollama/ollama:0.35.1
+    container_name: nexus-ollama-models
+    environment:
+      OLLAMA_HOST: ollama:11434
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >-
+        for m in "${NEXUS_LLM_MODEL:-qwen2.5:1.5b}" "${NEXUS_EMBED_MODEL:-nomic-embed-text}"; do
+        ollama show "$$m" >/dev/null 2>&1 && echo "modelo $$m listo" ||
+        { echo "descargando $$m..."; ollama pull "$$m" || exit 1; };
+        done
+    depends_on:
+      ollama:
+        condition: service_healthy
+    restart: "no"
 
   core:
     build: .
@@ -16,8 +40,18 @@ services:
       - ./data:/data
       - whisper_models:/models
       - ${NEXUS_BACKUP_HOST_DIR:-./backups}:/backups
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    stop_grace_period: 30s
     depends_on:
-      - ollama
+      ollama:
+        condition: service_healthy
+      ollama-models:
+        condition: service_completed_successfully
     restart: unless-stopped
 
 volumes:
