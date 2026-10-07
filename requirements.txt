@@ -10,3 +10,6 @@ av==18.1.0
 cryptography==50.0.2
 # la usa huggingface_hub (descarga del modelo de Whisper)
 requests==2.34.2
+# imágenes y páginas escaneadas de PDF para el OCR (senses/)
+pillow==12.3.0
+pypdfium2==5.14.0

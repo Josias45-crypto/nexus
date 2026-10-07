@@ -42,21 +42,35 @@ def _mmss(seconds: float) -> str:
     return f"{s // 3600}:{s % 3600 // 60:02d}:{s % 60:02d}" if s >= 3600 else f"{s // 60:02d}:{s % 60:02d}"
 
 
+def _span(meta: dict, key: str) -> str:
+    end = meta.get(f"{key}_fin")
+    return f"{meta[key]}–{end}" if end else str(meta[key])
+
+
 def location(meta: dict) -> str | None:
+    """Dónde está el trozo: "pág. 2–3", "min 01:23", "hoja Ventas, fila 4", "diap. 5",
+    "cap. 2", "§ Sección"; dentro de un .zip o un adjunto, antecedido del archivo interno."""
     if not meta:
         return None
-    if "pagina" in meta:
-        end = meta.get("pagina_fin")
-        return f"pág. {meta['pagina']}" + (f"–{end}" if end else "")
-    if "inicio" in meta:
-        return f"min {_mmss(meta['inicio'])}"
-    if "hoja" in meta:
-        return f"hoja {meta['hoja']}"
     if meta.get("resumen"):
         return "resumen"
-    if "seccion" in meta:
-        return f"§ {meta['seccion']}"
-    return None
+    where = None
+    if "pagina" in meta:
+        where = f"pág. {_span(meta, 'pagina')}"
+    elif "inicio" in meta:
+        where = f"min {_mmss(meta['inicio'])}"
+    elif "hoja" in meta:
+        where = f"hoja {meta['hoja']}" + (f", fila {_span(meta, 'fila')}" if "fila" in meta else "")
+    elif "fila" in meta:
+        where = f"fila {_span(meta, 'fila')}"
+    elif "diapositiva" in meta:
+        where = f"diap. {_span(meta, 'diapositiva')}"
+    elif "capitulo" in meta:
+        where = f"cap. {_span(meta, 'capitulo')}"
+    if "seccion" in meta and meta["seccion"] != meta.get("archivo") and not where:
+        where = f"§ {meta['seccion']}"
+    parts = [p for p in (meta.get("archivo"), where) if p]
+    return ", ".join(parts) or None
 
 
 def cite(hit: dict) -> str:

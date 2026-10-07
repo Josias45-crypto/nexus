@@ -13,13 +13,15 @@ from dataclasses import dataclass, field
 
 RE_HEADING = re.compile(r"^(#{1,6})\s+(.+?)\s*#*\s*$")
 RE_SENTENCE_END = re.compile(r"(?<=[.!?…])\s+")
-RANGE_KEYS = ("pagina", "inicio")  # si un trozo cruza segmentos: guarda también el final
+# Si un trozo cruza segmentos, guarda también dónde termina (pagina_fin, fila_fin...)
+RANGE_KEYS = ("pagina", "inicio", "fila", "diapositiva", "capitulo")
 
 
 @dataclass
 class Segment:
     text: str
     meta: dict = field(default_factory=dict)
+    markdown: bool = True  # False en código, CSV, JSON...: "# algo" no es un encabezado
 
 
 @dataclass
@@ -66,7 +68,7 @@ def _blocks(segments: list[Segment], size: int) -> list[_Block]:
                 continue
             lines = para.split("\n")
             # Un encabezado puede venir pegado al párrafo que sigue
-            m = RE_HEADING.match(lines[0])
+            m = RE_HEADING.match(lines[0]) if seg.markdown else None
             if m:
                 section = m.group(2).strip()
                 blocks.append(_Block(lines[0].strip(), seg.meta, section, heading=True))
@@ -90,13 +92,16 @@ def _tail(text: str, overlap: int) -> str:
     return tail[space + 1:].strip() if space != -1 else ""
 
 
-def _meta(first: _Block, last: _Block) -> dict:
+def _meta(blocks: list[_Block]) -> dict:
+    # El origen lo da el primer bloque con contenido (un encabezado suele traer menos datos)
+    first = next((b for b in blocks if not b.heading), blocks[0])
+    last = blocks[-1]
     meta = dict(first.meta)
     for key in RANGE_KEYS:
         if key in first.meta and last.meta.get(key) not in (None, first.meta.get(key)):
             meta[f"{key}_fin"] = last.meta[key]
-    if first.section:
-        meta["seccion"] = first.section
+    if blocks[0].section:
+        meta["seccion"] = blocks[0].section
     return meta
 
 
@@ -113,7 +118,7 @@ def chunk_segments(segments: list[Segment], size: int = 1000, overlap: int = 150
             return
         body = "\n\n".join(b.text for b in current)
         text = f"{carry}\n\n{body}" if carry else body
-        chunks.append((text, _meta(current[0], current[-1])))
+        chunks.append((text, _meta(current)))
         carry = _tail(body, overlap)
         current, length = [], 0
 

@@ -14,6 +14,7 @@ arrancar el contenedor de Ollama (docker compose stop/start; nunca down).
 """
 
 import argparse
+import base64
 import json
 import re
 import shutil
@@ -29,6 +30,8 @@ from contextlib import contextmanager
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO))
+from tests import fixtures  # noqa: E402
 NO_INFO = "No tengo información sobre eso en mi memoria."
 GROWTH_FIELDS = [
     "dias_de_vida",
@@ -129,6 +132,11 @@ def wait_status(api: Api, eid: str, timeout: int, done=("processed",)) -> dict:
         time.sleep(5)
     estado = last["status"] if last else "no encontrado"
     raise Fail(f"tras {timeout} s el evento sigue en '{estado}'")
+
+
+def wait_final(api: Api, eid: str, timeout: int) -> dict:
+    """Espera cualquier estado final (procesado, sin texto, no soportado o fallido)."""
+    return wait_status(api, eid, timeout, done=("processed", "empty", "unsupported", "failed"))
 
 
 def check_answer(resp: dict, must_contain: str | None = None) -> str:
@@ -445,12 +453,12 @@ class Suite:
             ["docker", "run", "--rm", "-e", "NEXUS_DATA_DIR=/tmp",
              "-v", f"{REPO / 'tests'}:/app/tests:ro", image,
              "python", "-m", "unittest", "-q", "tests.test_telegram", "tests.test_whatsapp",
-             "tests.test_cloud", "tests.test_questions", "tests.test_chunker"],
+             "tests.test_cloud", "tests.test_questions", "tests.test_chunker", "tests.test_senses"],
             capture_output=True, text=True, timeout=120,
         )
         if r.returncode != 0:
             raise Fail("canales: " + r.stderr[-300:])
-        return "fechas, troceado, citas, preguntas, Telegram, WhatsApp y nube"
+        return "fechas, troceado, citas, preguntas, formatos, Telegram, WhatsApp y nube"
 
     def t13_profile(self):
         if not self.isolated:
@@ -525,6 +533,95 @@ class Suite:
             raise Fail("tras /reindex el documento no vuelve a encontrarse")
         return "cita con sección, 'qué aprendí hoy', 'lo último', /reindex y vuelta a encontrar"
 
+    def t16_formats(self):
+        r, tag = self.rid, self.tag
+        docs = {
+            # nombre: (contenido, mime, palabra a buscar, dato de origen esperado en el trozo)
+            f"{tag}.docx": (fixtures.docx("Garantias", [f"La silla Ergomar{r} tiene garantia de doce meses."]),
+                            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                            f"Ergomar{r}", "seccion"),
+            f"{tag}.xlsx": (fixtures.xlsx({"Ventas": [["Cliente", "Producto"], [f"Velbra{r}", "mesa de roble"]]}),
+                            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            f"Velbra{r}", "hoja"),
+            f"{tag}.pptx": (fixtures.pptx([("Plan", f"Abrir la tienda Truncal{r} en abril")]),
+                            "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                            f"Truncal{r}", "diapositiva"),
+            f"{tag}.epub": (fixtures.epub([("Uno", f"El faro Ostrel{r} guia a los barcos")]),
+                            "application/epub+zip", f"Ostrel{r}", "capitulo"),
+            f"{tag}.eml": (fixtures.eml("Envio", f"El proveedor Cardel{r} confirma el envio del lunes."),
+                           "message/rfc822", f"Cardel{r}", None),
+            f"{tag}.zip": (fixtures.zip_of({"notas/n.md": f"# Nota\n\nLa bodega Fresnal{r} abre a las ocho."}),
+                           "application/zip", f"Fresnal{r}", "archivo"),
+            f"{tag}.html": (f"<h1>Menu</h1><p>El plato Quimbal{r} lleva quinua.</p>".encode(),
+                            "text/html", f"Quimbal{r}", "seccion"),
+            f"{tag}.csv": (f"cliente,deuda\nPrastel{r},40\n".encode(), "text/csv", f"Prastel{r}", "fila"),
+            f"{tag}.json": (json.dumps({"cliente": f"Lumbrac{r}"}).encode(), "application/json", f"Lumbrac{r}", None),
+        }
+        # Imagen, PDF escaneado y video: se generan en el contenedor (Pillow y PyAV)
+        image = _docker("inspect", "nexus-core", "-f", "{{.Config.Image}}")
+        mounts = ["-v", f"{REPO / 'tests'}:/app/tests:ro"]
+        audio = Path(self.args.audio) if self.args.audio else None
+        if audio:
+            mounts += ["-v", f"{audio.resolve()}:/tmp/audio{audio.suffix}:ro"]
+        code = (
+            "import base64, json, sys; from tests import fixtures as f;"
+            f"lines = ['Recibo {r[-6:]}', 'Cliente Rosa Paredes'];"
+            f"a = open('/tmp/audio{audio.suffix if audio else ''}', 'rb').read() if {bool(audio)} else b'';"
+            "out = {'png': f.image_with_text(lines), 'pdf': f.scanned_pdf(lines),"
+            f" 'mp4': f.video_from_audio(a, '{audio.suffix if audio else '.wav'}', with_audio={bool(audio)})}};"
+            "json.dump({k: base64.b64encode(v).decode() for k, v in out.items()}, sys.stdout)"
+        )
+        gen = subprocess.run(
+            ["docker", "run", "--rm", "-e", "NEXUS_DATA_DIR=/tmp", *mounts, image, "python", "-c", code],
+            capture_output=True, text=True, timeout=300,
+        )
+        if gen.returncode != 0:
+            raise Fail("no se pudieron generar imagen/PDF/video: " + gen.stderr[-300:])
+        made = {k: base64.b64decode(v) for k, v in json.loads(gen.stdout).items()}
+        docs[f"{tag}-foto.png"] = (made["png"], "image/png", "Paredes", "ocr")
+        docs[f"{tag}-escaneo.pdf"] = (made["pdf"], "application/pdf", "Paredes", "ocr")
+
+        ids = {name: event_id(self.api.upload(name, data, mime)) for name, (data, mime, _, _) in docs.items()}
+        bad = {
+            f"{tag}.bin": (b"\x00\x01\x02" * 50, "application/octet-stream", "no soportado"),
+            f"{tag}.doc": (b"\xd0\xcf\x11\xe0" + b"\x00" * 200, "application/msword", ".docx"),
+        }
+        bad_ids = {name: event_id(self.api.upload(name, data, mime)) for name, (data, mime, _) in bad.items()}
+        video_id = event_id(self.api.upload(f"{tag}-video.mp4", made["mp4"], "video/mp4"))
+
+        problems = []
+        for name, eid in ids.items():
+            ev = wait_final(self.api, eid, PROCESS_TIMEOUT + 120)
+            if ev["status"] != "processed":
+                problems.append(f"{name}: {ev['status']} ({ev.get('error')})")
+                continue
+            _, _, word, key = docs[name]
+            hits = [h for h in self.api.ok("GET", f"/search?q={urllib.parse.quote(word)}&k=10") if h["event_id"] == eid]
+            if not hits:
+                problems.append(f"{name}: /search no encuentra {word!r}")
+            elif key and not any(key in (h.get("meta") or {}) for h in hits):
+                problems.append(f"{name}: el trozo no guarda '{key}' ({hits[0].get('meta')})")
+        for name, eid in bad_ids.items():
+            ev = wait_final(self.api, eid, PROCESS_TIMEOUT)
+            if ev["status"] != "unsupported" or bad[name][2] not in (ev.get("error") or ""):
+                problems.append(f"{name}: {ev['status']} ({ev.get('error')})")
+        ev = wait_final(self.api, video_id, AUDIO_TIMEOUT)
+        if audio:
+            hits = self.api.ok("GET", f"/search?q={urllib.parse.quote(self.args.audio_phrase or '')}&k=5")
+            if ev["status"] != "processed" or (self.args.audio_phrase and not any(h["event_id"] == video_id for h in hits)):
+                problems.append(f"video: {ev['status']} ({ev.get('error')}), frase no encontrada")
+        elif ev["status"] != "empty":
+            problems.append(f"video sin audio: {ev['status']} ({ev.get('error')})")
+        if problems:
+            raise Fail("; ".join(problems)[:600])
+
+        r2 = self.api.ok("POST", "/ask", {"question": f"¿Qué producto compró el cliente Velbra{r}?"})
+        citas = [s.get("cita") or "" for s in r2.get("sources", [])]
+        if not any("hoja Ventas" in c for c in citas):
+            raise Fail(f"la cita del Excel no indica la hoja: {citas} · {r2.get('answer', '')[:80]}")
+        video = "video transcrito" if audio else "video sin audio -> sin texto"
+        return f"{len(docs)} formatos encontrados con su origen, 2 no soportados con motivo, {video}"
+
 
 TESTS = [
     ("1 health", "t1_health"),
@@ -542,6 +639,7 @@ TESTS = [
     ("13 perfiles", "t13_profile"),
     ("14 cascada de nube", "t14_cloud"),
     ("15 conocimiento", "t15_knowledge"),
+    ("16 formatos", "t16_formats"),
 ]
 
 # Programador acelerado en la instancia aislada: avisos e insistencias en segundos

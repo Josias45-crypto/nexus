@@ -5,48 +5,24 @@ from pathlib import Path
 
 from config import settings
 from core import events, memory
-from core.chunker import Segment, chunk_segments
+from core.chunker import chunk_segments
 from core.db import connect
 from providers.embeddings import get_embedder
+from senses import Unsupported, extract
 
 log = logging.getLogger("nexus.processor")
 
-AUDIO_EXT = {".mp3", ".wav", ".m4a", ".ogg", ".opus", ".flac", ".aac"}
-TEXT_EXT = {".txt", ".md", ".markdown", ".csv", ".json", ".log"}
-
-# Colas separadas: un audio largo no frena al texto. Cada cola tiene su candado para que
-# el worker y una llamada manual a /process no procesen lo mismo a la vez.
-QUEUES = {"texto": ("text", "document"), "audio": ("audio",)}
+# Colas separadas: un audio o video largo no frena al texto. Cada cola tiene su candado para
+# que el worker y una llamada manual a /process no procesen lo mismo a la vez.
+QUEUES = {"texto": ("text", "document", "image"), "audio": ("audio", "video")}
 _locks = {name: asyncio.Lock() for name in QUEUES}
 
-
-def extract_segments(path: Path, mime: str) -> list[Segment] | None:
-    """Texto del original en segmentos con metadatos (página, marca de tiempo).
-    None = formato no soportado todavía."""
-    ext = path.suffix.lower()
-    if mime.startswith("audio/") or ext in AUDIO_EXT:
-        from core.transcriber import transcribe_segments
-
-        return transcribe_segments(str(path))
-    if ext == ".pdf" or mime == "application/pdf":
-        from pypdf import PdfReader
-
-        reader = PdfReader(str(path))
-        if reader.is_encrypted:
-            # Muchos PDF vienen cifrados solo con contraseña de propietario (vacía al abrir)
-            try:
-                opened = reader.decrypt("")
-            except Exception:
-                opened = 0
-            if not opened:
-                raise ValueError("PDF protegido con contraseña")
-        return [
-            Segment(page.extract_text() or "", {"pagina": i})
-            for i, page in enumerate(reader.pages, 1)
-        ]
-    if ext in TEXT_EXT or mime.startswith("text/"):
-        return [Segment(path.read_text(encoding="utf-8", errors="replace"))]
-    return None
+EMPTY_REASON = {
+    "image": "No se encontró texto en la imagen. Para describir fotos sin texto, activa"
+    " NEXUS_VISION_MODEL (docs/FORMATOS.md).",
+    "video": "El video no tiene audio con voz.",
+    "audio": "No se reconoció voz en el audio.",
+}
 
 
 def _set_status(event_id: str, status: str, reason: str | None = None) -> None:
@@ -87,7 +63,7 @@ async def _process_pending(limit: int, kinds: tuple[str, ...]) -> dict:
     embedder = get_embedder()
     with connect() as conn:
         rows = conn.execute(
-            "SELECT id, raw_path, mime FROM events"
+            "SELECT id, kind, raw_path, mime FROM events"
             f" WHERE status = 'pending' AND kind IN ({','.join('?' * len(kinds))})"
             " ORDER BY created_at LIMIT ?",
             (*kinds, limit),
@@ -105,23 +81,24 @@ async def _process_pending(limit: int, kinds: tuple[str, ...]) -> dict:
         events.publish("processing", {"id": row["id"]})
         started = time.monotonic()
         try:
-            segments = await asyncio.to_thread(
-                extract_segments, Path(row["raw_path"]), row["mime"] or ""
-            )
-            if segments is None:
-                ext = Path(row["raw_path"]).suffix.lower() or "sin extensión"
+            try:
+                segments = await asyncio.to_thread(
+                    extract, Path(row["raw_path"]), row["mime"] or ""
+                )
+            except Unsupported as e:
                 _set_status(
                     row["id"],
                     "unsupported",
-                    f"Formato no soportado todavía ({ext}, {row['mime'] or 'tipo desconocido'})."
-                    " El original está guardado; se puede reprocesar con /requeue.",
+                    f"{e}. El original está guardado; se puede reprocesar con /requeue.",
                 )
                 result["no_soportados"] += 1
                 continue
             pieces = chunk_segments(segments)
             chunks = [text for text, _ in pieces]
             if not chunks:
-                _set_status(row["id"], "empty", "No se encontró texto en el archivo.")
+                _set_status(
+                    row["id"], "empty", EMPTY_REASON.get(row["kind"], "No se encontró texto en el archivo.")
+                )
                 result["sin_texto"] += 1
                 continue
 

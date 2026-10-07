@@ -25,12 +25,15 @@ class TooLarge(Exception):
 
 
 def _kind(mime: str, filename: str = "") -> str:
-    if mime.startswith("audio/") or Path(filename).suffix.lower() in {".mp3", ".wav", ".m4a", ".ogg", ".opus", ".flac", ".aac"}:
+    from senses import AUDIO_EXT, IMAGE_EXT, VIDEO_EXT
+
+    ext = Path(filename).suffix.lower()
+    if ext in AUDIO_EXT or (mime.startswith("audio/") and ext not in VIDEO_EXT):
         return "audio"
-    if mime.startswith("image/"):
-        return "image"
-    if mime.startswith("video/"):
+    if ext in VIDEO_EXT or mime.startswith("video/"):
         return "video"
+    if ext in IMAGE_EXT or mime.startswith("image/"):
+        return "image"
     return "document"
 
 

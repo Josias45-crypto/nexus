@@ -132,6 +132,8 @@ class TelegramChannel(Channel):
         elif "video" in m:
             v = m["video"]
             attachment = (v, v.get("file_name") or "video.mp4", v.get("mime_type", "video/mp4"), False)
+        elif "video_note" in m:  # video redondo grabado en el chat
+            attachment = (m["video_note"], f"video_nota_{m.get('message_id', '')}.mp4", "video/mp4", False)
         if attachment:
             info, filename, mime, voice = attachment
             return Incoming(

@@ -59,7 +59,19 @@ DIGEST_MIN_CHARS = int(os.getenv("NEXUS_DIGEST_MIN_CHARS", "1200"))
 # Documentos grandes: tamaño de cada sección y máximo de secciones a resumir (0 = sin límite)
 DIGEST_SECTION_CHARS = int(os.getenv("NEXUS_DIGEST_SECTION_CHARS", "6000"))
 DIGEST_MAX_SECTIONS = int(os.getenv("NEXUS_DIGEST_MAX_SECTIONS", "12"))
-WHISPER_MODEL = os.getenv("NEXUS_WHISPER_MODEL", "small")
+# Sentidos (senses/): todo local. OCR con Tesseract; describir fotos con un modelo de visión
+# de Ollama es opcional y está apagado (vacío). Ver docs/FORMATOS.md
+OCR_ENABLED = os.getenv("NEXUS_OCR", "on").lower() == "on"
+OCR_LANGS = os.getenv("NEXUS_OCR_LANGS", "spa+eng")
+OCR_MAX_PAGES = int(os.getenv("NEXUS_OCR_MAX_PAGES", "50"))
+OCR_TIMEOUT = int(os.getenv("NEXUS_OCR_TIMEOUT", "120"))
+VISION_MODEL = os.getenv("NEXUS_VISION_MODEL", "").strip()
+# Comprimidos (.zip): máximo de archivos y de MB descomprimidos que se leen
+ARCHIVE_MAX_FILES = int(os.getenv("NEXUS_ARCHIVE_MAX_FILES", "200"))
+ARCHIVE_MAX_MB = int(os.getenv("NEXUS_ARCHIVE_MAX_MB", "200"))
+# Texto máximo que se indexa por elemento (el original siempre se guarda entero)
+MAX_TEXT_CHARS = int(os.getenv("NEXUS_MAX_TEXT_CHARS", "2000000"))
+WHISPER_MODEL =os.getenv("NEXUS_WHISPER_MODEL", "small")
 WHISPER_LANG = os.getenv("NEXUS_WHISPER_LANG", "es")
 WHISPER_THREADS = int(os.getenv("NEXUS_WHISPER_THREADS", "4"))
 WHISPER_DIR = os.getenv("NEXUS_WHISPER_DIR", "/models/whisper")
