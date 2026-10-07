@@ -2,15 +2,18 @@
 
 Uso:
     python3 tests/eval_ventas.py [--url http://localhost:8000] [--label nombre]
+                                 [--nube] [--candidatos N] [--image nexus-core:otra]
 
-Sin --url usa una instancia temporal aislada (como tests/e2e.py, con la nube apagada): solo
-estarán las 12 notas de la corrida. Con --url las notas quedan guardadas en esa instancia.
+Sin --url usa una instancia temporal aislada (como tests/e2e.py): solo estarán las 20 notas
+de la corrida. La nube queda APAGADA salvo con --nube (usa las keys de .env; datos sintéticos).
+Con --url las notas quedan guardadas en esa instancia y se usa su configuración.
 
-Guarda 12 notas inventadas, espera a que se procesen y hace 12 preguntas con otras palabras:
-8 con respuesta en una nota, 2 que juntan varias y 2 sin respuesta. Mide si la nota correcta
-sale en el top 3 de /search (y su distancia), si /ask contiene la palabra clave y si dice que
-no sabe cuando corresponde. El resultado se guarda en tests/eval_last.json bajo --label para
-comparar antes y después de un cambio.
+20 notas inventadas, con distractores y nombres parecidos entre clientes. 14 preguntas con otras
+palabras: 8 con respuesta en una nota, 4 que juntan varias (una es la regresión "Gil Maruri":
+el modelo inventó ese cliente) y 2 sin respuesta. Por pregunta mide: nota correcta en el top 3
+de /search y su distancia, palabra clave en /ask, "no sé" cuando corresponde, datos inventados
+(nombres o cifras que no están en ninguna nota y que NEXUS no marcó con ⚠) y el tiempo de /ask.
+El resultado se guarda en tests/eval_last.json bajo --label para comparar corridas.
 """
 
 import argparse
@@ -25,6 +28,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
+from core.verify import unverified  # noqa: E402  (solo librería estándar)
 from tests.e2e import NO_INFO, Api, isolated_instance  # noqa: E402
 
 OUT = REPO / "tests" / "eval_last.json"
@@ -32,8 +36,10 @@ WAIT_TIMEOUT = 15 * 60
 TOP = 3
 BACKLOG_WARN = 20
 NO_KNOW = (NO_INFO.lower(), "no tengo informacion", "no lo se", "no encuentro", "no dispongo")
+WARNING = "⚠ No pude verificar:"
 
 NOTES = [
+    # 0-11: notas con respuesta
     "Rosaura Quispe compró 3 laptops Lenovo a 2400 soles cada una el 4 de septiembre.",
     "Pedido de Bodega El Trigal: 40 sacos de harina para el lunes 13 de octubre. Pagan al contado."
     " El contacto es Hernán.",
@@ -51,10 +57,19 @@ NOTES = [
     "Nuevo proveedor de tóner: Distribuidora Pacífico. Entrega en 48 horas y da crédito a 30 días.",
     "Restaurante La Brasa compró una laptop Asus para la caja y pidió instalar el sistema de ventas."
     " Se instaló el martes.",
+    # 12-19: distractores con nombres parecidos
+    "Rosario Quispe pidió cotización de 5 monitores Samsung de 24 pulgadas; todavía no confirma.",
+    "Gilmer Mamani compró 6 mouse inalámbricos y pagó 180 soles en efectivo.",
+    "Ferretería Los Álamos pagó completo su pedido de 12 extensiones eléctricas.",
+    "Bodega El Trigo pidió 15 cajas de aceite para el miércoles.",
+    "La Clínica San Rafael Norte compró 2 impresoras Epson L3250 al contado.",
+    "Marisela Huamán debe 320 soles de una silla ergonómica; paga a fin de mes.",
+    "El Colegio San Martín pidió 10 proyectores Epson para sus aulas. Entrega en noviembre.",
+    "Teófilo Cáceres pide que no lo llamen antes de las 9 de la mañana.",
 ]
 
-# notas: índices de NOTES con la respuesta (vacío = sin respuesta).
-# claves: cada grupo debe aparecer en la respuesta; basta una alternativa del grupo.
+# (tipo, pregunta, notas con la respuesta, claves). Cada grupo de claves debe aparecer en la
+# respuesta; basta una alternativa del grupo. Sin notas = la memoria no tiene la respuesta.
 QUESTIONS = [
     ("una", "¿Cuánto dinero nos adeuda la ferretería?", [2], [("1850", "1.850", "1 850")]),
     ("una", "¿Qué cantidad de harina encargó la bodega?", [1], [("40", "cuarenta")]),
@@ -65,16 +80,22 @@ QUESTIONS = [
     ("una", "¿En cuántos pagos va a cubrir el colegio los proyectores?", [8], [("tres", "3")]),
     ("una", "¿Qué distribuidor de tóner nos da plazo para pagar?", [10], [("pacifico",)]),
     ("varias", "¿Qué clientes pidieron laptops?", [0, 3, 11],
-     [("rosaura", "quispe"), ("gilberto", "mamani"), ("brasa",)]),
-    ("varias", "¿Qué clientes nos deben dinero o pagan en partes?", [2, 8],
-     [("ferreteria", "andes"), ("colegio", "ursula")]),
+     [("rosaura",), ("gilberto",), ("brasa",)]),
+    ("varias", "¿Qué clientes nos deben dinero o pagan en partes?", [2, 8, 17],
+     [("andes",), ("ursula",), ("marisela",)]),
+    ("varias", "¿Qué hay anotado sobre productos Epson?", [4, 16, 18],
+     [("780",), ("rafael norte",), ("san martin",)]),
+    ("varias", "¿A qué clientes hay que llamar con cuidado por la hora?", [9, 19],
+     [("teodoro",), ("teofilo",)]),
     ("ninguna", "¿Cuál es el horario de atención de la tienda los domingos?", [], []),
     ("ninguna", "¿Cuántas tablets Samsung vendimos en julio?", [], []),
 ]
+REGRESSION = "¿Qué clientes nos deben dinero o pagan en partes?"  # inventó "Gil Maruri"
 
 
 def norm(text: str) -> str:
-    text = unicodedata.normalize("NFD", (text or "").lower())
+    text = (text or "").replace("\u202f", " ").replace("\u00a0", " ").replace("*", "")
+    text = unicodedata.normalize("NFD", text.lower())
     return "".join(c for c in text if unicodedata.category(c) != "Mn")
 
 
@@ -116,20 +137,20 @@ def wait_processed(api: Api, ids: list[str]) -> float:
     return time.monotonic() - start
 
 
-def evaluate(api: Api, url: str, label: str, isolated: bool) -> int:
+def evaluate(api: Api, url: str, label: str, isolated: bool, extra: dict) -> int:
     health = api.ok("GET", "/health")
     cola = api.ok("GET", "/worker").get("eventos_por_estado", {}).get("pending", 0)
     if cola > BACKLOG_WARN:
         print(f"Aviso: el worker tiene {cola} elementos en cola; la espera puede ser larga.")
 
     rid = uuid.uuid4().hex[:10]
-    print(f"NEXUS eval ventas · corrida {rid} · {url} · etiqueta '{label}'\n")
+    print(f"NEXUS eval ventas · corrida {rid} · {url} · etiqueta '{label}' {extra or ''}\n")
     ids = []
     for note in NOTES:
         r = api.ok("POST", "/inbox/text", {"text": f"{note} [eval {rid}]", "source": "eval"})
         ids.append(r["id"])
     secs = wait_processed(api, ids)
-    print(f"12 notas procesadas en {secs:.0f} s\n")
+    print(f"{len(NOTES)} notas procesadas en {secs:.0f} s\n")
 
     rows = []
     for kind, question, expected, keys in QUESTIONS:
@@ -140,43 +161,62 @@ def evaluate(api: Api, url: str, label: str, isolated: bool) -> int:
             n = note_of(h)
             if n is not None and h.get("distance") is not None:
                 dist[n] = min(dist.get(n, 9.0), h["distance"])
+        t0 = time.monotonic()
         resp = api.ok("POST", "/ask", {"question": question})
+        seconds = time.monotonic() - t0
         answer = (resp.get("answer") or "").strip()
+        body, _, flagged = answer.partition(WARNING)
         no = says_no(answer)
         row = {
             "tipo": kind,
             "pregunta": question,
             "top1_distancia": hits[0]["distance"] if hits else None,
-            "respuesta": answer[:300],
+            "respuesta": answer[:400],
+            "segundos": round(seconds, 2),
+            "proveedor": (resp.get("llm") or {}).get("proveedor"),
             "dijo_no_se": no,
+            # Nombres o cifras que no están en ninguna nota y que NEXUS no marcó con ⚠
+            "inventados": [] if no else unverified(body, NOTES + [f"eval {rid}"], question),
+            "regenerada": bool((resp.get("llm") or {}).get("regenerada")),
+            "marcados": [x.strip() for x in flagged.split(",") if x.strip()],
         }
         if expected:
             row["recuperada"] = all(n in top for n in expected)
             row["distancias"] = [dist.get(n) for n in expected]
-            row["respuesta_ok"] = all(any(norm(k) in norm(answer) for k in group) for group in keys)
+            row["respuesta_ok"] = all(any(norm(k) in norm(body) for k in group) for group in keys)
         else:
             row["respuesta_ok"] = no
         rows.append(row)
 
     answerable = [r for r in rows if r["tipo"] != "ninguna"]
     unanswerable = [r for r in rows if r["tipo"] == "ninguna"]
+    multi = [r for r in rows if r["tipo"] == "varias"]
     hit_d = [d for r in answerable if r["recuperada"] for d in r["distancias"] if d is not None]
     miss_d = [r["top1_distancia"] for r in unanswerable if r["top1_distancia"] is not None]
     low = max(hit_d) if hit_d else None
     high = min(miss_d) if miss_d else None
+    times = [r["segundos"] for r in rows]
+    regression = next(r for r in rows if r["pregunta"] == REGRESSION)
     totals = {
         "recuperacion": f"{sum(r['recuperada'] for r in answerable)}/{len(answerable)}",
         "respuesta": f"{sum(r['respuesta_ok'] for r in answerable)}/{len(answerable)}",
+        "sintesis": f"{sum(r['respuesta_ok'] for r in multi)}/{len(multi)}",
         "sin_respuesta_ok": f"{sum(r['respuesta_ok'] for r in unanswerable)}/{len(unanswerable)}",
         "no_se_teniendo_respuesta": sum(r["dijo_no_se"] for r in answerable),
+        "inventados": sum(len(r["inventados"]) for r in rows),
+        "marcados": sum(len(r["marcados"]) for r in rows),
+        "regeneradas": sum(r.get("regenerada", False) for r in rows),
+        "regresion_gil_maruri": "ok" if not regression["inventados"] else "inventó",
+        "ask_promedio_s": round(sum(times) / len(times), 2),
+        "ask_max_s": round(max(times), 2),
         "max_distancia_acierto": low,
         "min_distancia_sin_respuesta": high,
         "rango_sugerido_max_distance": [low, high] if low is not None and high is not None and low < high else None,
     }
 
     # ---------- tabla ----------
-    print(f"{'#':>2}  {'tipo':7}  {'top3':4}  {'distancia':20}  {'resp':4}  pregunta")
-    print("-" * 106)
+    print(f"{'#':>2}  {'tipo':7}  {'top3':4}  {'distancia':20}  {'resp':4}  {'s':>5}  pregunta")
+    print("-" * 112)
     for i, r in enumerate(rows, 1):
         if r["tipo"] == "ninguna":
             top3, d = "—", f"top1 {r['top1_distancia']}"
@@ -184,15 +224,20 @@ def evaluate(api: Api, url: str, label: str, isolated: bool) -> int:
             top3 = "sí" if r["recuperada"] else "no"
             d = ",".join("—" if x is None else f"{x:.3f}" for x in r["distancias"])
         resp = ("sí" if r["respuesta_ok"] else "no") + ("*" if r["dijo_no_se"] and r["tipo"] != "ninguna" else "")
-        print(f"{i:>2}  {r['tipo']:7}  {top3:4}  {d:20}  {resp:4}  {r['pregunta']}")
-        if not r["respuesta_ok"]:
-            print(f"{'':42}↳ {r['respuesta'][:110]!r}")
-    print("-" * 106)
+        print(f"{i:>2}  {r['tipo']:7}  {top3:4}  {d:20}  {resp:4}  {r['segundos']:5.1f}  {r['pregunta']}")
+        if not r["respuesta_ok"] or r["inventados"] or r["marcados"]:
+            print(f"{'':49}↳ {r['respuesta'][:110]!r}")
+        if r["inventados"]:
+            print(f"{'':49}  inventado: {', '.join(r['inventados'])}")
+    print("-" * 112)
     print("* = dijo que no sabe teniendo la respuesta\n")
     print(f"Recuperación (nota correcta en top {TOP}): {totals['recuperacion']}")
-    print(f"Respuesta con la palabra clave:          {totals['respuesta']}")
+    print(f"Respuesta con la palabra clave:          {totals['respuesta']} (síntesis {totals['sintesis']})")
     print(f"Sin respuesta y dijo que no sabe:        {totals['sin_respuesta_ok']}")
     print(f"'No tengo información' teniendo la respuesta: {totals['no_se_teniendo_respuesta']}")
+    print(f"Datos inventados sin aviso: {totals['inventados']} · marcados con ⚠: {totals['marcados']}"
+          f" · regeneradas: {totals['regeneradas']} · regresión Gil Maruri: {totals['regresion_gil_maruri']}")
+    print(f"/ask: promedio {totals['ask_promedio_s']} s, máximo {totals['ask_max_s']} s")
     if totals["rango_sugerido_max_distance"]:
         print(f"NEXUS_MAX_DISTANCE sugerido: entre {low:.3f} y {high:.3f}")
     else:
@@ -209,8 +254,10 @@ def evaluate(api: Api, url: str, label: str, isolated: bool) -> int:
         "fecha": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "url": url,
         "aislada": isolated,
+        "opciones": extra,
         "modelo": health.get("llm_model"),
         "corrida": rid,
+        "notas": len(NOTES),
         "segundos_procesando": round(secs),
         "totales": totals,
         "preguntas": rows,
@@ -228,12 +275,18 @@ def main() -> int:
     p = argparse.ArgumentParser(description="Evaluación de recuperación para ventas")
     p.add_argument("--url", help="instancia existente (sin esto, se usa una aislada temporal)")
     p.add_argument("--label", default="sin-etiqueta", help="nombre para comparar corridas")
+    p.add_argument("--nube", action="store_true", help="instancia aislada con el modo nube de .env")
+    p.add_argument("--candidatos", type=int, help="NEXUS_ASK_CANDIDATES (y _LIST) de la instancia aislada")
+    p.add_argument("--image", help="imagen de la instancia aislada (p. ej. una versión anterior)")
     args = p.parse_args()
     if args.url:
-        return evaluate(Api(args.url), args.url, args.label, isolated=False)
-    # Nube apagada: se mide el modelo local, aunque .env tenga la nube encendida
-    with isolated_instance({"NEXUS_ALLOW_CLOUD": "off", "NEXUS_WORKER_INTERVAL": "3"}) as url:
-        return evaluate(Api(url), url, args.label, isolated=True)
+        return evaluate(Api(args.url), args.url, args.label, isolated=False, extra={})
+    env = {"NEXUS_WORKER_INTERVAL": "3", "NEXUS_ALLOW_CLOUD": "on" if args.nube else "off"}
+    if args.candidatos:
+        env["NEXUS_ASK_CANDIDATES"] = env["NEXUS_ASK_CANDIDATES_LIST"] = str(args.candidatos)
+    extra = {k: v for k, v in (("nube", args.nube), ("candidatos", args.candidatos), ("imagen", args.image)) if v}
+    with isolated_instance(env, image=args.image) as url:
+        return evaluate(Api(url), url, args.label, isolated=True, extra=extra)
 
 
 if __name__ == "__main__":

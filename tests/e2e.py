@@ -199,11 +199,11 @@ def _docker(*args: str) -> str:
 
 
 @contextmanager
-def isolated_instance(extra_env: dict | None = None):
-    """Contenedor temporal con datos propios; usa la red, la imagen y el caché de Whisper
-    de la instalación en marcha (nexus-core y nexus-ollama deben estar arriba)."""
+def isolated_instance(extra_env: dict | None = None, image: str | None = None):
+    """Contenedor temporal con datos propios; usa la red, la imagen (o la indicada) y el caché
+    de Whisper de la instalación en marcha (nexus-core y nexus-ollama deben estar arriba)."""
     try:
-        image = _docker("inspect", "nexus-core", "-f", "{{.Config.Image}}")
+        image = image or _docker("inspect", "nexus-core", "-f", "{{.Config.Image}}")
         network = _docker(
             "inspect", "nexus-ollama", "-f",
             "{{range $k, $v := .NetworkSettings.Networks}}{{$k}}{{end}}",
