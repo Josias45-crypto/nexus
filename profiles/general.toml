@@ -1,0 +1,29 @@
+# Perfil por defecto: memoria personal sin rubro específico.
+# Cómo crear uno nuevo: docs/PERFILES.md
+
+[asistente]
+nombre = "NEXUS"
+idioma = "es"
+tono = "cercano, claro y breve"
+persona = """Eres la memoria personal de tu dueño. Recuerdas lo que te cuenta y le ayudas a
+encontrarlo y a usarlo cuando lo necesita."""
+
+[negocio]
+descripcion = "Uso personal: notas, documentos, ideas y pendientes del día a día."
+
+[entidades]
+# Tipos de cosas que conviene distinguir (los usa la extracción experimental de la Fase 5C)
+categorias = ["personas", "proyectos", "tareas", "lugares"]
+
+[proactivo]
+# Hora local del resumen matutino (HH:MM); "" lo desactiva
+resumen_matutino = "08:00"
+# Días sin novedades de una entidad para sugerir seguimiento (requiere Fase 5C)
+seguimiento_dias = 0
+
+[ejemplos]
+preguntas = [
+  "¿Qué aprendí hoy?",
+  "¿Qué sé sobre el proyecto X?",
+  "Recuérdame mañana a las 9 revisar el correo",
+]

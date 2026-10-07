@@ -10,6 +10,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from config import settings
+from core import profile as nexus_profile
 from core import ask, backup, brain, dashboard, events, growth, inbox, processor, search, ui, worker
 from core.db import connect, init_db
 from core.logs import setup_logging
@@ -20,6 +21,7 @@ setup_logging()
 app = FastAPI(title="NEXUS", lifespan=worker.lifespan)
 provider = get_provider()
 init_db()
+nexus_profile.get()  # un perfil inválido detiene el arranque con un mensaje claro
 
 MAX_BYTES = settings.MAX_UPLOAD_MB * 1024 * 1024
 TOO_LARGE = f"El archivo supera el límite de {settings.MAX_UPLOAD_MB} MB (NEXUS_MAX_UPLOAD_MB)."
@@ -102,6 +104,19 @@ async def health():
         "llm_activo": fallback.last_used,
         "nube": fallback.last_used == "groq",
         "nube_error": factory.cloud_error,
+    }
+
+
+@app.get("/profile")
+def profile_info():
+    p = nexus_profile.get()
+    return {
+        "id": p["id"],
+        "asistente": {k: p["asistente"][k] for k in ("nombre", "idioma", "tono")},
+        "negocio": p["negocio"]["descripcion"],
+        "categorias": p["entidades"]["categorias"],
+        "proactivo": p["proactivo"],
+        "ejemplos": p["ejemplos"]["preguntas"],
     }
 
 

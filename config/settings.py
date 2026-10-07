@@ -10,6 +10,9 @@ LLM_REMOTE_MODEL = os.getenv("NEXUS_LLM_REMOTE_MODEL") or LLM_MODEL
 ALLOW_CLOUD = os.getenv("NEXUS_ALLOW_CLOUD", "off").lower() == "on"
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "").strip()
 GROQ_MODEL = os.getenv("NEXUS_GROQ_MODEL", "").strip()
+# Perfil de rubro: profiles/<NEXUS_PROFILE>.toml
+PROFILE = os.getenv("NEXUS_PROFILE", "general").strip().lower()
+PROFILES_DIR = os.getenv("NEXUS_PROFILES_DIR", "/app/profiles")
 LOG_LEVEL = os.getenv("NEXUS_LOG_LEVEL", "INFO").upper()
 DATA_DIR = os.getenv("NEXUS_DATA_DIR", "/data")
 # Tamaño máximo por archivo o texto recibido (Telegram entrega a los bots hasta 20 MB)

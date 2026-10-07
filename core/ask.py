@@ -1,14 +1,15 @@
 import re
 
 from config import settings
+from core import profile
 from core.search import publish_recall, search
 from providers.factory import get_provider
 
 NO_INFO = "No tengo información sobre eso en mi memoria."
 
-SYSTEM = (
-    "Eres NEXUS, la memoria personal del usuario. Responde la pregunta usando solo "
-    "la información de las fuentes. Responde con una o dos frases completas en español. "
+RULES = (
+    "Responde la pregunta usando solo la información de las fuentes. Responde con una o dos "
+    "frases completas en español. "
     f'Si las fuentes no contienen la respuesta, responde exactamente: "{NO_INFO}"'
 )
 
@@ -31,7 +32,7 @@ async def ask(question: str, k: int = 4) -> dict:
         f"Fuente {i} ({h['filename']}):\n{h['content']}" for i, h in enumerate(hits, 1)
     )
     messages = [
-        {"role": "system", "content": SYSTEM},
+        {"role": "system", "content": f"{profile.system_prompt()} {RULES}"},
         {"role": "user", "content": f"{context}\n\nPregunta: {question}\nRespuesta:"},
     ]
     answer = await get_provider().chat(messages)
