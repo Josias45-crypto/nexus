@@ -203,7 +203,7 @@ async def search_memory(q: str = Query(min_length=1, max_length=2000), k: int = 
 
 class AskRequest(BaseModel):
     question: str = Field(min_length=1, max_length=2000)
-    k: int = Field(4, ge=1, le=20)
+    k: int | None = Field(None, ge=1, le=20)  # por defecto NEXUS_ASK_CANDIDATES
 
 
 @app.post("/ask")

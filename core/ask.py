@@ -1,16 +1,31 @@
 import re
 
+from config import settings
 from core import citations, profile
-from core.search import publish_recall, relevant, search
+from core.search import publish_recall, search
 from providers.factory import get_provider
 
 NO_INFO = "No tengo información sobre eso en mi memoria."
 
 RULES = (
-    "Responde la pregunta usando solo la información de las fuentes. Responde con una o dos "
-    "frases completas en español. "
-    f'Si las fuentes no contienen la respuesta, responde exactamente: "{NO_INFO}"'
+    "Responde la pregunta usando solo la información de las fuentes. Algunas fuentes pueden no "
+    "tener relación con la pregunta: ignóralas. Si la pregunta pide varios datos o una lista "
+    "(por ejemplo, qué clientes hicieron algo), revisa todas las fuentes y junta todos los que "
+    "correspondan. Incluye los nombres y cifras exactos de las fuentes. Responde en español, "
+    "con frases completas y breves. "
+    f'Si ninguna fuente contiene la respuesta, responde exactamente: "{NO_INFO}"'
 )
+
+
+def candidates(hits: list[dict]) -> list[dict]:
+    """Candidatos para el modelo: los de término raro siempre; el resto, salvo ruido evidente."""
+    rare = [h for h in hits if h.get("termino_raro")]
+    rest = [
+        h for h in hits
+        if not h.get("termino_raro")
+        and h["distance"] is not None and h["distance"] <= settings.NOISE_DISTANCE
+    ]
+    return (rare + rest)[: settings.ASK_CANDIDATES]
 
 
 def _is_empty_answer(answer: str) -> bool:
@@ -18,14 +33,13 @@ def _is_empty_answer(answer: str) -> bool:
     return len(re.sub(r"\[\d+\]", "", answer).strip(" .:-\n")) < 10
 
 
-async def ask(question: str, k: int = 4) -> dict:
+async def ask(question: str, k: int | None = None) -> dict:
     from core import questions
 
     special = await questions.route(question)
     if special is not None:
         return special
-    hits = await search(question, k, publish=False)
-    hits = relevant(hits)
+    hits = candidates(await search(question, k or settings.ASK_CANDIDATES, publish=False))
     if not hits:
         return {"answer": NO_INFO, "sources": [], "llm": None, "tipo": "memoria"}
     publish_recall("ask", hits)
