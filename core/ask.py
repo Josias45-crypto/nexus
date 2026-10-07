@@ -20,12 +20,17 @@ def _is_empty_answer(answer: str) -> bool:
 
 
 async def ask(question: str, k: int = 4) -> dict:
+    from core import questions
+
+    special = await questions.route(question)
+    if special is not None:
+        return special
     hits = await search(question, k, publish=False)
     hits = [
         h for h in hits if h["distance"] is None or h["distance"] <= settings.MAX_DISTANCE
     ]
     if not hits:
-        return {"answer": NO_INFO, "sources": [], "llm": None}
+        return {"answer": NO_INFO, "sources": [], "llm": None, "tipo": "memoria"}
     publish_recall("ask", hits)
 
     context = "\n\n".join(
@@ -41,13 +46,13 @@ async def ask(question: str, k: int = 4) -> dict:
     answer = citations.strip_markers(answer)
     if NO_INFO.rstrip(".").lower() in answer.lower():
         # Dijo que no sabe: mostrar fuentes sería engañoso
-        return {"answer": NO_INFO, "sources": [], "llm": llm}
+        return {"answer": NO_INFO, "sources": [], "llm": llm, "tipo": "memoria"}
     if _is_empty_answer(answer):
         answer = "Esto es lo que encontré en mi memoria:\n" + hits[0]["content"][:500]
         backing = hits[:1]
     else:
         backing = citations.supporting(answer, hits)
-    return {"answer": answer, "sources": sources_for(backing), "llm": llm}
+    return {"answer": answer, "sources": sources_for(backing), "llm": llm, "tipo": "memoria"}
 
 
 def sources_for(hits: list[dict]) -> list[dict]:

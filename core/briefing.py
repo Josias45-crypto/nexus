@@ -31,12 +31,20 @@ def _snippet(text: str | None) -> str:
     return text if len(text) <= SNIPPET else text[: SNIPPET - 1] + "…"
 
 
-def learned(day: date | None = None, since_utc: str | None = None, limit: int = 30) -> list[dict]:
-    """Eventos de un día local (o desde un instante UTC) con su resumen o primer trozo."""
+def learned(
+    day: date | None = None,
+    since_utc: str | None = None,
+    limit: int = 30,
+    until_day: date | None = None,
+) -> list[dict]:
+    """Eventos de un día local, de un rango de días [day, until_day] o desde un instante UTC,
+    con su resumen o primer trozo (los más recientes, en orden cronológico)."""
     if since_utc:
         start, end = since_utc, clock.now_utc().isoformat()
     else:
-        start, end = _day_bounds_utc(day or clock.now_local().date())
+        first = day or clock.now_local().date()
+        start = _day_bounds_utc(first)[0]
+        end = _day_bounds_utc(until_day or first)[1]
     with connect() as conn:
         rows = conn.execute(
             "SELECT e.id, e.created_at, e.kind, e.filename, e.status, e.private, d.summary,"
@@ -49,6 +57,7 @@ def learned(day: date | None = None, since_utc: str | None = None, limit: int = 
         {
             "id": r["id"],
             "hora": clock.utc_to_local(r["created_at"]).strftime("%H:%M"),
+            "dia": clock.utc_to_local(r["created_at"]).date().isoformat(),
             "tipo": r["kind"],
             "archivo": r["filename"],
             "estado": r["status"],
