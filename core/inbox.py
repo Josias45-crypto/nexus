@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from config import settings
+from core import events
 from core.db import connect
 
 RAW_DIR = Path(settings.DATA_DIR) / "raw"
@@ -42,4 +43,5 @@ def save(data: bytes, filename: str, mime: str, source: str, kind: str | None = 
             " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (event_id, now.isoformat(), kind, source, safe_name, mime, len(data), sha, str(path)),
         )
+    events.publish("ingest", {"id": event_id, "kind": kind, "filename": safe_name})
     return {"id": event_id, "kind": kind, "size": len(data), "duplicate": False}

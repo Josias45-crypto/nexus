@@ -23,7 +23,7 @@ PAGE = r"""<!doctype html>
   button.primary{background:var(--acc)}
   button:disabled{opacity:.5;cursor:wait}
 </style></head><body>
-<header><div><b>NEXUS</b> <span id="stats"></span><span id="cloud" title="La última respuesta salió de la nube (solo pruebas)" hidden>NUBE</span></div><a href="/dashboard">Panel</a></header>
+<header><div><b>NEXUS</b> <span id="stats"></span><span id="cloud" title="La última respuesta salió de la nube (solo pruebas)" hidden>NUBE</span></div><nav><a href="/brain">Cerebro</a> · <a href="/dashboard">Panel</a></nav></header>
 <div id="log"><div class="msg sys">Pregúntame algo, o usa «Recordar» para enseñarme. También puedes arrastrar archivos aquí.</div></div>
 <form id="f">
   <label class="btn" title="Adjuntar archivo">📎<input id="file" type="file" hidden></label>

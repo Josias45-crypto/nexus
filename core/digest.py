@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 import sqlite_vec
 
 from config import settings
+from core import events
 from core.db import connect
 from providers.embeddings import get_embedder
 from providers.factory import get_provider
@@ -151,6 +152,7 @@ async def _digest_event(event_id: str) -> str:
                 _now(),
             ),
         )
+    events.publish("digested", {"id": event_id, "conceptos": concepts})
     return "done"
 
 

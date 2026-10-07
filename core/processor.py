@@ -5,6 +5,7 @@ from pathlib import Path
 import sqlite_vec
 
 from config import settings
+from core import events
 from core.chunker import chunk_text
 from core.db import connect
 from providers.embeddings import get_embedder
@@ -88,6 +89,7 @@ async def _process_pending(limit: int) -> dict:
         "trozos": 0,
     }
     for row in rows:
+        events.publish("processing", {"id": row["id"]})
         try:
             text = await asyncio.to_thread(
                 extract_text, Path(row["raw_path"]), row["mime"] or ""
@@ -120,11 +122,14 @@ async def _process_pending(limit: int) -> dict:
                     "UPDATE events SET status = 'processed', error = NULL WHERE id = ?",
                     (row["id"],),
                 )
+            events.publish("processed", {"id": row["id"], "trozos": len(chunks)})
             result["procesados"] += 1
             result["trozos"] += len(chunks)
         except Exception as exc:
             log.exception("Fallo procesando %s", row["id"])
-            if _register_failure(row["id"], f"{type(exc).__name__}: {exc}") == "failed":
+            status = _register_failure(row["id"], f"{type(exc).__name__}: {exc}")
+            events.publish("processing_error", {"id": row["id"], "estado": status})
+            if status == "failed":
                 result["fallidos"] += 1
             else:
                 result["a_reintentar"] += 1

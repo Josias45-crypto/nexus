@@ -1,11 +1,12 @@
+import asyncio
 import json
 
 from fastapi import FastAPI, File, UploadFile
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel
 
 from config import settings
-from core import ask, backup, dashboard, growth, inbox, processor, search, ui, worker
+from core import ask, backup, brain, dashboard, events, growth, inbox, processor, search, ui, worker
 from core.db import connect, init_db
 from providers import factory, fallback
 from providers.factory import get_provider
@@ -168,7 +169,10 @@ def dashboard_page():
 
 @app.post("/backup")
 async def run_backup_endpoint():
-    return await backup.backup_now()
+    result = await backup.backup_now()
+    if isinstance(result, dict):
+        events.publish("backup", {"eventos": result.get("eventos_en_la_copia")})
+    return result
 
 
 @app.get("/backup")
@@ -179,3 +183,39 @@ def backup_status():
 @app.get("/", response_class=HTMLResponse, include_in_schema=False)
 def home():
     return ui.PAGE
+
+
+@app.get("/brain", response_class=HTMLResponse, include_in_schema=False)
+def brain_page():
+    return brain.PAGE
+
+
+@app.get("/brain/graph")
+def brain_graph():
+    return brain.graph()
+
+
+KEEPALIVE_SECONDS = 15
+
+
+@app.get("/brain/stream")
+async def brain_stream():
+    async def stream():
+        q = events.subscribe()
+        try:
+            yield "retry: 3000\n\n"
+            while True:
+                try:
+                    msg = await asyncio.wait_for(q.get(), KEEPALIVE_SECONDS)
+                except asyncio.TimeoutError:
+                    yield ": keepalive\n\n"
+                    continue
+                yield f"data: {json.dumps(msg, ensure_ascii=False)}\n\n"
+        finally:
+            events.unsubscribe(q)
+
+    return StreamingResponse(
+        stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )

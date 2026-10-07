@@ -2,6 +2,7 @@ import re
 
 import sqlite_vec
 
+from core import events
 from core.db import connect
 from providers.embeddings import get_embedder
 
@@ -13,7 +14,7 @@ def _fts_query(query: str) -> str:
     return " OR ".join(f'"{w}"' for w in words)
 
 
-async def search(query: str, k: int = 5) -> list[dict]:
+async def search(query: str, k: int = 5, publish: bool = True) -> list[dict]:
     qvec = await get_embedder().embed_query(query)
     pool = k * 4
     fts = _fts_query(query)
@@ -56,4 +57,13 @@ async def search(query: str, k: int = 5) -> list[dict]:
                         "distance": round(d, 4) if d is not None else None,
                     }
                 )
+    if publish:
+        publish_recall("search", results)
     return results
+
+
+def publish_recall(origen: str, hits: list[dict]) -> None:
+    """Avisa a la vista en vivo qué recuerdos se usaron (solo ids, en orden de relevancia)."""
+    ids = list(dict.fromkeys(h["event_id"] for h in hits))
+    if ids:
+        events.publish("recall", {"origen": origen, "ids": ids})

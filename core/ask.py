@@ -1,33 +1,43 @@
+import re
+
 from config import settings
-from core.search import search
+from core.search import publish_recall, search
 from providers.factory import get_provider
 
 NO_INFO = "No tengo información sobre eso en mi memoria."
 
 SYSTEM = (
-    "Eres NEXUS, la memoria personal de tu usuario. Responde usando ÚNICAMENTE "
-    "las fuentes numeradas que se te entregan. Cita la fuente con [n] después de "
-    "cada dato. Si las fuentes no contienen la respuesta, responde exactamente: "
-    f'"{NO_INFO}" No inventes nada.'
+    "Eres NEXUS, la memoria personal del usuario. Responde la pregunta usando solo "
+    "la información de las fuentes. Responde con una o dos frases completas en español. "
+    f'Si las fuentes no contienen la respuesta, responde exactamente: "{NO_INFO}"'
 )
 
 
+def _is_empty_answer(answer: str) -> bool:
+    """Los modelos pequeños a veces responden solo '[1]'. Eso no es una respuesta."""
+    return len(re.sub(r"\[\d+\]", "", answer).strip(" .:-\n")) < 10
+
+
 async def ask(question: str, k: int = 4) -> dict:
-    hits = await search(question, k)
+    hits = await search(question, k, publish=False)
     hits = [
         h for h in hits if h["distance"] is None or h["distance"] <= settings.MAX_DISTANCE
     ]
     if not hits:
         return {"answer": NO_INFO, "sources": []}
+    publish_recall("ask", hits)
 
     context = "\n\n".join(
-        f"[{i}] ({h['filename']})\n{h['content']}" for i, h in enumerate(hits, 1)
+        f"Fuente {i} ({h['filename']}):\n{h['content']}" for i, h in enumerate(hits, 1)
     )
     messages = [
         {"role": "system", "content": SYSTEM},
-        {"role": "user", "content": f"Fuentes:\n{context}\n\nPregunta: {question}"},
+        {"role": "user", "content": f"{context}\n\nPregunta: {question}\nRespuesta:"},
     ]
     answer = await get_provider().chat(messages)
+    if _is_empty_answer(answer):
+        answer = "Esto es lo que encontré en mi memoria:\n" + hits[0]["content"][:500]
+
     sources = [
         {
             "n": i,

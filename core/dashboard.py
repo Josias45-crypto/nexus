@@ -19,6 +19,7 @@ PAGE = Template("""<!doctype html>
   .days span{flex:1;text-align:center}
 </style></head><body>
 <h1>NEXUS</h1>
+<p><a href="/">Inicio</a> · <a href="/brain">Cerebro en vivo</a></p>
 <div class="sub">$dias días de vida · nació el $nacio</div>
 <div class="grid">
   <div class="card"><div class="num">$elementos</div><div class="lbl">elementos absorbidos</div></div>
