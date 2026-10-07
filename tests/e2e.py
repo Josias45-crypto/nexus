@@ -445,12 +445,12 @@ class Suite:
             ["docker", "run", "--rm", "-e", "NEXUS_DATA_DIR=/tmp",
              "-v", f"{REPO / 'tests'}:/app/tests:ro", image,
              "python", "-m", "unittest", "-q", "tests.test_telegram", "tests.test_whatsapp",
-             "tests.test_cloud"],
+             "tests.test_cloud", "tests.test_questions", "tests.test_chunker"],
             capture_output=True, text=True, timeout=120,
         )
         if r.returncode != 0:
             raise Fail("canales: " + r.stderr[-300:])
-        return "fechas, Telegram, WhatsApp y pool de nube (red simulada)"
+        return "fechas, troceado, citas, preguntas, Telegram, WhatsApp y nube"
 
     def t13_profile(self):
         if not self.isolated:
@@ -498,6 +498,33 @@ class Suite:
         estados = ", ".join(f"{k['key']} {k['estado']}" for k in keys)
         return f"cae al local sin romperse ({estados}); privado -> solo local; sin keys en logs"
 
+    def t15_knowledge(self):
+        md = (
+            f"# Inventario ficticio {self.tag}\n\nEl almacén Quirmo{self.rid} guarda 48 cajas de clavos.\n\n"
+            f"## Proveedores\n\nEl proveedor Daltrex{self.rid} entrega tornillos cada jueves por la mañana."
+        )
+        resp = self.api.upload(f"{self.tag}-inventario.md", md.encode(), "text/markdown")
+        eid = event_id(resp)
+        wait_status(self.api, eid, PROCESS_TIMEOUT)
+        r = self.api.ok("POST", "/ask", {"question": f"¿Qué día entrega tornillos el proveedor Daltrex{self.rid}?"})
+        citas = [s.get("cita") or "" for s in r.get("sources", [])]
+        if not any("§ Proveedores" in c for c in citas):
+            raise Fail(f"la cita no indica la sección: {citas} · {r.get('answer', '')[:80]}")
+        t = self.api.ok("POST", "/ask", {"question": "¿Qué aprendí hoy?"})
+        if t.get("tipo") != "temporal" or f"{self.tag}-inventario.md" not in t.get("answer", ""):
+            raise Fail(f"'qué aprendí hoy' no listó el documento: {t.get('tipo')} {t.get('answer', '')[:120]}")
+        last = self.api.ok("POST", "/ask", {"question": "Resume lo último que subí"})
+        if last.get("tipo") != "ultimo":
+            raise Fail(f"'lo último que subí' no se reconoció: {last.get('tipo')}")
+        rx = self.api.ok("POST", f"/reindex?event_id={eid}")
+        if rx.get("reencolados") != 1 or not rx.get("trozos_borrados"):
+            raise Fail(f"/reindex no borró lo derivado: {rx}")
+        wait_status(self.api, eid, PROCESS_TIMEOUT)
+        q = urllib.parse.quote(f"Daltrex{self.rid}")
+        if not any(h.get("event_id") == eid for h in self.api.ok("GET", f"/search?q={q}&k=5")):
+            raise Fail("tras /reindex el documento no vuelve a encontrarse")
+        return "cita con sección, 'qué aprendí hoy', 'lo último', /reindex y vuelta a encontrar"
+
 
 TESTS = [
     ("1 health", "t1_health"),
@@ -514,6 +541,7 @@ TESTS = [
     ("12 pruebas unitarias", "t12_unit"),
     ("13 perfiles", "t13_profile"),
     ("14 cascada de nube", "t14_cloud"),
+    ("15 conocimiento", "t15_knowledge"),
 ]
 
 # Programador acelerado en la instancia aislada: avisos e insistencias en segundos

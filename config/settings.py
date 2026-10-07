@@ -47,7 +47,10 @@ DATA_DIR = os.getenv("NEXUS_DATA_DIR", "/data")
 MAX_UPLOAD_MB = int(os.getenv("NEXUS_MAX_UPLOAD_MB", "50"))
 EMBED_MODEL = os.getenv("NEXUS_EMBED_MODEL", "nomic-embed-text")
 EMBED_DIM = 768
-MAX_DISTANCE = float(os.getenv("NEXUS_MAX_DISTANCE", "0.8"))
+# Recalibrado con datos reales (tests/calibrate.py). Un recuerdo se usa si su distancia es
+# <= MAX_DISTANCE, o <= MAX_DISTANCE + FTS_MARGIN cuando además coincide por palabras.
+MAX_DISTANCE = float(os.getenv("NEXUS_MAX_DISTANCE", "0.78"))
+FTS_MARGIN = float(os.getenv("NEXUS_FTS_MARGIN", "0.04"))
 WORKER_ENABLED = os.getenv("NEXUS_WORKER", "on").lower() == "on"
 WORKER_INTERVAL = int(os.getenv("NEXUS_WORKER_INTERVAL", "20"))
 MAX_ATTEMPTS = int(os.getenv("NEXUS_MAX_ATTEMPTS", "3"))

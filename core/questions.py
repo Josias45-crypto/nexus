@@ -10,10 +10,9 @@ route() devuelve None si la pregunta no es de estos tipos (sigue la búsqueda no
 import re
 from datetime import date, timedelta
 
-from config import settings
 from core import briefing, citations, clock, when
 from core.db import connect
-from core.search import publish_recall, search
+from core.search import publish_recall, relevant, search
 from providers.factory import get_provider
 
 MAX_LIST = 15
@@ -129,8 +128,7 @@ async def _last() -> dict:
 async def _about(topic: str) -> dict:
     from core.ask import NO_INFO, sources_for
 
-    hits = [h for h in await search(topic, 8, publish=False)
-            if h["distance"] is None or h["distance"] <= settings.MAX_DISTANCE]
+    hits = relevant(await search(topic, 8, publish=False))
     if not hits:
         return {"answer": NO_INFO, "sources": [], "llm": None, "tipo": "sobre"}
     publish_recall("ask", hits)

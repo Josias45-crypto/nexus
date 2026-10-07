@@ -1,8 +1,7 @@
 import re
 
-from config import settings
 from core import citations, profile
-from core.search import publish_recall, search
+from core.search import publish_recall, relevant, search
 from providers.factory import get_provider
 
 NO_INFO = "No tengo información sobre eso en mi memoria."
@@ -26,9 +25,7 @@ async def ask(question: str, k: int = 4) -> dict:
     if special is not None:
         return special
     hits = await search(question, k, publish=False)
-    hits = [
-        h for h in hits if h["distance"] is None or h["distance"] <= settings.MAX_DISTANCE
-    ]
+    hits = relevant(hits)
     if not hits:
         return {"answer": NO_INFO, "sources": [], "llm": None, "tipo": "memoria"}
     publish_recall("ask", hits)

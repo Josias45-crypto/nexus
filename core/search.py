@@ -1,5 +1,7 @@
 import re
 
+from config import settings
+
 import sqlite_vec
 
 from core import events
@@ -36,6 +38,18 @@ async def search(query: str, k: int = 5, publish: bool = True) -> list[dict]:
         )
 
         distances = {r["rowid"]: r["distance"] for r in vec_rows}
+        fts_ids = {r["rowid"] for r in fts_rows}
+        # Los que solo encontró la búsqueda por palabras también reciben su distancia real,
+        # para que el umbral NEXUS_MAX_DISTANCE se aplique a todos por igual
+        qblob = sqlite_vec.serialize_float32(qvec)
+        for r in fts_rows:
+            if r["rowid"] not in distances:
+                row = conn.execute(
+                    "SELECT vec_distance_l2(embedding, ?) AS d FROM vec_chunks WHERE rowid = ?",
+                    (qblob, r["rowid"]),
+                ).fetchone()
+                if row:
+                    distances[r["rowid"]] = row["d"]
         scores: dict[int, float] = {}
         for ranking in (vec_rows, fts_rows):
             for rank, r in enumerate(ranking):
@@ -55,6 +69,7 @@ async def search(query: str, k: int = 5, publish: bool = True) -> list[dict]:
                     {
                         **dict(row),
                         "meta": parse_meta(row["meta"]),
+                        "coincide_texto": cid in fts_ids,
                         "score": round(scores[cid], 5),
                         "distance": round(d, 4) if d is not None else None,
                     }
@@ -62,6 +77,17 @@ async def search(query: str, k: int = 5, publish: bool = True) -> list[dict]:
     if publish:
         publish_recall("search", results)
     return results
+
+
+def relevant(hits: list[dict], max_distance: float | None = None, margin: float | None = None) -> list[dict]:
+    """Filtra por umbral: distancia <= T, o <= T + margen si también coincide por palabras."""
+    t = settings.MAX_DISTANCE if max_distance is None else max_distance
+    m = settings.FTS_MARGIN if margin is None else margin
+    return [
+        h for h in hits
+        if h["distance"] is not None
+        and (h["distance"] <= t or (h.get("coincide_texto") and h["distance"] <= t + m))
+    ]
 
 
 def publish_recall(origen: str, hits: list[dict]) -> None:
