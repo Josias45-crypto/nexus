@@ -419,6 +419,60 @@ class Suite:
         return f"processed tras reiniciar Ollama (intentos {ev.get('attempts')})"
 
 
+    def t11_channel(self):
+        if not self.isolated:
+            raise Skip("solo en instancia aislada (necesita el programador acelerado)")
+        r = subprocess.run(
+            ["docker", "exec", E2E_NAME, "python", "-m", "channels.simulado",
+             "--url", "http://localhost:8000", "--tag", self.rid],
+            capture_output=True, text=True, timeout=600,
+        )
+        fails = [l for l in r.stdout.splitlines() if l.startswith("FALLA")]
+        if r.returncode != 0:
+            raise Fail("; ".join(fails)[:300] or (r.stderr or r.stdout)[-300:])
+        oks = sum(1 for l in r.stdout.splitlines() if l.startswith("ok "))
+        return f"{oks} comprobaciones: comandos, /privado, recordatorio con confirmación e insistencia"
+
+    def t12_unit(self):
+        local = subprocess.run(
+            [sys.executable, "-m", "unittest", "-q", "tests.test_when"],
+            cwd=REPO, capture_output=True, text=True,
+        )
+        if local.returncode != 0:
+            raise Fail("test_when: " + local.stderr[-300:])
+        image = _docker("inspect", "nexus-core", "-f", "{{.Config.Image}}")
+        r = subprocess.run(
+            ["docker", "run", "--rm", "-e", "NEXUS_DATA_DIR=/tmp",
+             "-v", f"{REPO / 'tests'}:/app/tests:ro", image,
+             "python", "-m", "unittest", "-q", "tests.test_telegram", "tests.test_whatsapp"],
+            capture_output=True, text=True, timeout=120,
+        )
+        if r.returncode != 0:
+            raise Fail("canales: " + r.stderr[-300:])
+        return "fechas, Telegram y WhatsApp (red simulada)"
+
+    def t13_profile(self):
+        if not self.isolated:
+            raise Skip("solo en instancia aislada")
+        code = (
+            "import asyncio; from core import profile, briefing;"
+            "p = profile.get(); print(p['id']); print(profile.system_prompt());"
+            "print(asyncio.run(briefing.build())['texto'])"
+        )
+        outs = {}
+        for name in ("general", "ventas"):
+            r = subprocess.run(
+                ["docker", "exec", "-e", f"NEXUS_PROFILE={name}", E2E_NAME, "python", "-c", code],
+                capture_output=True, text=True, timeout=300,
+            )
+            if r.returncode != 0:
+                raise Fail(f"perfil {name}: {r.stderr[-200:]}")
+            outs[name] = r.stdout
+        if "NEXUS Ventas" not in outs["ventas"] or "ventas" in outs["general"].split("\n")[1].lower():
+            raise Fail("el perfil no cambió la persona")
+        return "general y ventas cambian persona y resumen sin tocar el código"
+
+
 TESTS = [
     ("1 health", "t1_health"),
     ("2 texto + search + ask", "t2_text"),
@@ -430,7 +484,13 @@ TESTS = [
     ("8 growth y páginas", "t8_pages"),
     ("9 backup + requeue", "t9_backup"),
     ("10 caos (Ollama caído)", "t10_chaos"),
+    ("11 canal simulado", "t11_channel"),
+    ("12 pruebas unitarias", "t12_unit"),
+    ("13 perfiles", "t13_profile"),
 ]
+
+# Programador acelerado en la instancia aislada: avisos e insistencias en segundos
+ISOLATED_ENV = {"NEXUS_SCHEDULER_INTERVAL": "2", "NEXUS_REMINDER_RETRY_MIN": "0.1"}
 
 
 def main() -> int:
@@ -443,12 +503,13 @@ def main() -> int:
 
     if args.url:
         return run(args.url, args)
-    with isolated_instance() as url:
+    with isolated_instance(ISOLATED_ENV) as url:
         return run(url, args, isolated=True)
 
 
 def run(url: str, args, isolated: bool = False) -> int:
     suite = Suite(Api(url), args)
+    suite.isolated = isolated
     modo = "instancia aislada temporal" if isolated else "instancia existente"
     print(f"NEXUS e2e · corrida {suite.tag} · {url} ({modo})\n")
     results = []
