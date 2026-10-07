@@ -8,9 +8,11 @@ class NexusError(Exception):
 
 
 class NexusClient:
-    def __init__(self, base_url: str, timeout: float = 600):
+    def __init__(
+        self, base_url: str, timeout: float = 600, transport: httpx.AsyncBaseTransport | None = None
+    ):
         self.base_url = base_url.rstrip("/")
-        self._http = httpx.AsyncClient(base_url=self.base_url, timeout=timeout)
+        self._http = httpx.AsyncClient(base_url=self.base_url, timeout=timeout, transport=transport)
 
     async def close(self) -> None:
         await self._http.aclose()

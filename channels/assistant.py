@@ -54,7 +54,10 @@ class Assistant:
             log.exception("Error atendiendo un mensaje (%s)", intent.value)
             replies = ["⚠️ Algo falló de mi lado. Inténtalo de nuevo en un momento."]
         for text in replies:
-            await self.channel.send(msg.chat_id, text)
+            try:
+                await self.channel.send(msg.chat_id, text)
+            except Exception as exc:
+                log.warning("No se pudo responder en %s (%s)", self.channel.name, exc)
         return replies
 
     async def _dispatch(self, intent: Intent, arg: str, msg: Incoming, state: ChatState) -> list[str]:
@@ -222,6 +225,9 @@ class Assistant:
         task = asyncio.create_task(outbox_loop())
         try:
             async for msg in self.channel.receive():
-                await self.handle(msg)
+                try:
+                    await self.handle(msg)
+                except Exception:
+                    log.exception("Error inesperado atendiendo un mensaje")
         finally:
             task.cancel()

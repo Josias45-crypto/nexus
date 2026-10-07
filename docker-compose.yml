@@ -54,6 +54,21 @@ services:
         condition: service_completed_successfully
     restart: unless-stopped
 
+  # Canal de Telegram (opcional): docker compose --profile channels up -d
+  # Long polling: no abre puertos. Solo responde a TELEGRAM_ALLOWED_IDS.
+  telegram:
+    build: .
+    container_name: nexus-telegram
+    command: ["python", "-m", "channels.telegram"]
+    env_file: .env
+    environment:
+      NEXUS_API_URL: http://core:8000
+    depends_on:
+      core:
+        condition: service_healthy
+    profiles: ["channels"]
+    restart: unless-stopped
+
 volumes:
   ollama_models:
   whisper_models:
