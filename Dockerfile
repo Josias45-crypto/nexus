@@ -8,6 +8,7 @@ COPY core ./core
 COPY config ./config
 COPY providers ./providers
 COPY profiles ./profiles
+COPY channels ./channels
 RUN useradd -m nexus && mkdir -p /data /models && chown nexus /data /models
 USER nexus
 EXPOSE 8000
