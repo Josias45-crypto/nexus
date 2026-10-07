@@ -1,9 +1,10 @@
 import asyncio
 import json
 
-from fastapi import FastAPI, File, UploadFile
-from fastapi.responses import HTMLResponse, StreamingResponse
-from pydantic import BaseModel
+from fastapi import FastAPI, File, HTTPException, Query, Request, UploadFile
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
+from pydantic import BaseModel, Field
 
 from config import settings
 from core import ask, backup, brain, dashboard, events, growth, inbox, processor, search, ui, worker
@@ -15,14 +16,26 @@ app = FastAPI(title="NEXUS", lifespan=worker.lifespan)
 provider = get_provider()
 init_db()
 
+MAX_BYTES = settings.MAX_UPLOAD_MB * 1024 * 1024
+TOO_LARGE = f"El archivo supera el límite de {settings.MAX_UPLOAD_MB} MB (NEXUS_MAX_UPLOAD_MB)."
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_error(request: Request, exc: RequestValidationError):
+    errores = [
+        {"campo": ".".join(str(p) for p in e["loc"] if p != "body"), "problema": e["msg"]}
+        for e in exc.errors()
+    ]
+    return JSONResponse(status_code=422, content={"detail": "Datos inválidos.", "errores": errores})
+
 
 class ChatRequest(BaseModel):
-    message: str
+    message: str = Field(min_length=1, max_length=20000)
 
 
 class TextIn(BaseModel):
-    text: str
-    source: str = "api"
+    text: str = Field(min_length=1)
+    source: str = Field("api", max_length=40)
 
 
 @app.get("/health")
@@ -45,25 +58,40 @@ async def chat(req: ChatRequest):
 
 
 @app.post("/inbox/text")
-def inbox_text(item: TextIn):
-    return inbox.save(
-        item.text.encode("utf-8"), "nota.txt", "text/plain", item.source, kind="text"
+async def inbox_text(item: TextIn):
+    data = item.text.encode("utf-8")
+    if not item.text.strip():
+        raise HTTPException(422, "El texto está vacío.")
+    if len(data) > MAX_BYTES:
+        raise HTTPException(413, TOO_LARGE)
+    return await asyncio.to_thread(
+        inbox.save, data, "nota.txt", "text/plain", item.source, kind="text"
     )
 
 
 @app.post("/inbox/file")
-async def inbox_file(file: UploadFile = File(...), source: str = "api"):
-    data = await file.read()
-    return inbox.save(
-        data,
-        file.filename or "sin_nombre",
-        file.content_type or "application/octet-stream",
-        source,
-    )
+async def inbox_file(
+    request: Request, file: UploadFile = File(...), source: str = Query("api", max_length=40)
+):
+    declared = request.headers.get("content-length")
+    if declared and declared.isdigit() and int(declared) > MAX_BYTES + 64 * 1024:
+        raise HTTPException(413, TOO_LARGE)
+    try:
+        return await asyncio.to_thread(
+            inbox.save_stream,
+            file.file,
+            file.filename or "sin_nombre",
+            file.content_type or "application/octet-stream",
+            source,
+        )
+    except inbox.TooLarge:
+        raise HTTPException(413, TOO_LARGE)
+    finally:
+        await file.close()
 
 
 @app.get("/inbox")
-def inbox_list(limit: int = 20):
+def inbox_list(limit: int = Query(20, ge=1, le=500)):
     with connect() as conn:
         rows = conn.execute(
             "SELECT id, created_at, kind, source, filename, size, status, attempts, error"
@@ -86,18 +114,18 @@ def stats():
 
 
 @app.post("/process")
-async def process(limit: int = 10):
+async def process(limit: int = Query(10, ge=1, le=100)):
     return await processor.process_pending(limit)
 
 
 @app.get("/search")
-async def search_memory(q: str, k: int = 5):
+async def search_memory(q: str = Query(min_length=1, max_length=2000), k: int = Query(5, ge=1, le=50)):
     return await search.search(q, k)
 
 
 class AskRequest(BaseModel):
-    question: str
-    k: int = 4
+    question: str = Field(min_length=1, max_length=2000)
+    k: int = Field(4, ge=1, le=20)
 
 
 @app.post("/ask")
@@ -130,7 +158,7 @@ def requeue():
 
 
 @app.get("/knowledge")
-def knowledge(limit: int = 20):
+def knowledge(limit: int = Query(20, ge=0, le=500)):
     with connect() as conn:
         counts = conn.execute(
             "SELECT status, COUNT(*) AS total FROM digests GROUP BY status"
@@ -158,7 +186,7 @@ def requeue_digests():
 
 
 @app.get("/growth")
-def growth_stats(days: int = 14):
+def growth_stats(days: int = Query(14, ge=1, le=366)):
     return growth.growth(days)
 
 

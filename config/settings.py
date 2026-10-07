@@ -11,6 +11,8 @@ ALLOW_CLOUD = os.getenv("NEXUS_ALLOW_CLOUD", "off").lower() == "on"
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "").strip()
 GROQ_MODEL = os.getenv("NEXUS_GROQ_MODEL", "").strip()
 DATA_DIR = os.getenv("NEXUS_DATA_DIR", "/data")
+# Tamaño máximo por archivo o texto recibido (Telegram entrega a los bots hasta 20 MB)
+MAX_UPLOAD_MB = int(os.getenv("NEXUS_MAX_UPLOAD_MB", "50"))
 EMBED_MODEL = os.getenv("NEXUS_EMBED_MODEL", "nomic-embed-text")
 EMBED_DIM = 768
 MAX_DISTANCE = float(os.getenv("NEXUS_MAX_DISTANCE", "0.8"))
