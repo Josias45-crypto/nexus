@@ -6,6 +6,10 @@ LLM_PROVIDER = os.getenv("NEXUS_LLM_PROVIDER", "ollama")
 # Ollama remoto preferido para el chat (vacío = solo local); los embeddings siempre van al local
 LLM_URL = os.getenv("NEXUS_LLM_URL", "").strip()
 LLM_REMOTE_MODEL = os.getenv("NEXUS_LLM_REMOTE_MODEL") or LLM_MODEL
+# Nube SOLO para pruebas (NEXUS_LLM_PROVIDER=groq). Apagada por defecto; nunca embeddings ni audio
+ALLOW_CLOUD = os.getenv("NEXUS_ALLOW_CLOUD", "off").lower() == "on"
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "").strip()
+GROQ_MODEL = os.getenv("NEXUS_GROQ_MODEL", "").strip()
 DATA_DIR = os.getenv("NEXUS_DATA_DIR", "/data")
 EMBED_MODEL = os.getenv("NEXUS_EMBED_MODEL", "nomic-embed-text")
 EMBED_DIM = 768

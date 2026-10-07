@@ -9,6 +9,7 @@ PAGE = r"""<!doctype html>
   header{display:flex;justify-content:space-between;align-items:center;padding:12px 20px;border-bottom:1px solid #232850}
   header a{color:var(--acc);text-decoration:none;font-size:14px}
   #stats{color:var(--mut);font-size:13px}
+  #cloud{margin-left:6px;padding:2px 8px;border-radius:6px;background:#d32f2f;color:#fff;font-size:11px;font-weight:700;letter-spacing:.05em}
   #log{flex:1;overflow-y:auto;padding:20px;display:flex;flex-direction:column;gap:12px}
   .msg{max-width:780px;padding:12px 14px;border-radius:12px;white-space:pre-wrap;line-height:1.45}
   .me{align-self:flex-end;background:var(--acc)}
@@ -22,7 +23,7 @@ PAGE = r"""<!doctype html>
   button.primary{background:var(--acc)}
   button:disabled{opacity:.5;cursor:wait}
 </style></head><body>
-<header><div><b>NEXUS</b> <span id="stats"></span></div><a href="/dashboard">Panel</a></header>
+<header><div><b>NEXUS</b> <span id="stats"></span><span id="cloud" title="La última respuesta salió de la nube (solo pruebas)" hidden>NUBE</span></div><a href="/dashboard">Panel</a></header>
 <div id="log"><div class="msg sys">Pregúntame algo, o usa «Recordar» para enseñarme. También puedes arrastrar archivos aquí.</div></div>
 <form id="f">
   <label class="btn" title="Adjuntar archivo">📎<input id="file" type="file" hidden></label>
@@ -73,6 +74,7 @@ async function ask() {
     }
   } catch (e) { wait.textContent = 'No pude responder: ' + e.message; }
   busy(false);
+  cloud();
   q.focus();
 }
 
@@ -126,6 +128,13 @@ async function toggleMic() {
   } catch (e) { add('sys', 'No pude usar el micrófono: ' + e.message); }
 }
 
+async function cloud() {
+  try {
+    const h = await (await fetch('/health')).json();
+    document.getElementById('cloud').hidden = !h.nube;
+  } catch (e) {}
+}
+
 async function stats() {
   try {
     const g = await (await fetch('/growth')).json();
@@ -143,5 +152,7 @@ document.getElementById('file').addEventListener('change', e => { if (e.target.f
 document.body.addEventListener('dragover', e => e.preventDefault());
 document.body.addEventListener('drop', e => { e.preventDefault(); [...e.dataTransfer.files].forEach(upload); });
 stats();
+cloud();
 setInterval(stats, 15000);
+setInterval(cloud, 15000);
 </script></body></html>"""

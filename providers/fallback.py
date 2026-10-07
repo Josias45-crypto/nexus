@@ -3,37 +3,40 @@ import time
 
 import httpx
 
-from providers.base import LLMProvider
+from providers.base import LLMProvider, ProviderUnavailable
 
 log = logging.getLogger("nexus.llm")
 
-# Si el remoto falla, no se vuelve a intentar durante este tiempo
+# Si el preferido falla, no se vuelve a intentar durante este tiempo
 RETRY_AFTER = 30
 
 # Estado compartido entre instancias (get_provider() crea una por llamada)
-_remote_down_until = 0.0
+_down_until: dict[str, float] = {}
 last_used = "local"
 
 
 class FallbackProvider(LLMProvider):
-    """Usa el modelo remoto (PC con GPU) y cae al local si no responde."""
+    """Usa el proveedor preferido (PC con GPU, nube de prueba) y cae al local si no responde."""
 
-    def __init__(self, primary: LLMProvider, fallback: LLMProvider):
+    def __init__(self, primary: LLMProvider, fallback: LLMProvider, name: str = "remoto"):
         self.primary = primary
         self.fallback = fallback
+        self.name = name
 
     async def chat(self, messages: list[dict]) -> str:
-        global _remote_down_until, last_used
-        if time.monotonic() >= _remote_down_until:
+        global last_used
+        if time.monotonic() >= _down_until.get(self.name, 0.0):
             try:
                 reply = await self.primary.chat(messages)
-                last_used = "remoto"
-                log.info("LLM respondió: remoto")
+                last_used = self.name
+                log.info("LLM respondió: %s", self.name)
                 return reply
-            except httpx.TransportError as exc:
-                _remote_down_until = time.monotonic() + RETRY_AFTER
+            except (httpx.TransportError, ProviderUnavailable) as exc:
+                _down_until[self.name] = time.monotonic() + RETRY_AFTER
+                # Solo el tipo de error: nunca el prompt ni credenciales
                 log.warning(
-                    "LLM remoto no disponible (%s); uso el local %d s",
+                    "LLM %s no disponible (%s); uso el local %d s",
+                    self.name,
                     type(exc).__name__,
                     RETRY_AFTER,
                 )

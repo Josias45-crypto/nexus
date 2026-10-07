@@ -97,6 +97,24 @@ NEXUS_LLM_REMOTE_MODEL=qwen2.5:3b         # opcional; por defecto, NEXUS_LLM_MOD
 - `/health` y `/worker` muestran `llm_activo`: `remoto` o `local` (el último que respondió).
 - Aplica los cambios con `docker compose up -d core`.
 
+### Modo de prueba en la nube (Groq)
+
+> ⚠️ **Solo datos de prueba.** En este modo, tus preguntas y los fragmentos de memoria que se usan como contexto se envían a Groq. No lo uses con información personal real.
+
+Está apagado por defecto. Para activarlo, en `.env`:
+
+```env
+NEXUS_LLM_PROVIDER=groq
+NEXUS_ALLOW_CLOUD=on
+GROQ_API_KEY=tu_llave              # solo en .env, nunca en el repo
+NEXUS_GROQ_MODEL=llama-3.1-8b-instant
+```
+
+- Si falta algo, NEXUS registra un error claro (visible en `nube_error` de `/health`) y usa el Ollama local.
+- Si Groq falla por límite de uso (429), por caída del servicio (5xx) o por la red, responde el Ollama local.
+- Los embeddings y la transcripción de audio **nunca** usan la nube.
+- Cuando la última respuesta salió de la nube, la interfaz muestra una insignia roja **NUBE**, y `/health` indica `"nube": true`.
+
 ## Estructura del proyecto
 
 ```

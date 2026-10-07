@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from config import settings
 from core import ask, backup, dashboard, growth, inbox, processor, search, ui, worker
 from core.db import connect, init_db
-from providers import fallback
+from providers import factory, fallback
 from providers.factory import get_provider
 
 app = FastAPI(title="NEXUS", lifespan=worker.lifespan)
@@ -32,6 +32,8 @@ def health():
         "llm_model": settings.LLM_MODEL,
         "ollama_url": settings.OLLAMA_BASE_URL,
         "llm_activo": fallback.last_used,
+        "nube": fallback.last_used == "groq",
+        "nube_error": factory.cloud_error,
     }
 
 
@@ -111,6 +113,7 @@ def worker_status():
     return {
         **worker.state,
         "llm_activo": fallback.last_used,
+        "nube": fallback.last_used == "groq",
         "eventos_por_estado": {r["status"]: r["total"] for r in rows},
     }
 
