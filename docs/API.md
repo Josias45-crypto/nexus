@@ -40,7 +40,7 @@ curl -F file=@ventas.xlsx 'localhost:8000/inbox/file?source=api'
 
 | Método | Ruta | Qué hace |
 |---|---|---|
-| POST | `/ask` | `{"question": "...", "k": 4}` responde con la memoria. Devuelve `answer`, `sources` (`n`, `cita`, `filename`, `snippet`, `distance`) y `llm` (proveedor, modelo, `nube`) |
+| POST | `/ask` | `{"question": "..."}` responde con la memoria. Devuelve `answer`, `sources` (`n`, `cita`, `filename`, `snippet`, `distance`), `llm` (proveedor, modelo, `nube`, `regenerada`) y `sin_verificar`: nombres o cifras de la respuesta que no están en las fuentes (también aparecen al final como «⚠ No pude verificar: …») |
 | GET | `/search?q=...&k=5` | Búsqueda híbrida sin redactar respuesta: trozos con `event_id`, `meta`, `distance` |
 | POST | `/chat` | `{"message": "..."}` habla con el modelo **sin** memoria |
 | GET | `/knowledge?limit=20` | Resúmenes y conceptos generados |

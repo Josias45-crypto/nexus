@@ -453,7 +453,8 @@ class Suite:
             ["docker", "run", "--rm", "-e", "NEXUS_DATA_DIR=/tmp",
              "-v", f"{REPO / 'tests'}:/app/tests:ro", image,
              "python", "-m", "unittest", "-q", "tests.test_telegram", "tests.test_whatsapp",
-             "tests.test_cloud", "tests.test_questions", "tests.test_chunker", "tests.test_senses"],
+             "tests.test_cloud", "tests.test_questions", "tests.test_chunker", "tests.test_senses",
+             "tests.test_verify"],
             capture_output=True, text=True, timeout=120,
         )
         if r.returncode != 0:
