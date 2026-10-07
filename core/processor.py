@@ -3,10 +3,8 @@ import logging
 import time
 from pathlib import Path
 
-import sqlite_vec
-
 from config import settings
-from core import events
+from core import events, memory
 from core.chunker import chunk_text
 from core.db import connect
 from providers.embeddings import get_embedder
@@ -123,18 +121,11 @@ async def _process_pending(limit: int, kinds: tuple[str, ...]) -> dict:
 
             vectors = await embedder.embed_documents(chunks)
             with connect() as conn:
+                # Restos de un intento anterior o de una reindexación: el resumen se rehace
+                memory.delete_chunks(conn, row["id"])
+                conn.execute("DELETE FROM digests WHERE event_id = ?", (row["id"],))
                 for pos, (content, vec) in enumerate(zip(chunks, vectors)):
-                    cid = conn.execute(
-                        "INSERT INTO chunks (event_id, position, content) VALUES (?, ?, ?)",
-                        (row["id"], pos, content),
-                    ).lastrowid
-                    conn.execute(
-                        "INSERT INTO chunks_fts (rowid, content) VALUES (?, ?)", (cid, content)
-                    )
-                    conn.execute(
-                        "INSERT INTO vec_chunks (rowid, embedding) VALUES (?, ?)",
-                        (cid, sqlite_vec.serialize_float32(vec)),
-                    )
+                    memory.insert_chunk(conn, row["id"], pos, content, vec)
                 conn.execute(
                     "UPDATE events SET status = 'processed', error = NULL WHERE id = ?",
                     (row["id"],),

@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 
 from config import settings
 from core import profile as nexus_profile
-from core import ask, backup, brain, briefing, dashboard, events, growth, inbox, outbox, processor, reminders, search, ui, worker
+from core import ask, backup, brain, briefing, dashboard, events, growth, inbox, outbox, processor, reindex, reminders, search, ui, worker
 from core.db import connect, init_db
 from core.logs import setup_logging
 from providers.factory import get_provider
@@ -262,6 +262,17 @@ def requeue_one(event_id: str):
             (event_id,),
         )
     return {"reencolados": 1, "id": event_id}
+
+
+@app.post("/reindex")
+async def reindex_endpoint(event_id: str | None = None, todos: bool = False):
+    """Regenera trozos, vectores y resúmenes desde los originales (uno o todos)."""
+    try:
+        return await reindex.reindex(event_id, todos)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc))
+    except LookupError as exc:
+        raise HTTPException(404, str(exc))
 
 
 @app.get("/knowledge")

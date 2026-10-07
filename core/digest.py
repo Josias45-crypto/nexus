@@ -5,10 +5,8 @@ import re
 import time
 from datetime import datetime, timezone
 
-import sqlite_vec
-
 from config import settings
-from core import events
+from core import events, memory
 from core.db import connect
 from providers.embeddings import get_embedder
 from providers.factory import get_provider
@@ -145,15 +143,8 @@ async def _digest_event(event_id: str) -> str:
 
     # El resumen entra a la memoria como un recuerdo más (position = -1)
     with connect() as conn:
-        cid = conn.execute(
-            "INSERT INTO chunks (event_id, position, content) VALUES (?, -1, ?)",
-            (event_id, text),
-        ).lastrowid
-        conn.execute("INSERT INTO chunks_fts (rowid, content) VALUES (?, ?)", (cid, text))
-        conn.execute(
-            "INSERT INTO vec_chunks (rowid, embedding) VALUES (?, ?)",
-            (cid, sqlite_vec.serialize_float32(vec)),
-        )
+        memory.delete_chunks(conn, event_id, only_summary=True)  # al regenerar, no duplicar
+        memory.insert_chunk(conn, event_id, -1, text, vec, {"resumen": True})
         conn.execute(
             "INSERT INTO digests (event_id, status, summary, concepts, model, created_at)"
             " VALUES (?, 'done', ?, ?, ?, ?)"

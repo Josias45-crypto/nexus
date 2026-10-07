@@ -29,7 +29,8 @@ CREATE TABLE IF NOT EXISTS chunks (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     event_id TEXT NOT NULL REFERENCES events(id),
     position INTEGER NOT NULL,
-    content TEXT NOT NULL
+    content TEXT NOT NULL,
+    meta TEXT  -- JSON: página, sección, hoja, marca de tiempo... (para citar)
 );
 CREATE INDEX IF NOT EXISTS idx_chunks_event ON chunks(event_id);
 
@@ -119,6 +120,9 @@ def _migrate(conn) -> None:
         conn.execute("ALTER TABLE events ADD COLUMN error TEXT")
     if "private" not in cols:
         conn.execute("ALTER TABLE events ADD COLUMN private INTEGER NOT NULL DEFAULT 0")
+    chunk_cols = {r["name"] for r in conn.execute("PRAGMA table_info(chunks)")}
+    if "meta" not in chunk_cols:
+        conn.execute("ALTER TABLE chunks ADD COLUMN meta TEXT")
 
 
 def init_db() -> None:
