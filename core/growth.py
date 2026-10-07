@@ -25,6 +25,7 @@ def growth(days: int = 14) -> dict:
     per_day = Counter(_local_day(e["created_at"]) for e in events)
     by_kind = Counter(e["kind"] for e in events)
     pending = sum(1 for e in events if e["status"] == "pending")
+    failed = sum(1 for e in events if e["status"] == "failed")
 
     concepts: set[str] = set()
     for d in digests:
@@ -52,6 +53,7 @@ def growth(days: int = 14) -> dict:
         "hoy": per_day.get(today, 0),
         "racha_dias": streak,
         "pendientes_de_digerir": pending,
+        "fallidos": failed,
         "ultimos_dias": [
             {
                 "dia": (today - timedelta(days=i)).isoformat(),

@@ -28,6 +28,14 @@ def extract_text(path: Path, mime: str) -> str | None:
         from pypdf import PdfReader
 
         reader = PdfReader(str(path))
+        if reader.is_encrypted:
+            # Muchos PDF vienen cifrados solo con contraseña de propietario (vacía al abrir)
+            try:
+                opened = reader.decrypt("")
+            except Exception:
+                opened = 0
+            if not opened:
+                raise ValueError("PDF protegido con contraseña")
         return "\n\n".join((page.extract_text() or "") for page in reader.pages)
     if ext in TEXT_EXT or mime.startswith("text/"):
         return path.read_text(encoding="utf-8", errors="replace")
