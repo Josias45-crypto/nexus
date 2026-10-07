@@ -26,6 +26,7 @@ class FakeTelegram:
     def __init__(self, updates: list[dict]):
         self.updates = updates
         self.sent: list[tuple[str, str]] = []
+        self.actions: list[tuple[str, str]] = []
         self.downloads = 0
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
@@ -41,6 +42,9 @@ class FakeTelegram:
         if method == "sendMessage":
             self.sent.append((str(body["chat_id"]), body["text"]))
             return httpx.Response(200, json={"ok": True, "result": {}})
+        if method == "sendChatAction":
+            self.actions.append((str(body["chat_id"]), body["action"]))
+            return httpx.Response(200, json={"ok": True, "result": True})
         if method == "getFile":
             return httpx.Response(200, json={"ok": True, "result": {"file_path": "voice/f.ogg"}})
         return httpx.Response(404, json={"ok": False, "description": "Not Found"})
@@ -113,6 +117,8 @@ class TelegramTest(unittest.TestCase):
         self.assertTrue(any("20 MB" in t for t in to_owner))
         self.assertTrue(any("Recordatorio" in t for t in to_owner), "no repartió el buzón")
         self.assertFalse(any(TOKEN in line for line in logs), "el token apareció en el registro")
+        self.assertIn((str(OWNER), "typing"), self.tg.actions, "no mostró 'escribiendo...'")
+        self.assertFalse(any(c == "6666" for c, _ in self.tg.actions))
 
 
 if __name__ == "__main__":

@@ -102,3 +102,6 @@ class Channel(ABC):
     @abstractmethod
     def owners(self) -> list[str]:
         """Chats de los dueños autorizados (destino de los avisos sin chat concreto)."""
+
+    async def typing(self, chat_id: str) -> None:
+        """Muestra "escribiendo..." mientras se prepara la respuesta (opcional por canal)."""

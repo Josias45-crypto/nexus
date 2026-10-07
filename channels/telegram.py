@@ -86,6 +86,9 @@ class TelegramChannel(Channel):
         for i in range(0, max(len(text), 1), MAX_TEXT):
             await self._call("sendMessage", chat_id=chat_id, text=text[i : i + MAX_TEXT])
 
+    async def typing(self, chat_id: str) -> None:
+        await self._call("sendChatAction", chat_id=chat_id, action="typing")
+
     async def receive(self):
         backoff = 1
         while True:

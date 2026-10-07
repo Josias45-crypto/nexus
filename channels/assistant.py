@@ -16,6 +16,8 @@ from channels.client import NexusClient, NexusError
 log = logging.getLogger("nexus.channels")
 
 MAX_SOURCES = 3
+TYPING_EVERY = 4  # Telegram borra "escribiendo..." a los 5 s
+SLOW_INTENTS = {Intent.ASK, Intent.FILE, Intent.VOICE, Intent.REMINDER, Intent.TODAY}
 
 
 @dataclass
@@ -46,6 +48,10 @@ class Assistant:
         intent, arg = detect_intent(msg, awaiting_confirmation=state.pending_reminder is not None)
         if intent not in (Intent.YES, Intent.NO):
             state.pending_reminder = None  # cualquier otra cosa cancela la confirmación
+        typing = None
+        if intent in SLOW_INTENTS:
+            await self._typing(msg.chat_id)  # de inmediato; luego se repite en segundo plano
+            typing = asyncio.create_task(self._keep_typing(msg.chat_id))
         try:
             replies = await self._dispatch(intent, arg, msg, state)
         except NexusError as exc:
@@ -53,12 +59,27 @@ class Assistant:
         except Exception:
             log.exception("Error atendiendo un mensaje (%s)", intent.value)
             replies = ["⚠️ Algo falló de mi lado. Inténtalo de nuevo en un momento."]
+        finally:
+            if typing:
+                typing.cancel()
         for text in replies:
             try:
                 await self.channel.send(msg.chat_id, text)
             except Exception as exc:
                 log.warning("No se pudo responder en %s (%s)", self.channel.name, exc)
         return replies
+
+    async def _typing(self, chat_id: str) -> None:
+        try:
+            await self.channel.typing(chat_id)
+        except Exception as exc:  # nunca debe impedir responder
+            log.debug("typing falló en %s (%s)", self.channel.name, type(exc).__name__)
+
+    async def _keep_typing(self, chat_id: str) -> None:
+        """Repite la acción de escribir hasta que llegue la respuesta."""
+        while True:
+            await asyncio.sleep(TYPING_EVERY)
+            await self._typing(chat_id)
 
     async def _dispatch(self, intent: Intent, arg: str, msg: Incoming, state: ChatState) -> list[str]:
         if intent in (Intent.START, Intent.HELP):
