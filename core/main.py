@@ -5,8 +5,9 @@ from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
 from config import settings
-from core import ask, backup, dashboard, growth, inbox, processor, search, worker
+from core import ask, backup, dashboard, growth, inbox, processor, search, ui, worker
 from core.db import connect, init_db
+from providers import fallback
 from providers.factory import get_provider
 
 app = FastAPI(title="NEXUS", lifespan=worker.lifespan)
@@ -30,6 +31,7 @@ def health():
         "provider": settings.LLM_PROVIDER,
         "llm_model": settings.LLM_MODEL,
         "ollama_url": settings.OLLAMA_BASE_URL,
+        "llm_activo": fallback.last_used,
     }
 
 
@@ -106,7 +108,11 @@ def worker_status():
         rows = conn.execute(
             "SELECT status, COUNT(*) AS total FROM events GROUP BY status"
         ).fetchall()
-    return {**worker.state, "eventos_por_estado": {r["status"]: r["total"] for r in rows}}
+    return {
+        **worker.state,
+        "llm_activo": fallback.last_used,
+        "eventos_por_estado": {r["status"]: r["total"] for r in rows},
+    }
 
 
 @app.post("/requeue")
@@ -165,3 +171,8 @@ async def run_backup_endpoint():
 @app.get("/backup")
 def backup_status():
     return backup.status()
+
+
+@app.get("/", response_class=HTMLResponse, include_in_schema=False)
+def home():
+    return ui.PAGE

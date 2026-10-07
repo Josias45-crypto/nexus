@@ -83,7 +83,19 @@ Se define en `.env` (plantilla en `.env.example`).
 
 **Cambiar de modelo:** edita `NEXUS_LLM_MODEL` en `.env`, descárgalo con `docker exec nexus-ollama ollama pull NOMBRE` y ejecuta `docker compose up -d --force-recreate core`.
 
-**Usar un Ollama en otra máquina** (por ejemplo, un PC con GPU): cambia `OLLAMA_BASE_URL` a su dirección.
+### Modelo remoto con respaldo
+
+Para usar un Ollama más rápido en otra máquina (por ejemplo, un PC con GPU por Tailscale o LAN) sin depender de que esté encendido:
+
+```env
+NEXUS_LLM_URL=http://100.x.y.z:11434      # Ollama remoto preferido (vacío = solo local)
+NEXUS_LLM_REMOTE_MODEL=qwen2.5:3b         # opcional; por defecto, NEXUS_LLM_MODEL
+```
+
+- El chat intenta primero el remoto (3 s para conectar). Si no responde, usa el Ollama local y no vuelve a probar el remoto durante 30 s.
+- Los embeddings **siempre** usan el local (`OLLAMA_BASE_URL`), para que todos los vectores sean compatibles.
+- `/health` y `/worker` muestran `llm_activo`: `remoto` o `local` (el último que respondió).
+- Aplica los cambios con `docker compose up -d core`.
 
 ## Estructura del proyecto
 
