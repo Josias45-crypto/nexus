@@ -1,11 +1,9 @@
 import json
 from collections import Counter
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timedelta
 
-from config import settings
+from core.clock import LOCAL_TZ
 from core.db import connect
-
-LOCAL_TZ = timezone(timedelta(hours=settings.TZ_OFFSET))
 
 
 def _local_day(iso: str) -> date:

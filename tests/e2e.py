@@ -191,7 +191,7 @@ def _docker(*args: str) -> str:
 
 
 @contextmanager
-def isolated_instance():
+def isolated_instance(extra_env: dict | None = None):
     """Contenedor temporal con datos propios; usa la red, la imagen y el caché de Whisper
     de la instalación en marcha (nexus-core y nexus-ollama deben estar arriba)."""
     try:
@@ -214,14 +214,19 @@ def isolated_instance():
     cmd = [
         "run", "-d", "--rm", "--name", E2E_NAME, "--network", network,
         "-p", f"127.0.0.1:{E2E_PORT}:8000",
+    ]
+    # Primero el .env y después los -e: las variables de la prueba mandan
+    if (REPO / ".env").exists():
+        cmd += ["--env-file", str(REPO / ".env")]
+    cmd += [
         "-v", f"{work / 'data'}:/data", "-v", f"{work / 'backups'}:/backups",
         "-e", "NEXUS_DATA_DIR=/data", "-e", "NEXUS_BACKUP_DIR=/backups",
         "-e", "NEXUS_BACKUP_HOURS=0",
     ]
+    for key, value in (extra_env or {}).items():
+        cmd += ["-e", f"{key}={value}"]
     if whisper:
         cmd += ["-v", f"{whisper}:/models"]
-    if (REPO / ".env").exists():
-        cmd += ["--env-file", str(REPO / ".env")]
     try:
         _docker(*cmd, image)
         url = f"http://127.0.0.1:{E2E_PORT}"

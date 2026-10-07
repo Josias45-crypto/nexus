@@ -30,6 +30,12 @@ WHISPER_LANG = os.getenv("NEXUS_WHISPER_LANG", "es")
 WHISPER_THREADS = int(os.getenv("NEXUS_WHISPER_THREADS", "4"))
 WHISPER_DIR = os.getenv("NEXUS_WHISPER_DIR", "/models/whisper")
 TZ_OFFSET = int(os.getenv("NEXUS_TZ_OFFSET", "-5"))
+# Recordatorios: insistir cada N minutos (admite decimales) hasta M avisos
+REMINDER_RETRY_MIN = float(os.getenv("NEXUS_REMINDER_RETRY_MIN", "30"))
+REMINDER_MAX_TRIES = int(os.getenv("NEXUS_REMINDER_MAX_TRIES", "3"))
+SCHEDULER_INTERVAL = int(os.getenv("NEXUS_SCHEDULER_INTERVAL", "30"))
+# Canal por defecto para avisos proactivos
+DEFAULT_CHANNEL = os.getenv("NEXUS_DEFAULT_CHANNEL", "telegram")
 BACKUP_DIR = os.getenv("NEXUS_BACKUP_DIR", "/backups")
 BACKUP_HOURS = int(os.getenv("NEXUS_BACKUP_HOURS", "24"))
 BACKUP_KEEP = int(os.getenv("NEXUS_BACKUP_KEEP", "7"))

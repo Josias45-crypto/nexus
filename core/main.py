@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 
 from config import settings
 from core import profile as nexus_profile
-from core import ask, backup, brain, dashboard, events, growth, inbox, processor, search, ui, worker
+from core import ask, backup, brain, dashboard, events, growth, inbox, outbox, processor, reminders, search, ui, worker
 from core.db import connect, init_db
 from core.logs import setup_logging
 from providers import factory, fallback
@@ -304,6 +304,74 @@ async def run_backup_endpoint():
 @app.get("/backup")
 def backup_status():
     return backup.status()
+
+
+class ReminderText(BaseModel):
+    text: str = Field(min_length=1, max_length=1000)
+
+
+class ReminderIn(BaseModel):
+    text: str = Field(min_length=1, max_length=1000)
+    due_at: str  # ISO con zona horaria (lo devuelve /reminders/parse)
+    channel: str | None = Field(None, max_length=40)
+    chat_id: str | None = Field(None, max_length=80)
+    source_event_id: str | None = None
+
+
+@app.post("/reminders/parse")
+async def reminder_parse(req: ReminderText):
+    """Interpreta sin guardar: el canal debe confirmar con el usuario y luego POST /reminders."""
+    try:
+        return await reminders.interpret(req.text)
+    except reminders.NotUnderstood as exc:
+        raise HTTPException(422, str(exc))
+
+
+@app.post("/reminders")
+def reminder_create(req: ReminderIn):
+    try:
+        return reminders.create(req.text, req.due_at, req.channel, req.chat_id, req.source_event_id)
+    except ValueError as exc:
+        raise HTTPException(422, f"Fecha inválida: {exc}")
+
+
+@app.get("/reminders")
+def reminder_list(chat_id: str | None = None, limit: int = Query(50, ge=1, le=500)):
+    return reminders.list_open(chat_id, limit)
+
+
+def _reminder_status(rid: int | None, status: str, chat_id: str | None):
+    r = reminders.set_status(rid, status, chat_id)
+    if not r:
+        raise HTTPException(404, "No hay un recordatorio abierto con ese número.")
+    return r
+
+
+@app.post("/reminders/done")
+def reminder_done_last(chat_id: str | None = None):
+    return _reminder_status(None, "done", chat_id)
+
+
+@app.post("/reminders/{rid}/done")
+def reminder_done(rid: int):
+    return _reminder_status(rid, "done", None)
+
+
+@app.post("/reminders/{rid}/cancel")
+def reminder_cancel(rid: int):
+    return _reminder_status(rid, "cancelled", None)
+
+
+@app.get("/outbox")
+def outbox_pending(channel: str = Query(max_length=40), limit: int = Query(20, ge=1, le=100)):
+    return outbox.pending(channel, limit)
+
+
+@app.post("/outbox/{msg_id}/delivered")
+def outbox_delivered(msg_id: int):
+    if not outbox.delivered(msg_id):
+        raise HTTPException(404, "Mensaje inexistente o ya entregado.")
+    return {"ok": True}
 
 
 @app.get("/", response_class=HTMLResponse, include_in_schema=False)

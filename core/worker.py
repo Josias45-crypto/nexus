@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
 from config import settings
-from core import backup, digest, processor
+from core import backup, digest, processor, reminders
 
 log = logging.getLogger("nexus.worker")
 
@@ -14,6 +14,7 @@ state: dict = {
     "ultima_revision": None,
     "ultimo_resultado": None,
     "ultimo_audio": None,
+    "ultimo_aviso": None,
     "ultima_digestion": None,
     "ultimo_respaldo": None,
 }
@@ -32,6 +33,10 @@ async def _audio_step() -> dict:
 
 async def _digest_step() -> dict:
     return await digest.digest_pending(limit=5)
+
+
+async def _scheduler_step() -> dict:
+    return await asyncio.to_thread(reminders.due_step)
 
 
 async def _backup_step() -> dict:
@@ -63,6 +68,11 @@ async def lifespan(app):
         every = settings.WORKER_INTERVAL
         tasks.append(asyncio.create_task(_loop("procesador", _process_step, "ultimo_resultado", every)))
         tasks.append(asyncio.create_task(_loop("oído", _audio_step, "ultimo_audio", every)))
+        tasks.append(
+            asyncio.create_task(
+                _loop("programador", _scheduler_step, "ultimo_aviso", settings.SCHEDULER_INTERVAL)
+            )
+        )
         if settings.DIGEST_ENABLED:
             tasks.append(asyncio.create_task(_loop("digestor", _digest_step, "ultima_digestion", every)))
         if settings.BACKUP_HOURS > 0:
