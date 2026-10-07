@@ -15,8 +15,10 @@ log = logging.getLogger("nexus.processor")
 AUDIO_EXT = {".mp3", ".wav", ".m4a", ".ogg", ".opus", ".flac", ".aac"}
 TEXT_EXT = {".txt", ".md", ".markdown", ".csv", ".json", ".log"}
 
-# Evita que el worker y una llamada manual a /process procesen lo mismo a la vez
-_lock = asyncio.Lock()
+# Colas separadas: un audio largo no frena al texto. Cada cola tiene su candado para que
+# el worker y una llamada manual a /process no procesen lo mismo a la vez.
+QUEUES = {"texto": ("text", "document"), "audio": ("audio",)}
+_locks = {name: asyncio.Lock() for name in QUEUES}
 
 
 def extract_text(path: Path, mime: str) -> str | None:
@@ -67,19 +69,24 @@ def _register_failure(event_id: str, error: str) -> str:
     return status
 
 
-async def process_pending(limit: int = 10) -> dict:
-    async with _lock:
-        return await _process_pending(limit)
+async def process_pending(limit: int = 10, queue: str | None = None) -> dict:
+    """Procesa una cola ("texto" o "audio") o, sin cola, ambas una tras otra."""
+    total: dict = {}
+    for name in [queue] if queue else list(QUEUES):
+        async with _locks[name]:
+            for key, value in (await _process_pending(limit, QUEUES[name])).items():
+                total[key] = total.get(key, 0) + value
+    return total
 
 
-async def _process_pending(limit: int) -> dict:
+async def _process_pending(limit: int, kinds: tuple[str, ...]) -> dict:
     embedder = get_embedder()
     with connect() as conn:
         rows = conn.execute(
             "SELECT id, raw_path, mime FROM events"
-            " WHERE status = 'pending' AND kind IN ('text', 'document', 'audio')"
+            f" WHERE status = 'pending' AND kind IN ({','.join('?' * len(kinds))})"
             " ORDER BY created_at LIMIT ?",
-            (limit,),
+            (*kinds, limit),
         ).fetchall()
 
     result = {

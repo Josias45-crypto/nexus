@@ -14,15 +14,21 @@ state: dict = {
     "activo": False,
     "ultima_revision": None,
     "ultimo_resultado": None,
+    "ultimo_audio": None,
     "ultima_digestion": None,
     "ultimo_respaldo": None,
 }
 
 
 async def _process_step() -> dict:
-    result = await processor.process_pending(limit=5)
+    result = await processor.process_pending(limit=5, queue="texto")
     state["ultima_revision"] = datetime.now(timezone.utc).isoformat()
     return result
+
+
+async def _audio_step() -> dict:
+    # De uno en uno: Whisper transcribe un audio a la vez
+    return await processor.process_pending(limit=1, queue="audio")
 
 
 async def _digest_step() -> dict:
@@ -57,6 +63,7 @@ async def lifespan(app):
         state["activo"] = True
         every = settings.WORKER_INTERVAL
         tasks.append(asyncio.create_task(_loop("procesador", _process_step, "ultimo_resultado", every)))
+        tasks.append(asyncio.create_task(_loop("oído", _audio_step, "ultimo_audio", every)))
         if settings.DIGEST_ENABLED:
             tasks.append(asyncio.create_task(_loop("digestor", _digest_step, "ultima_digestion", every)))
         if settings.BACKUP_HOURS > 0:
