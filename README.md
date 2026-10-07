@@ -94,26 +94,16 @@ NEXUS_LLM_REMOTE_MODEL=qwen2.5:3b         # opcional; por defecto, NEXUS_LLM_MOD
 
 - El chat intenta primero el remoto (3 s para conectar). Si no responde, usa el Ollama local y no vuelve a probar el remoto durante 30 s.
 - Los embeddings **siempre** usan el local (`OLLAMA_BASE_URL`), para que todos los vectores sean compatibles.
-- `/health` y `/worker` muestran `llm_activo`: `remoto` o `local` (el último que respondió).
+- `/health` muestra `llm_activo`: `ollama-remoto` u `ollama` (el último que respondió).
 - Aplica los cambios con `docker compose up -d core`.
 
-### Modo de prueba en la nube (Groq)
+### Modo nube de pruebas
 
-> ⚠️ **Solo datos de prueba.** En este modo, tus preguntas y los fragmentos de memoria que se usan como contexto se envían a Groq. No lo uses con información personal real.
+> ⚠️ **Solo datos de prueba.** Apagado por defecto (`NEXUS_ALLOW_CLOUD=off`).
 
-Está apagado por defecto. Para activarlo, en `.env`:
-
-```env
-NEXUS_LLM_PROVIDER=groq
-NEXUS_ALLOW_CLOUD=on
-GROQ_API_KEY=tu_llave              # solo en .env, nunca en el repo
-NEXUS_GROQ_MODEL=llama-3.1-8b-instant
-```
-
-- Si falta algo, NEXUS registra un error claro (visible en `nube_error` de `/health`) y usa el Ollama local.
-- Si Groq falla por límite de uso (429), por caída del servicio (5xx) o por la red, responde el Ollama local.
-- Los embeddings y la transcripción de audio **nunca** usan la nube.
-- Cuando la última respuesta salió de la nube, la interfaz muestra una insignia roja **NUBE**, y `/health` indica `"nube": true`.
+Permite que `/ask` y la digestión usen Groq, Gemini u OpenRouter, con varias keys, rotación y
+respaldo en Ollama local. Lo privado, los embeddings y el audio nunca salen de la máquina.
+Cómo activarlo, apagarlo y leer su estado: [docs/MODO_NUBE.md](docs/MODO_NUBE.md).
 
 ## Estructura del proyecto
 
