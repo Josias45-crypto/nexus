@@ -10,7 +10,7 @@ import asyncio
 import logging
 from dataclasses import dataclass
 
-from channels.base import Channel, Incoming, Intent, detect_intent
+from channels.base import Channel, Incoming, Intent, PermanentSendError, detect_intent
 from channels.client import NexusClient, NexusError
 
 log = logging.getLogger("nexus.channels")
@@ -202,6 +202,8 @@ class Assistant:
             try:
                 for chat in targets:
                     await self.channel.send(chat, m["text"])
+            except PermanentSendError as exc:
+                log.warning("Aviso %s descartado: %s", m["id"], exc)
             except Exception as exc:
                 log.warning("No se pudo entregar el aviso %s (%s); se reintenta", m["id"], type(exc).__name__)
                 continue

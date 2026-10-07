@@ -69,6 +69,24 @@ services:
     profiles: ["channels"]
     restart: unless-stopped
 
+  # WhatsApp oficial (Cloud API de Meta), APAGADO por defecto: requiere NEXUS_WHATSAPP=on,
+  # cuenta de Meta Business y HTTPS público hacia este puerto (docs/CANALES.md).
+  # docker compose --profile whatsapp up -d
+  whatsapp:
+    build: .
+    container_name: nexus-whatsapp
+    command: ["python", "-m", "channels.whatsapp"]
+    env_file: .env
+    environment:
+      NEXUS_API_URL: http://core:8000
+    ports:
+      - "127.0.0.1:8081:8081"
+    depends_on:
+      core:
+        condition: service_healthy
+    profiles: ["whatsapp"]
+    restart: on-failure:3
+
 volumes:
   ollama_models:
   whisper_models:

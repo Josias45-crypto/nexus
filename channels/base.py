@@ -83,6 +83,11 @@ def detect_intent(msg: Incoming, awaiting_confirmation: bool = False) -> tuple[I
     return Intent.ASK, text
 
 
+class PermanentSendError(Exception):
+    """El canal nunca podrá entregar este mensaje (p. ej. fuera de la ventana de 24 h de
+    WhatsApp): el aviso se da por cerrado en vez de reintentarlo para siempre."""
+
+
 class Channel(ABC):
     name: str
 
