@@ -17,7 +17,25 @@ RULES = (
 )
 
 
-def candidates(hits: list[dict]) -> list[dict]:
+# Preguntas que piden una lista o juntar varias notas: reciben más candidatos
+RE_LIST = re.compile(
+    r"\b(qu[eé]\s+(clientes|productos|pedidos|proveedores|personas|cosas)|cu[aá]les|qui[eé]nes"
+    r"|todos|todas|lista|qu[eé]\s+hay|a\s+qu[eé]\s+clientes)\b",
+    re.I,
+)
+
+
+def wants_list(question: str) -> bool:
+    return bool(RE_LIST.search(question))
+
+
+def _clean(answer: str) -> str:
+    """Espacios finos y negritas de Markdown (Telegram muestra los ** tal cual)."""
+    answer = answer.replace("\u202f", " ").replace("\u00a0", " ").replace("**", "")
+    return citations.strip_markers(answer)
+
+
+def candidates(hits: list[dict], limit: int | None = None) -> list[dict]:
     """Candidatos para el modelo: los de término raro siempre; el resto, salvo ruido evidente."""
     rare = [h for h in hits if h.get("termino_raro")]
     rest = [
@@ -25,7 +43,7 @@ def candidates(hits: list[dict]) -> list[dict]:
         if not h.get("termino_raro")
         and h["distance"] is not None and h["distance"] <= settings.NOISE_DISTANCE
     ]
-    return (rare + rest)[: settings.ASK_CANDIDATES]
+    return (rare + rest)[: limit or settings.ASK_CANDIDATES]
 
 
 def _says_no(answer: str) -> bool:
@@ -43,7 +61,8 @@ async def ask(question: str, k: int | None = None) -> dict:
     special = await questions.route(question)
     if special is not None:
         return special
-    hits = candidates(await search(question, k or settings.ASK_CANDIDATES, publish=False))
+    limit = k or (settings.ASK_CANDIDATES_LIST if wants_list(question) else settings.ASK_CANDIDATES)
+    hits = candidates(await search(question, limit, publish=False), limit)
     if not hits:
         return {"answer": NO_INFO, "sources": [], "llm": None, "tipo": "memoria"}
     publish_recall("ask", hits)
@@ -58,7 +77,7 @@ async def ask(question: str, k: int | None = None) -> dict:
     # Si algún trozo usado es privado, responde solo el modelo local
     private = any(h.get("private") for h in hits)
     answer, llm = await get_provider().chat_ex(messages, cloud=True, private=private)
-    answer = citations.strip_markers(answer)
+    answer = _clean(answer)
 
     # Anti-invención: cada nombre propio y cifra debe estar en las fuentes (o en la pregunta)
     texts = [h["content"] for h in hits] + [citations.cite(h) for h in hits]
@@ -73,7 +92,7 @@ async def ask(question: str, k: int | None = None) -> dict:
             )},
         ]
         answer, llm = await get_provider().chat_ex(retry, cloud=True, private=private)
-        answer = citations.strip_markers(answer)
+        answer = _clean(answer)
         missing = [] if _says_no(answer) else verify.unverified(answer, texts, question)
         llm = {**llm, "regenerada": True}
         if missing:

@@ -56,7 +56,9 @@ FTS_MARGIN = float(os.getenv("NEXUS_FTS_MARGIN", "0.04"))
 RARE_MAX_DF = int(os.getenv("NEXUS_RARE_MAX_DF", "5"))
 # /ask: cuántos candidatos recibe el modelo (él decide cuáles usar) y filtro laxo contra
 # ruido evidente (distancia L2; los de término raro no se filtran).
-ASK_CANDIDATES = int(os.getenv("NEXUS_ASK_CANDIDATES", "8"))
+ASK_CANDIDATES = int(os.getenv("NEXUS_ASK_CANDIDATES", "4"))
+# Preguntas que piden una lista ("¿qué clientes...?", "¿cuáles...?"): más candidatos para juntar
+ASK_CANDIDATES_LIST = int(os.getenv("NEXUS_ASK_CANDIDATES_LIST", "8"))
 NOISE_DISTANCE = float(os.getenv("NEXUS_NOISE_DISTANCE", "1.05"))
 WORKER_ENABLED = os.getenv("NEXUS_WORKER", "on").lower() == "on"
 WORKER_INTERVAL = int(os.getenv("NEXUS_WORKER_INTERVAL", "20"))
