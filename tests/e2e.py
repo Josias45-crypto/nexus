@@ -4,6 +4,11 @@ Uso:
     python3 tests/e2e.py [--url http://localhost:8000]
                          [--audio ruta.wav --audio-phrase "frase"] [--chaos]
 
+Sin --url levanta una instancia temporal aislada (contenedor nexus-e2e, puerto 8001) con la
+misma imagen y el mismo Ollama, pero con datos y respaldos en una carpeta temporal que se
+borra al terminar: la memoria real no se toca. Requiere `docker compose up -d` previo.
+Con --url prueba contra esa instancia (y deja en ella los datos sintéticos).
+
 Usa solo datos sintéticos marcados con un id de corrida único. --chaos detiene y vuelve a
 arrancar el contenedor de Ollama (docker compose stop/start; nunca down).
 """
@@ -11,13 +16,16 @@ arrancar el contenedor de Ollama (docker compose stop/start; nunca down).
 import argparse
 import json
 import re
+import shutil
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
+from contextlib import contextmanager
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
@@ -169,6 +177,70 @@ def make_pdf(text: str) -> bytes:
 
 def compose(*args: str) -> None:
     subprocess.run(["docker", "compose", *args], cwd=REPO, check=True, capture_output=True)
+
+
+E2E_NAME = "nexus-e2e"
+E2E_PORT = 8001
+
+
+def _docker(*args: str) -> str:
+    r = subprocess.run(["docker", *args], capture_output=True, text=True)
+    if r.returncode != 0:
+        raise RuntimeError(f"docker {args[0]}: {r.stderr.strip()[:300]}")
+    return r.stdout.strip()
+
+
+@contextmanager
+def isolated_instance():
+    """Contenedor temporal con datos propios; usa la red, la imagen y el caché de Whisper
+    de la instalación en marcha (nexus-core y nexus-ollama deben estar arriba)."""
+    try:
+        image = _docker("inspect", "nexus-core", "-f", "{{.Config.Image}}")
+        network = _docker(
+            "inspect", "nexus-ollama", "-f",
+            "{{range $k, $v := .NetworkSettings.Networks}}{{$k}}{{end}}",
+        )
+        whisper = _docker(
+            "inspect", "nexus-core", "-f",
+            '{{range .Mounts}}{{if eq .Destination "/models"}}{{.Name}}{{end}}{{end}}',
+        )
+    except RuntimeError as e:
+        raise SystemExit(f"Levanta NEXUS antes (docker compose up -d): {e}")
+
+    subprocess.run(["docker", "rm", "-f", E2E_NAME], capture_output=True)
+    work = Path(tempfile.mkdtemp(prefix="nexus-e2e-"))
+    (work / "data").mkdir()
+    (work / "backups").mkdir()
+    cmd = [
+        "run", "-d", "--rm", "--name", E2E_NAME, "--network", network,
+        "-p", f"127.0.0.1:{E2E_PORT}:8000",
+        "-v", f"{work / 'data'}:/data", "-v", f"{work / 'backups'}:/backups",
+        "-e", "NEXUS_DATA_DIR=/data", "-e", "NEXUS_BACKUP_DIR=/backups",
+        "-e", "NEXUS_BACKUP_HOURS=0",
+    ]
+    if whisper:
+        cmd += ["-v", f"{whisper}:/models"]
+    if (REPO / ".env").exists():
+        cmd += ["--env-file", str(REPO / ".env")]
+    try:
+        _docker(*cmd, image)
+        url = f"http://127.0.0.1:{E2E_PORT}"
+        deadline = time.monotonic() + 90
+        while True:
+            try:
+                with urllib.request.urlopen(url + "/health", timeout=5):
+                    break
+            except (urllib.error.URLError, ConnectionError, OSError):
+                if time.monotonic() > deadline:
+                    logs = subprocess.run(["docker", "logs", E2E_NAME], capture_output=True, text=True)
+                    raise SystemExit("La instancia de prueba no arrancó:\n" + logs.stderr[-1500:])
+                time.sleep(2)
+        yield url
+    finally:
+        subprocess.run(["docker", "stop", "-t", "15", E2E_NAME], capture_output=True)
+        shutil.rmtree(work, ignore_errors=True)
+        if work.exists():
+            print(f"Aviso: no se pudo borrar {work} (permisos); bórralo a mano.")
 
 
 # ---------- pruebas ----------
@@ -358,14 +430,22 @@ TESTS = [
 
 def main() -> int:
     p = argparse.ArgumentParser(description="Prueba de extremo a extremo de NEXUS")
-    p.add_argument("--url", default="http://localhost:8000")
+    p.add_argument("--url", help="instancia existente (sin esto, se usa una aislada temporal)")
     p.add_argument("--audio", help="archivo de audio a transcribir")
     p.add_argument("--audio-phrase", help="frase que debe aparecer en la transcripción")
     p.add_argument("--chaos", action="store_true", help="detiene Ollama un momento (docker compose)")
     args = p.parse_args()
 
-    suite = Suite(Api(args.url), args)
-    print(f"NEXUS e2e · corrida {suite.tag} · {args.url}\n")
+    if args.url:
+        return run(args.url, args)
+    with isolated_instance() as url:
+        return run(url, args, isolated=True)
+
+
+def run(url: str, args, isolated: bool = False) -> int:
+    suite = Suite(Api(url), args)
+    modo = "instancia aislada temporal" if isolated else "instancia existente"
+    print(f"NEXUS e2e · corrida {suite.tag} · {url} ({modo})\n")
     results = []
     for label, method in TESTS:
         start = time.monotonic()
