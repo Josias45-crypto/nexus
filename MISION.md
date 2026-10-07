@@ -94,3 +94,41 @@ e2e en verde; clon limpio funcionando; docs completas; imagen y RAM documentadas
 commiteado. Al terminar cada fase: e2e, commit y resumen en máx. 8 líneas de qué cambió y qué
 decidiste. Usa /compact entre fases. Tras la Fase 4 dime qué variables debo poner en .env, y
 tras la Fase 5 los pasos exactos para crear el bot.
+
+---
+# ADENDA: propósito real y orden revisado
+
+Propósito: NEXUS es un asistente PARA EL DUEÑO de un negocio (primer caso: ventas), no un bot
+que atiende a clientes finales. Se usa sobre todo por Telegram: el dueño manda información,
+archivos y notas de voz, pregunta después y recibe datos y sugerencias; y NEXUS le escribe primero.
+El núcleo debe seguir siendo genérico: lo específico de cada rubro vive en un perfil.
+
+## Orden de ejecución (reemplaza el anterior)
+Fase 0 -> Fase 1 -> Fase 5 y 5B -> Fase 4 -> Fase 3 -> Fase 2 -> Fase 6.
+
+## Fase 5B: perfiles y recordatorios
+- Perfiles en profiles/*.toml (tomllib de la librería estándar, sin dependencias nuevas),
+  seleccionados con NEXUS_PROFILE. Campos: nombre del asistente, descripción del negocio, idioma,
+  tono, instrucciones de sistema (persona), categorías de entidades (por ejemplo clientes,
+  productos, ventas, tareas), reglas proactivas (seguimiento si un cliente lleva N días sin
+  contacto, hora del resumen matutino) y preguntas frecuentes de ejemplo. El núcleo NO contiene
+  lógica de ventas: todo lo propio del rubro sale del perfil. Entrega profiles/general.toml
+  (por defecto) y profiles/ventas.toml, y docs/PERFILES.md con cómo crear uno nuevo (clínica,
+  taller, estudio contable...).
+- Recordatorios: tabla reminders (id, due_at en UTC, text, status, channel, chat_id,
+  source_event_id, intentos). Se crean desde lenguaje natural en español ("recuérdame llamar a
+  Pedro el viernes a las 9") con un intérprete de fechas determinista (hoy, mañana, pasado
+  mañana, día de la semana, "en N horas o días", hora HH o HH:MM) y el LLM solo como respaldo.
+  SIEMPRE confirma al usuario la fecha entendida antes de guardar. Un programador en el worker
+  envía el aviso por el canal; si no hay respuesta, insiste cada X minutos hasta N veces
+  (configurable). Comandos /recordatorios y /hecho.
+- Resumen matutino proactivo: armado con datos reales (recordatorios del día, clientes sin
+  seguimiento, lo último que entró), redactado por el LLM, y cada dato debe provenir de lo
+  recuperado, sin inventar.
+- Fase 5C, SOLO si 5B demuestra valor: tabla entities (tipo, nombre, atributos en JSON,
+  evento de origen) alimentada con extracción por LLM validada contra esquema, descartando
+  salidas inválidas; consultas como "clientes sin contacto hace 15 días" resueltas con SQL.
+  Márcalo experimental: con un modelo de 1.5B la extracción no es fiable.
+- Llamadas telefónicas: fuera de alcance; documenta las alternativas con su costo y privacidad.
+- Pruebas: cambiar de perfil cambia el comportamiento sin tocar el núcleo; un recordatorio se
+  crea con confirmación, se envía por un canal simulado y se reintenta si no hay respuesta.
