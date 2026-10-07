@@ -32,6 +32,8 @@ def run_backup() -> dict:
         dst = sqlite3.connect(target)
         try:
             src.backup(dst)
+            # La copia hereda WAL; se pasa a un solo archivo autocontenido
+            dst.execute("PRAGMA journal_mode = DELETE")
         finally:
             dst.close()
 

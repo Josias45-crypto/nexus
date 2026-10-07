@@ -54,10 +54,15 @@ CREATE VIRTUAL TABLE IF NOT EXISTS vec_chunks USING vec0(
 """
 
 
+BUSY_TIMEOUT_MS = 30000  # espera a que otro escritor termine en vez de fallar con "locked"
+
+
 @contextmanager
 def connect(path=None):
-    conn = sqlite3.connect(path or DB_PATH)
+    conn = sqlite3.connect(path or DB_PATH, timeout=BUSY_TIMEOUT_MS / 1000)
     conn.row_factory = sqlite3.Row
+    conn.execute(f"PRAGMA busy_timeout = {BUSY_TIMEOUT_MS}")
+    conn.execute("PRAGMA synchronous = NORMAL")  # seguro con WAL y más rápido
     conn.enable_load_extension(True)
     sqlite_vec.load(conn)
     conn.enable_load_extension(False)
@@ -80,5 +85,8 @@ def _migrate(conn) -> None:
 def init_db() -> None:
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     with connect() as conn:
+        # WAL: los lectores no bloquean al escritor (worker, API y respaldos a la vez).
+        # Es persistente: queda guardado en el archivo de la base.
+        conn.execute("PRAGMA journal_mode = WAL")
         conn.executescript(SCHEMA)
         _migrate(conn)
