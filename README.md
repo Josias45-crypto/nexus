@@ -1,167 +1,138 @@
 # NEXUS
 
-Cerebro personal **100 % local** que empieza vacío y acumula conocimiento día a día: textos y audio hoy, imágenes y más sentidos mañana. Corre en Docker y no envía tus datos a la nube.
+Asistente **privado y local** para el dueño de un negocio. Le mandas notas, archivos, fotos y
+notas de voz (por Telegram o la web); NEXUS guarda el original, lo entiende y después responde
+tus preguntas **citando de dónde sale cada dato**. También te escribe primero: recordatorios y
+un resumen cada mañana.
 
-> **Estado:** en construcción (pasos 1 a 3 de 10). Consulta la [hoja de ruta](#hoja-de-ruta).
+Empieza vacío y aprende día a día. La inteligencia vive en lo que acumula, no en el modelo: el
+modelo es intercambiable por configuración y todo corre en tu máquina, en Docker.
 
-## Idea central
+## Qué hace
 
-- **La inteligencia vive en el conocimiento acumulado**, no en el modelo. Aunque el modelo sea pequeño, NEXUS puede responder con lo que ha absorbido.
-- **El original se guarda siempre intacto.** Lo derivado (resúmenes, embeddings) se puede regenerar con un modelo mejor.
-- **El modelo es intercambiable por configuración.** Local por defecto; las variantes con API se activan sin tocar el núcleo.
-- **Un módulo por sentido** (texto, audio, imagen...), todos conectados a la misma memoria.
-
-## Arquitectura
-
-```
-  Cliente (curl, apps, canales futuros)
-              │  HTTP
-              ▼
-      ┌───────────────┐   /api/chat   ┌───────────────┐
-      │  nexus-core   │ ────────────▶ │    Ollama     │
-      │   (FastAPI)   │               │ (modelo local)│
-      └───────┬───────┘               └───────────────┘
-              │
-       ./data  (SQLite + archivos originales)
-```
-
-## Requisitos
-
-- Docker con Compose v2 (`docker compose`)
-- Linux, macOS o Windows con WSL2
-- ~6 GB de disco libre (imágenes + modelo)
-- 8 GB de RAM recomendados
+- **Entiende** texto, PDF (también escaneados), Word, Excel, PowerPoint, correos, zip, fotos
+  (OCR), audio y video ([formatos](docs/FORMATOS.md)).
+- **Responde con fuentes**: "Rosa debe 120 soles [1]" → `[1] ventas.xlsx, hoja Ventas, fila 12`.
+  Si no lo sabe, lo dice.
+- **Recuerda por fecha**: "¿qué aprendí ayer?", "resume lo último que te mandé".
+- **Recordatorios** en español ("recuérdame el viernes a las 9 llamar a Pedro"), con
+  confirmación e insistencia hasta que respondas `/hecho`.
+- **Resumen matutino** con tus pendientes, clientes sin seguimiento y lo último que entró.
+- **Perfiles por rubro** (ventas, general, o el tuyo) sin tocar el código ([perfiles](docs/PERFILES.md)).
 
 ## Inicio rápido
+
+Requisitos: Docker con Compose v2, 8 GB de RAM y ~15 GB de disco libre ([recursos medidos](docs/OPERACION.md#recursos-medidos)).
 
 ```bash
 git clone https://github.com/Josias45-crypto/nexus.git
 cd nexus
 cp .env.example .env
 docker compose up -d --build
-docker exec nexus-ollama ollama pull qwen2.5:1.5b
-curl http://localhost:8000/health
+curl localhost:8000/health        # "status": "ok"
 ```
 
-La primera vez se descarga la imagen de Ollama (~3,8 GB) y luego el modelo (~1 GB). Si se interrumpe, repite el comando: continúa donde quedó.
-Para usar **audio**, la primera transcripción requiere descargar el modelo de voz Whisper (~500 MB, una sola vez; después funciona sin internet).
+La primera vez descarga la imagen de Ollama y los modelos (`qwen2.5:1.5b` y `nomic-embed-text`)
+de forma automática; el modelo de voz se descarga con el primer audio. Después funciona sin
+internet.
 
-## Uso
+Abre <http://localhost:8000>: escribe y pulsa **Recordar** para enseñarle, o **Preguntar**.
+Arrastra archivos a la página. El botón **Bandeja** muestra el estado de cada uno.
 
-Documentación interactiva de la API: <http://localhost:8000/docs>
+### Telegram
 
-| Método | Ruta      | Descripción                         |
-|--------|-----------|-------------------------------------|
-| GET    | `/health` | Estado del servicio y modelo activo |
-| POST   | `/chat`   | Conversa con el modelo configurado  |
+1. Crea un bot con @BotFather y pon el token en `.env` (`TELEGRAM_BOT_TOKEN`).
+2. Pon tu id numérico en `TELEGRAM_ALLOWED_IDS` (te lo da @userinfobot).
+3. `docker compose --profile channels up -d --build`
 
-```bash
-curl -X POST http://localhost:8000/chat \
-  -H "Content-Type: application/json" \
-  -d '{"message":"Hola, ¿quién eres?"}'
-```
+Detalles, comandos y WhatsApp: [docs/CANALES.md](docs/CANALES.md).
+
+## Páginas
+
+| Ruta | Qué es |
+|---|---|
+| `/` | Conversación, subir archivos, grabar voz y Bandeja (estado, motivo, Reintentar) |
+| `/brain` | El cerebro en vivo: recuerdos y conceptos como grafo |
+| `/dashboard` | Crecimiento y respaldos |
+| `/docs` | API interactiva ([referencia](docs/API.md)) |
 
 ## Configuración
 
-Se define en `.env` (plantilla en `.env.example`).
+Todo se ajusta en `.env`; cada variable está comentada en [.env.example](.env.example). Las más
+usadas:
 
-| Variable             | Valor por defecto        | Descripción                                    |
-|----------------------|--------------------------|------------------------------------------------|
-| `NEXUS_LLM_PROVIDER` | `ollama`                 | Proveedor de modelo                            |
-| `OLLAMA_BASE_URL`    | `http://ollama:11434`    | Dirección de Ollama                            |
-| `NEXUS_LLM_MODEL`    | `qwen2.5:1.5b`           | Modelo de lenguaje                             |
-| `NEXUS_EMBED_MODEL`  | `nomic-embed-text`       | Modelo de embeddings (se usa desde el Paso 5)  |
-| `NEXUS_MAX_DISTANCE` | `0.8` | Distancia máxima para considerar relevante un recuerdo |
-| `NEXUS_WORKER` | `on` | Procesamiento automático en segundo plano |
-| `NEXUS_WORKER_INTERVAL` | `20` | Segundos entre revisiones de la bandeja |
-| `NEXUS_MAX_ATTEMPTS` | `3` | Intentos antes de marcar un elemento como fallido |
-| `NEXUS_DIGEST` | `on` | Resúmenes y conceptos automáticos por documento |
-| `NEXUS_DIGEST_MIN_CHARS` | `1200` | Tamaño mínimo para digerir un documento |
-| `NEXUS_WHISPER_MODEL` | `small` | Modelo de voz (`base` es más rápido, `small` más preciso) |
-| `NEXUS_WHISPER_LANG` | `es` | Idioma del audio (vacío = detectar solo) |
-| `NEXUS_DATA_DIR`     | `/data`                  | Carpeta de datos dentro del contenedor         |
+| Variable | Por defecto | Para qué |
+|---|---|---|
+| `NEXUS_LLM_MODEL` | `qwen2.5:1.5b` | Modelo de chat (se descarga solo al arrancar) |
+| `NEXUS_PROFILE` | `general` | Perfil de rubro (`profiles/*.toml`) |
+| `NEXUS_TZ_OFFSET` | `-5` | Zona horaria para "hoy", recordatorios y resumen |
+| `NEXUS_MAX_DISTANCE` / `NEXUS_FTS_MARGIN` | `0.78` / `0.04` | Qué tan parecido debe ser un recuerdo para usarlo |
+| `NEXUS_LLM_URL` | vacío | Ollama remoto con GPU (respaldo automático en el local) |
+| `NEXUS_ALLOW_CLOUD` | `off` | Nube **solo para pruebas** ([MODO_NUBE](docs/MODO_NUBE.md)) |
+| `NEXUS_OCR` / `NEXUS_VISION_MODEL` | `on` / vacío | OCR de imágenes; descripción de fotos opcional |
+| `NEXUS_BACKUP_HOURS` / `NEXUS_BACKUP_HOST_DIR` | `24` / `./backups` | Respaldos automáticos y dónde guardarlos |
 
-**Cambiar de modelo:** edita `NEXUS_LLM_MODEL` en `.env`, descárgalo con `docker exec nexus-ollama ollama pull NOMBRE` y ejecuta `docker compose up -d --force-recreate core`.
+Cambiar de modelo: edita `NEXUS_LLM_MODEL` y `docker compose up -d` (se descarga solo).
 
-### Modelo remoto con respaldo
+## Privacidad
 
-Para usar un Ollama más rápido en otra máquina (por ejemplo, un PC con GPU por Tailscale o LAN) sin depender de que esté encendido:
+- Todo se procesa y guarda en tu máquina; no hay telemetría.
+- Embeddings, audio, OCR, visión, recordatorios y todo lo marcado como **privado** nunca salen
+  de ella, aunque actives la nube de pruebas.
+- `data/`, `backups/` y `.env` están en `.gitignore`. Los tokens solo viven en `.env`.
+- Los puertos escuchan solo en `127.0.0.1`; para acceso remoto usa Tailscale o SSH.
 
-```env
-NEXUS_LLM_URL=http://100.x.y.z:11434      # Ollama remoto preferido (vacío = solo local)
-NEXUS_LLM_REMOTE_MODEL=qwen2.5:3b         # opcional; por defecto, NEXUS_LLM_MODEL
+## Documentación
+
+| Documento | Contenido |
+|---|---|
+| [ARQUITECTURA](docs/ARQUITECTURA.md) | Diagrama, recorrido de un archivo y de una pregunta, datos |
+| [API](docs/API.md) | Todas las rutas con ejemplos |
+| [FORMATOS](docs/FORMATOS.md) | Qué lee, qué no, OCR, límites, cómo agregar un formato |
+| [OPERACION](docs/OPERACION.md) | Recursos, actualizar, respaldar, restaurar, servidor, problemas |
+| [CANALES](docs/CANALES.md) | Telegram, WhatsApp, comandos y llamadas |
+| [PERFILES](docs/PERFILES.md) | Crear un perfil para otro rubro |
+| [MODO_NUBE](docs/MODO_NUBE.md) | Nube de pruebas: activar, apagar, cascada |
+| [CHANGELOG](CHANGELOG.md) | Cambios por versión |
+
+## Pruebas
+
+```bash
+python3 tests/e2e.py                       # 17 casos en una instancia aislada temporal
+python3 tests/e2e.py --chaos --audio voz.wav --audio-phrase "una palabra del audio"
 ```
 
-- El chat intenta primero el remoto (3 s para conectar). Si no responde, usa el Ollama local y no vuelve a probar el remoto durante 30 s.
-- Los embeddings **siempre** usan el local (`OLLAMA_BASE_URL`), para que todos los vectores sean compatibles.
-- `/health` muestra `llm_activo`: `ollama-remoto` u `ollama` (el último que respondió).
-- Aplica los cambios con `docker compose up -d core`.
-
-### Modo nube de pruebas
-
-> ⚠️ **Solo datos de prueba.** Apagado por defecto (`NEXUS_ALLOW_CLOUD=off`).
-
-Permite que `/ask` y la digestión usen Groq, Gemini u OpenRouter, con varias keys, rotación y
-respaldo en Ollama local. Lo privado, los embeddings y el audio nunca salen de la máquina.
-Cómo activarlo, apagarlo y leer su estado: [docs/MODO_NUBE.md](docs/MODO_NUBE.md).
-
-## Estructura del proyecto
-
-```
-nexus/
-├── core/                 # Aplicación FastAPI y lógica central
-├── providers/            # Modelos intercambiables (interfaz + implementaciones)
-├── config/               # Lectura de configuración
-├── senses/               # Un módulo por sentido (texto, audio...)
-├── tests/                # Pruebas
-├── data/                 # Memoria de NEXUS (no se sube a git)
-├── Dockerfile
-├── docker-compose.yml
-├── requirements.txt
-└── .env.example
-```
+El e2e levanta su propio contenedor con datos temporales: tu memoria real no se toca. Sin
+`--audio` o `--chaos`, esos casos se marcan SKIP.
 
 ## Comandos útiles
 
 ```bash
-docker compose ps                  # estado de los servicios
-docker compose logs -f core        # logs en vivo
-docker compose down                # detener (conserva modelos y datos)
-docker compose up -d --build core  # reconstruir tras cambiar código
+docker compose ps                        # estado (healthy)
+docker compose logs -f core              # registros en vivo
+docker compose up -d --build             # reconstruir tras actualizar
+curl -X POST localhost:8000/backup       # respaldo ahora
+docker compose down                      # detener (conserva datos y modelos)
 ```
 
-> Evita `docker compose down -v`: borra los volúmenes, incluidos los modelos descargados.
+> Nunca uses `docker compose down -v`: borra los volúmenes con los modelos descargados.
 
-## Datos y privacidad
+## Estructura
 
-- Todo se procesa y guarda en tu máquina. Con el proveedor `ollama`, ningún dato sale de ella.
-- `data/` y `.env` están en `.gitignore`: tu conocimiento y tu configuración nunca se suben al repositorio.
-- Haz copias de seguridad de `data/` periódicamente (se automatizará en el Paso 9).
-
-## Solución de problemas
-
-- **`curl` falla justo después de `up`:** el servicio tarda unos segundos en arrancar. Espera 5 s y reintenta.
-- **`env file .env not found`:** falta ejecutar `cp .env.example .env`.
-- **Error de permisos en `data/` (Linux):** el contenedor usa el usuario con UID 1000. Si el tuyo es distinto, ejecuta `sudo chown -R 1000:1000 data`.
-- **El puerto 8000 está ocupado:** cambia `127.0.0.1:8000:8000` en `docker-compose.yml`.
-- **Respuestas lentas:** es normal en CPU. Usa un modelo más pequeño o apunta a un Ollama con GPU.
-
-## Hoja de ruta
-
-- [x] 1. Repositorio y base profesional
-- [x] 2. Esqueleto en Docker (FastAPI + Ollama)
-- [x] 3. Proveedor de modelo intercambiable y `/chat`
-- [x] 4. Bandeja de entrada (guardar originales)
-- [x] 5. Ingesta de texto y búsqueda semántica
-- [x] 6. Preguntar con fuentes
-- [x] 7. Digestión en segundo plano (resúmenes y conceptos)
-- [x] 8. Sentido del oído (audio)
-- [x] 9. Contador de crecimiento y respaldos
-- [ ] 10. Despliegue en servidor y GPU remota
+```
+core/       API, bandeja, worker, memoria, preguntas, interfaz web
+senses/     un extractor por formato
+providers/  modelos: Ollama, remoto, nube de pruebas, embeddings
+channels/   Telegram, WhatsApp, simulado
+profiles/   perfiles de rubro
+tests/      e2e, unitarias y fixtures
+docs/       documentación
+```
 
 ## Contribuir
 
-Proyecto personal. Los commits siguen [Conventional Commits](https://www.conventionalcommits.org/es/) (`feat:`, `fix:`, `docs:`, `chore:`), con un commit por cada cambio que funciona.
+Commits con [Conventional Commits](https://www.conventionalcommits.org/es/), uno por cambio que
+funciona. Antes de subir: `python3 tests/e2e.py` en verde.
 
 ## Licencia
 

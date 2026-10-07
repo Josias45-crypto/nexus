@@ -17,23 +17,34 @@ conocimiento acumulado, no en el modelo. El modelo es intercambiable por configu
 - No tocar data/, backups/ ni .env. Nunca `docker compose down -v`.
 
 ## Stack
-FastAPI, SQLite (FTS5 + sqlite-vec), Ollama (qwen2.5:1.5b chat, nomic-embed-text embeddings),
-faster-whisper (CPU), Docker Compose. Carpetas: core/, providers/, config/, senses/, tests/.
+FastAPI, SQLite (FTS5 + sqlite-vec, WAL), Ollama 0.35.1 (qwen2.5:1.5b chat, nomic-embed-text
+embeddings), faster-whisper small (CPU), Tesseract OCR, Docker Compose (profiles channels y
+whatsapp). Carpetas: core/, senses/, providers/, channels/, config/, profiles/, tests/, docs/.
 
-## Hecho (pasos 1 a 9)
-1 Base del repo. 2 Docker (FastAPI + Ollama). 3 LLMProvider intercambiable + /chat.
-4 Bandeja: originales en data/raw + tabla events. 5 Troceado, embeddings y búsqueda híbrida
-(RRF) en /search. 6 /ask con fuentes y umbral NEXUS_MAX_DISTANCE=0.8. 7 Worker en segundo
-plano (procesador + digestor, reintentos, /requeue, resúmenes y conceptos en tabla digests;
-el resumen se indexa como chunk position=-1). 8 Audio con faster-whisper small en CPU.
-9 /growth, /dashboard y respaldos verificados (backups/db + espejo de raw, retención 7).
+## Propósito
+Asistente PARA EL DUEÑO de un negocio (primer caso: ventas), usado sobre todo por Telegram. El
+núcleo es genérico; lo propio del rubro vive en profiles/*.toml.
+
+## Hecho
+- Pasos 1 a 9 (base, Docker, LLM intercambiable, bandeja, búsqueda híbrida RRF, /ask con
+  fuentes, worker, digestión, audio, crecimiento y respaldos).
+- MISION.md fases 0 a 6 (v1.0.0, ver CHANGELOG.md): robustez, perfiles y recordatorios,
+  canales (Telegram, WhatsApp apagado, simulado), modo nube de pruebas, conocimiento (troceado
+  por estructura, citas por código, preguntas temporales, /reindex), sentidos por formato
+  (senses/ con registro, OCR, video, zip) e interfaz con bandeja y reintento.
+
+## Cómo probar
+`python3 tests/e2e.py --audio <wav> --audio-phrase <palabra> --chaos` (17 casos, instancia
+aislada; la memoria real no se toca). Unitarias dentro del contenedor (ver tests/test_senses.py).
+Antes de probar cambios de código: `docker compose build core`.
+
+## Reglas que no cambian
+- Embeddings, audio, OCR, visión y lo privado nunca salen de la máquina. Nube apagada por defecto.
+- Las citas las arma el código (core/citations.py), nunca el modelo.
+- Nunca leer, imprimir ni registrar tokens o keys. No ejecutar /reindex sobre la base real sin OK.
 
 ## Pendiente
-- Paso 10: probar en la laptop y desplegar en un VPS de pago (Ubuntu 24.04, 16 GB RAM, 8 vCPU,
-  sin GPU), accesible solo por Tailscale y SSH con llave, sin exponer puertos. Todo corre en CPU
-  en el VPS. Fijar versión de Ollama si sigue en :latest. Respaldos del VPS sincronizados a la
-  laptop. NEXUS_LLM_URL (LLM remoto con respaldo local, ya implementado) queda como opción para
-  apuntar a un Ollama con GPU si algún día hay uno; los embeddings siempre van al local.
-- Después: canales (Telegram, voz, que NEXUS escriba o llame) y más sentidos (imágenes, actividad).
-- Mejoras anotadas: /reindex, cola separada para audios largos, recalibrar NEXUS_MAX_DISTANCE
-  con datos reales, timestamps en audio, regenerar resúmenes con un modelo mejor.
+- Paso 10: desplegar en el VPS (Ubuntu 24.04, 16 GB, 8 vCPU, sin GPU) solo por Tailscale y SSH
+  con llave; respaldos sincronizados a la laptop (docs/OPERACION.md).
+- Fase 5C (entidades extraídas por LLM): solo si el usuario lo decide; experimental con 1.5B.
+- Ideas: timestamps finos en audio, regenerar resúmenes con un modelo mejor, fechas de Excel.
