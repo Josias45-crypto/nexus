@@ -44,7 +44,7 @@ async def search(query: str, k: int = 5, publish: bool = True) -> list[dict]:
         for cid in sorted(scores, key=scores.get, reverse=True)[:k]:
             row = conn.execute(
                 "SELECT c.id, c.position, c.content, e.id AS event_id, e.filename,"
-                " e.source, e.created_at"
+                " e.source, e.created_at, e.private"
                 " FROM chunks c JOIN events e ON e.id = c.event_id WHERE c.id = ?",
                 (cid,),
             ).fetchone()

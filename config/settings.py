@@ -6,10 +6,38 @@ LLM_PROVIDER = os.getenv("NEXUS_LLM_PROVIDER", "ollama")
 # Ollama remoto preferido para el chat (vacío = solo local); los embeddings siempre van al local
 LLM_URL = os.getenv("NEXUS_LLM_URL", "").strip()
 LLM_REMOTE_MODEL = os.getenv("NEXUS_LLM_REMOTE_MODEL") or LLM_MODEL
-# Nube SOLO para pruebas (NEXUS_LLM_PROVIDER=groq). Apagada por defecto; nunca embeddings ni audio
+# Modo nube de pruebas: APAGADO por defecto. Solo chat y digestión con datos no privados;
+# los embeddings y Whisper nunca salen de la máquina. Ver docs/MODO_NUBE.md
 ALLOW_CLOUD = os.getenv("NEXUS_ALLOW_CLOUD", "off").lower() == "on"
-GROQ_API_KEY = os.getenv("GROQ_API_KEY", "").strip()
-GROQ_MODEL = os.getenv("NEXUS_GROQ_MODEL", "").strip()
+CLOUD_ORDER = [
+    p.strip().lower()
+    for p in os.getenv("NEXUS_CLOUD_ORDER", "groq,gemini,openrouter").split(",")
+    if p.strip()
+]
+CLOUD_TIMEOUT = float(os.getenv("NEXUS_CLOUD_TIMEOUT", "30"))
+CLOUD_MIN_COOLDOWN = int(os.getenv("NEXUS_CLOUD_COOLDOWN", "60"))
+# Endpoints compatibles con OpenAI (reemplazables, p. ej. para pruebas sin red)
+CLOUD_URLS = {
+    "groq": "https://api.groq.com/openai/v1",
+    "gemini": "https://generativelanguage.googleapis.com/v1beta/openai",
+    "openrouter": "https://openrouter.ai/api/v1",
+}
+
+
+def _keys(name: str) -> list[str]:
+    raw = os.getenv(f"{name}_API_KEYS", "") or os.getenv(f"{name}_API_KEY", "")
+    return [k.strip() for k in raw.split(",") if k.strip()]
+
+
+# Por proveedor: lista de keys, modelo (sin valor por defecto: lo eliges tú) y URL
+CLOUD_PROVIDERS = {
+    name: {
+        "keys": _keys(name.upper()),
+        "model": os.getenv(f"NEXUS_{name.upper()}_MODEL", "").strip(),
+        "url": os.getenv(f"NEXUS_{name.upper()}_URL", "").strip() or url,
+    }
+    for name, url in CLOUD_URLS.items()
+}
 # Perfil de rubro: profiles/<NEXUS_PROFILE>.toml
 PROFILE = os.getenv("NEXUS_PROFILE", "general").strip().lower()
 PROFILES_DIR = os.getenv("NEXUS_PROFILES_DIR", "/app/profiles")

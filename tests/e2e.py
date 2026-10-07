@@ -444,12 +444,13 @@ class Suite:
         r = subprocess.run(
             ["docker", "run", "--rm", "-e", "NEXUS_DATA_DIR=/tmp",
              "-v", f"{REPO / 'tests'}:/app/tests:ro", image,
-             "python", "-m", "unittest", "-q", "tests.test_telegram", "tests.test_whatsapp"],
+             "python", "-m", "unittest", "-q", "tests.test_telegram", "tests.test_whatsapp",
+             "tests.test_cloud"],
             capture_output=True, text=True, timeout=120,
         )
         if r.returncode != 0:
             raise Fail("canales: " + r.stderr[-300:])
-        return "fechas, Telegram y WhatsApp (red simulada)"
+        return "fechas, Telegram, WhatsApp y pool de nube (red simulada)"
 
     def t13_profile(self):
         if not self.isolated:
@@ -472,6 +473,31 @@ class Suite:
             raise Fail("el perfil no cambió la persona")
         return "general y ventas cambian persona y resumen sin tocar el código"
 
+    def t14_cloud(self):
+        if not self.isolated:
+            raise Skip("solo en instancia aislada (keys falsas)")
+        h = self.api.ok("GET", "/health")
+        nube = h.get("llm", {}).get("nube", {})
+        keys = nube.get("proveedores", {}).get("groq", {}).get("keys", [])
+        if not nube.get("activa") or len(keys) != 2:
+            raise Fail(f"pool de nube no configurado: {nube}")
+        if not any(k["fallos"] for k in keys):
+            raise Fail(f"las keys falsas no se intentaron: {keys}")
+        if h["llm"]["ultimo"]["nube"]:
+            raise Fail("con keys falsas no debería haber respondido la nube")
+        secret = f"Dato privado {self.tag}: la caja fuerte ficticia Orvane{self.rid} se abre con la palabra lumbre."
+        eid = event_id(self.api.ok("POST", "/inbox/text", {"text": secret, "source": "e2e", "private": True}))
+        wait_status(self.api, eid, PROCESS_TIMEOUT)
+        r = self.api.ok("POST", "/ask", {"question": f"¿Con qué palabra se abre la caja fuerte Orvane{self.rid}?"})
+        llm = r.get("llm") or {}
+        if llm.get("nube") or llm.get("motivo_local") != "contenido privado":
+            raise Fail(f"un documento privado no se respondió solo en local: {llm}")
+        logs = subprocess.run(["docker", "logs", E2E_NAME], capture_output=True, text=True)
+        if any(k in logs.stdout + logs.stderr for k in FAKE_KEYS.split(",")):
+            raise Fail("una key apareció en los registros")
+        estados = ", ".join(f"{k['key']} {k['estado']}" for k in keys)
+        return f"cae al local sin romperse ({estados}); privado -> solo local; sin keys en logs"
+
 
 TESTS = [
     ("1 health", "t1_health"),
@@ -487,10 +513,23 @@ TESTS = [
     ("11 canal simulado", "t11_channel"),
     ("12 pruebas unitarias", "t12_unit"),
     ("13 perfiles", "t13_profile"),
+    ("14 cascada de nube", "t14_cloud"),
 ]
 
 # Programador acelerado en la instancia aislada: avisos e insistencias en segundos
 ISOLATED_ENV = {"NEXUS_SCHEDULER_INTERVAL": "2", "NEXUS_REMINDER_RETRY_MIN": "0.1"}
+# Modo nube encendido con keys falsas y una URL local que rechaza la conexión: toda la
+# corrida pasa por la cascada nube -> Ollama local sin enviar nada a Internet.
+FAKE_KEYS = "falsa-key-e2e-uno,falsa-key-e2e-dos"
+ISOLATED_ENV |= {
+    "NEXUS_ALLOW_CLOUD": "on",
+    "NEXUS_CLOUD_ORDER": "groq",
+    "GROQ_API_KEYS": FAKE_KEYS,
+    "NEXUS_GROQ_MODEL": "modelo-falso",
+    "NEXUS_GROQ_URL": "http://127.0.0.1:9/v1",
+    "GEMINI_API_KEYS": "",
+    "OPENROUTER_API_KEYS": "",
+}
 
 
 def main() -> int:

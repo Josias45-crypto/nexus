@@ -15,7 +15,6 @@ from core import profile as nexus_profile
 from core import ask, backup, brain, briefing, dashboard, events, growth, inbox, outbox, processor, reminders, search, ui, worker
 from core.db import connect, init_db
 from core.logs import setup_logging
-from providers import factory, fallback
 from providers.factory import get_provider
 
 setup_logging()
@@ -96,15 +95,15 @@ async def health():
             content={"status": "error", "detail": f"Base de datos inaccesible ({type(exc).__name__})"},
         )
     ollama = await _ollama_check()
+    llm = provider.status()
     return {
         "status": "ok" if ollama["ok"] else "degradado",
         "ollama": ollama,
-        "provider": settings.LLM_PROVIDER,
         "llm_model": settings.LLM_MODEL,
         "ollama_url": settings.OLLAMA_BASE_URL,
-        "llm_activo": fallback.last_used,
-        "nube": fallback.last_used == "groq",
-        "nube_error": factory.cloud_error,
+        "llm_activo": llm["ultimo"]["proveedor"],
+        "nube": llm["ultimo"]["nube"],  # la última respuesta salió de la nube
+        "llm": llm,
     }
 
 
@@ -123,8 +122,8 @@ def profile_info():
 
 @app.post("/chat")
 async def chat(req: ChatRequest):
-    reply = await provider.chat([{"role": "user", "content": req.message}])
-    return {"reply": reply, "model": settings.LLM_MODEL}
+    reply, llm = await provider.chat_ex([{"role": "user", "content": req.message}], cloud=True)
+    return {"reply": reply, "model": llm["modelo"], "llm": llm}
 
 
 @app.post("/inbox/text")
@@ -215,8 +214,7 @@ def worker_status():
         ).fetchall()
     return {
         **worker.state,
-        "llm_activo": fallback.last_used,
-        "nube": fallback.last_used == "groq",
+        "llm": provider.status(),
         "eventos_por_estado": {r["status"]: r["total"] for r in rows},
     }
 

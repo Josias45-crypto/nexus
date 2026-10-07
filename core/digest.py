@@ -28,10 +28,13 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-async def _llm(prompt: str) -> str:
-    reply = await get_provider().chat(
-        [{"role": "system", "content": SYSTEM}, {"role": "user", "content": prompt}]
+async def _llm(prompt: str, private: bool, used: list[dict]) -> str:
+    reply, info = await get_provider().chat_ex(
+        [{"role": "system", "content": SYSTEM}, {"role": "user", "content": prompt}],
+        cloud=True,
+        private=private,
     )
+    used.append(info)
     return reply.strip()
 
 
@@ -49,11 +52,13 @@ def _group(parts: list[str], limit: int) -> list[str]:
     return groups
 
 
-async def summarize(parts: list[str]) -> str:
+async def summarize(parts: list[str], private: bool = False, used: list | None = None) -> str:
     """Resume por secciones y luego combina los resúmenes parciales."""
+    used = [] if used is None else used
     sections = _group(parts, SECTION_CHARS)
     summaries = [
-        await _llm(f"Resume en 3 o 4 frases el siguiente texto:\n\n{s}") for s in sections
+        await _llm(f"Resume en 3 o 4 frases el siguiente texto:\n\n{s}", private, used)
+        for s in sections
     ]
     while len(summaries) > 1:
         merged = _group(summaries, SECTION_CHARS)
@@ -62,18 +67,22 @@ async def summarize(parts: list[str]) -> str:
         summaries = [
             await _llm(
                 "Combina estos resúmenes parciales en un solo resumen coherente "
-                f"de 4 a 6 frases:\n\n{m}"
+                f"de 4 a 6 frases:\n\n{m}",
+                private,
+                used,
             )
             for m in merged
         ]
     return summaries[0]
 
 
-async def extract_concepts(summary: str) -> list[str]:
+async def extract_concepts(summary: str, private: bool = False, used: list | None = None) -> list[str]:
     raw = await _llm(
         "Del siguiente resumen, lista entre 5 y 8 conceptos clave. "
         "Responde solo con los conceptos separados por comas, sin explicaciones:\n\n"
-        + summary
+        + summary,
+        private,
+        [] if used is None else used,
     )
     concepts: list[str] = []
     for item in re.split(r"[,;\n]", raw):
@@ -111,6 +120,9 @@ def _register_failure(event_id: str, error: str) -> str:
 
 async def _digest_event(event_id: str) -> str:
     with connect() as conn:
+        private = bool(
+            conn.execute("SELECT private FROM events WHERE id = ?", (event_id,)).fetchone()["private"]
+        )
         parts = [
             r["content"]
             for r in conn.execute(
@@ -123,8 +135,11 @@ async def _digest_event(event_id: str) -> str:
         _mark(event_id, "skipped")
         return "skipped"
 
-    summary = await summarize(parts)
-    concepts = await extract_concepts(summary)
+    used: list[dict] = []
+    summary = await summarize(parts, private, used)
+    concepts = await extract_concepts(summary, private, used)
+    # Quién resumió de verdad (local o nube), p. ej. "ollama:qwen2.5:1.5b" o "groq:<modelo>"
+    model = ", ".join(dict.fromkeys(f"{u['proveedor']}:{u['modelo']}" for u in used))
     text = summary + (f"\nConceptos clave: {', '.join(concepts)}" if concepts else "")
     vec = (await get_embedder().embed_documents([text]))[0]
 
@@ -149,7 +164,7 @@ async def _digest_event(event_id: str) -> str:
                 event_id,
                 summary,
                 json.dumps(concepts, ensure_ascii=False),
-                settings.LLM_MODEL,
+                model,
                 _now(),
             ),
         )

@@ -141,6 +141,9 @@ class Assistant:
         names = list(dict.fromkeys(s["filename"] for s in r.get("sources", []) if s.get("filename")))
         if names and "No tengo información" not in answer:
             answer += "\n\nFuentes: " + ", ".join(names[:MAX_SOURCES])
+        llm = r.get("llm") or {}
+        if llm.get("nube"):
+            answer += f"\n☁️ NUBE: respondió {llm.get('proveedor')} (modo de pruebas)"
         return answer
 
     async def _status(self) -> str:

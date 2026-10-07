@@ -25,7 +25,7 @@ async def ask(question: str, k: int = 4) -> dict:
         h for h in hits if h["distance"] is None or h["distance"] <= settings.MAX_DISTANCE
     ]
     if not hits:
-        return {"answer": NO_INFO, "sources": []}
+        return {"answer": NO_INFO, "sources": [], "llm": None}
     publish_recall("ask", hits)
 
     context = "\n\n".join(
@@ -35,7 +35,9 @@ async def ask(question: str, k: int = 4) -> dict:
         {"role": "system", "content": f"{profile.system_prompt()} {RULES}"},
         {"role": "user", "content": f"{context}\n\nPregunta: {question}\nRespuesta:"},
     ]
-    answer = await get_provider().chat(messages)
+    # Si algún trozo usado es privado, responde solo el modelo local
+    private = any(h.get("private") for h in hits)
+    answer, llm = await get_provider().chat_ex(messages, cloud=True, private=private)
     if _is_empty_answer(answer):
         answer = "Esto es lo que encontré en mi memoria:\n" + hits[0]["content"][:500]
 
@@ -50,4 +52,4 @@ async def ask(question: str, k: int = 4) -> dict:
         }
         for i, h in enumerate(hits, 1)
     ]
-    return {"answer": answer, "sources": sources}
+    return {"answer": answer, "sources": sources, "llm": llm}

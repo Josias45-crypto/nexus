@@ -9,6 +9,7 @@ PAGE = r"""<!doctype html>
   header{display:flex;justify-content:space-between;align-items:center;padding:12px 20px;border-bottom:1px solid #232850}
   header a{color:var(--acc);text-decoration:none;font-size:14px}
   #stats{color:var(--mut);font-size:13px}
+  .nube{margin-left:8px;padding:1px 6px;border-radius:6px;background:#d32f2f;color:#fff;font-size:10px;font-weight:700;letter-spacing:.05em;vertical-align:middle}
   #cloud{margin-left:6px;padding:2px 8px;border-radius:6px;background:#d32f2f;color:#fff;font-size:11px;font-weight:700;letter-spacing:.05em}
   #log{flex:1;overflow-y:auto;padding:20px;display:flex;flex-direction:column;gap:12px}
   .msg{max-width:780px;padding:12px 14px;border-radius:12px;white-space:pre-wrap;line-height:1.45}
@@ -58,6 +59,13 @@ async function ask() {
     if (!r.ok) throw new Error('Error ' + r.status);
     const data = await r.json();
     wait.textContent = data.answer;
+    if (data.llm && data.llm.nube) {
+      const b = document.createElement('span');
+      b.className = 'nube';
+      b.textContent = 'NUBE';
+      b.title = 'Respondió ' + data.llm.proveedor + ' (' + data.llm.modelo + ', ' + data.llm.key + '): solo pruebas';
+      wait.appendChild(b);
+    }
     if (!data.sources.length && pending > 0) wait.textContent += ' (Sigo procesando ' + pending + ' elemento(s): prueba de nuevo en un momento.)';
     if (data.sources && data.sources.length) {
       const det = document.createElement('details');
@@ -131,7 +139,9 @@ async function toggleMic() {
 async function cloud() {
   try {
     const h = await (await fetch('/health')).json();
-    document.getElementById('cloud').hidden = !h.nube;
+    const c = document.getElementById('cloud');
+    c.hidden = !h.nube;
+    if (h.llm && h.llm.ultimo) c.title = 'La última respuesta salió de la nube: ' + h.llm.ultimo.proveedor + ' (solo pruebas)';
   } catch (e) {}
 }
 
