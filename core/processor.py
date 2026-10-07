@@ -43,9 +43,11 @@ def extract_text(path: Path, mime: str) -> str | None:
     return None
 
 
-def _set_status(event_id: str, status: str) -> None:
+def _set_status(event_id: str, status: str, reason: str | None = None) -> None:
     with connect() as conn:
-        conn.execute("UPDATE events SET status = ? WHERE id = ?", (status, event_id))
+        conn.execute(
+            "UPDATE events SET status = ?, error = ? WHERE id = ?", (status, reason, event_id)
+        )
 
 
 def _register_failure(event_id: str, error: str) -> str:
@@ -95,12 +97,18 @@ async def _process_pending(limit: int) -> dict:
                 extract_text, Path(row["raw_path"]), row["mime"] or ""
             )
             if text is None:
-                _set_status(row["id"], "unsupported")
+                ext = Path(row["raw_path"]).suffix.lower() or "sin extensión"
+                _set_status(
+                    row["id"],
+                    "unsupported",
+                    f"Formato no soportado todavía ({ext}, {row['mime'] or 'tipo desconocido'})."
+                    " El original está guardado; se puede reprocesar con /requeue.",
+                )
                 result["no_soportados"] += 1
                 continue
             chunks = chunk_text(text)
             if not chunks:
-                _set_status(row["id"], "empty")
+                _set_status(row["id"], "empty", "No se encontró texto en el archivo.")
                 result["sin_texto"] += 1
                 continue
 

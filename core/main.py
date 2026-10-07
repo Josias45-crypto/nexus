@@ -147,14 +147,49 @@ def worker_status():
     }
 
 
+# Estados sin trozos guardados: reprocesarlos no duplica la memoria
+REQUEUE_STATES = ("failed", "unsupported", "empty")
+
+
 @app.post("/requeue")
-def requeue():
+def requeue(estado: str = Query("failed", pattern="^(failed|unsupported|empty|todos)$")):
+    states = REQUEUE_STATES if estado == "todos" else (estado,)
+    marks = ",".join("?" * len(states))
     with connect() as conn:
         n = conn.execute(
             "UPDATE events SET status = 'pending', attempts = 0, error = NULL"
+            f" WHERE status IN ({marks})",
+            states,
+        ).rowcount
+    return {"reencolados": n}
+
+
+@app.post("/requeue/digests")
+def requeue_digests():
+    with connect() as conn:
+        n = conn.execute(
+            "UPDATE digests SET status = 'retry', attempts = 0, error = NULL"
             " WHERE status = 'failed'"
         ).rowcount
     return {"reencolados": n}
+
+
+@app.post("/requeue/{event_id}")
+def requeue_one(event_id: str):
+    with connect() as conn:
+        row = conn.execute("SELECT status FROM events WHERE id = ?", (event_id,)).fetchone()
+        if not row:
+            raise HTTPException(404, "No existe ese evento.")
+        if row["status"] not in REQUEUE_STATES:
+            raise HTTPException(
+                409, f"El evento está en '{row['status']}'; solo se reencola si está en "
+                + ", ".join(REQUEUE_STATES) + "."
+            )
+        conn.execute(
+            "UPDATE events SET status = 'pending', attempts = 0, error = NULL WHERE id = ?",
+            (event_id,),
+        )
+    return {"reencolados": 1, "id": event_id}
 
 
 @app.get("/knowledge")
@@ -173,16 +208,6 @@ def knowledge(limit: int = Query(20, ge=0, le=500)):
         "por_estado": {r["status"]: r["total"] for r in counts},
         "resumenes": [{**dict(r), "concepts": json.loads(r["concepts"] or "[]")} for r in rows],
     }
-
-
-@app.post("/requeue/digests")
-def requeue_digests():
-    with connect() as conn:
-        n = conn.execute(
-            "UPDATE digests SET status = 'retry', attempts = 0, error = NULL"
-            " WHERE status = 'failed'"
-        ).rowcount
-    return {"reencolados": n}
 
 
 @app.get("/growth")
