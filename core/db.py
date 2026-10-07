@@ -21,7 +21,8 @@ CREATE TABLE IF NOT EXISTS events (
     raw_path TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'pending',
     attempts INTEGER NOT NULL DEFAULT 0,
-    error TEXT
+    error TEXT,
+    private INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS chunks (
@@ -41,6 +42,42 @@ CREATE TABLE IF NOT EXISTS digests (
     model TEXT,
     error TEXT,
     created_at TEXT NOT NULL
+);
+
+-- Recordatorios: due_at en UTC (ISO). status: pending, sent, done, cancelled
+CREATE TABLE IF NOT EXISTS reminders (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at TEXT NOT NULL,
+    due_at TEXT NOT NULL,
+    text TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    channel TEXT,
+    chat_id TEXT,
+    source_event_id TEXT,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    last_sent_at TEXT,
+    done_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_reminders_status ON reminders(status, due_at);
+
+-- Buzón de salida: lo que NEXUS quiere decir; cada canal lo recoge y confirma la entrega.
+-- chat_id NULL = a todos los dueños autorizados de ese canal.
+CREATE TABLE IF NOT EXISTS outbox (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at TEXT NOT NULL,
+    channel TEXT NOT NULL,
+    chat_id TEXT,
+    kind TEXT NOT NULL,
+    ref_id TEXT,
+    text TEXT NOT NULL,
+    delivered_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_outbox_pending ON outbox(channel, delivered_at);
+
+-- Pequeño almacén clave-valor (p. ej. día del último resumen matutino)
+CREATE TABLE IF NOT EXISTS kv (
+    key TEXT PRIMARY KEY,
+    value TEXT
 );
 
 CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
@@ -80,6 +117,8 @@ def _migrate(conn) -> None:
         conn.execute("ALTER TABLE events ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0")
     if "error" not in cols:
         conn.execute("ALTER TABLE events ADD COLUMN error TEXT")
+    if "private" not in cols:
+        conn.execute("ALTER TABLE events ADD COLUMN private INTEGER NOT NULL DEFAULT 0")
 
 
 def init_db() -> None:

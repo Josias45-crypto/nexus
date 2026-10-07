@@ -76,7 +76,12 @@ def _existing(conn, sha: str) -> dict | None:
 
 
 def save_stream(
-    src: BinaryIO, filename: str, mime: str, source: str, kind: str | None = None
+    src: BinaryIO,
+    filename: str,
+    mime: str,
+    source: str,
+    kind: str | None = None,
+    private: bool = False,
 ) -> dict:
     """Guarda el original intacto en data/raw y registra el evento. Es bloqueante:
     desde código async llamarla con asyncio.to_thread."""
@@ -99,9 +104,12 @@ def save_stream(
         try:
             with connect() as conn:
                 conn.execute(
-                    "INSERT INTO events (id, created_at, kind, source, filename, mime, size, sha256, raw_path)"
-                    " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                    (event_id, now.isoformat(), kind, source, safe_name, mime, size, sha, str(path)),
+                    "INSERT INTO events (id, created_at, kind, source, filename, mime, size,"
+                    " sha256, raw_path, private) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        event_id, now.isoformat(), kind, source, safe_name, mime, size,
+                        sha, str(path), int(private),
+                    ),
                 )
         except sqlite3.IntegrityError:
             # Otra subida idéntica ganó la carrera: se conserva la suya
@@ -115,8 +123,15 @@ def save_stream(
         tmp.unlink(missing_ok=True)
 
     events.publish("ingest", {"id": event_id, "kind": kind, "filename": safe_name})
-    return {"id": event_id, "kind": kind, "size": size, "duplicate": False}
+    return {"id": event_id, "kind": kind, "size": size, "private": private, "duplicate": False}
 
 
-def save(data: bytes, filename: str, mime: str, source: str, kind: str | None = None) -> dict:
-    return save_stream(io.BytesIO(data), filename, mime, source, kind)
+def save(
+    data: bytes,
+    filename: str,
+    mime: str,
+    source: str,
+    kind: str | None = None,
+    private: bool = False,
+) -> dict:
+    return save_stream(io.BytesIO(data), filename, mime, source, kind, private)

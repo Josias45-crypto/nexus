@@ -62,6 +62,8 @@ class ChatRequest(BaseModel):
 class TextIn(BaseModel):
     text: str = Field(min_length=1)
     source: str = Field("api", max_length=40)
+    # Privado: nunca se envía a la nube (aunque el modo nube de pruebas esté activo)
+    private: bool = False
 
 
 async def _ollama_check() -> dict:
@@ -117,13 +119,16 @@ async def inbox_text(item: TextIn):
     if len(data) > MAX_BYTES:
         raise HTTPException(413, TOO_LARGE)
     return await asyncio.to_thread(
-        inbox.save, data, "nota.txt", "text/plain", item.source, kind="text"
+        inbox.save, data, "nota.txt", "text/plain", item.source, kind="text", private=item.private
     )
 
 
 @app.post("/inbox/file")
 async def inbox_file(
-    request: Request, file: UploadFile = File(...), source: str = Query("api", max_length=40)
+    request: Request,
+    file: UploadFile = File(...),
+    source: str = Query("api", max_length=40),
+    private: bool = False,
 ):
     declared = request.headers.get("content-length")
     if declared and declared.isdigit() and int(declared) > MAX_BYTES + 64 * 1024:
@@ -135,6 +140,7 @@ async def inbox_file(
             file.filename or "sin_nombre",
             file.content_type or "application/octet-stream",
             source,
+            private=private,
         )
     except inbox.TooLarge:
         raise HTTPException(413, TOO_LARGE)
@@ -146,7 +152,7 @@ async def inbox_file(
 def inbox_list(limit: int = Query(20, ge=1, le=500)):
     with connect() as conn:
         rows = conn.execute(
-            "SELECT id, created_at, kind, source, filename, size, status, attempts, error"
+            "SELECT id, created_at, kind, source, filename, size, status, attempts, error, private"
             " FROM events ORDER BY created_at DESC LIMIT ?",
             (limit,),
         ).fetchall()
