@@ -27,10 +27,11 @@ NEXUS_ALLOW_CLOUD=on
 NEXUS_CLOUD_ORDER=groq,gemini          # orden de preferencia
 
 GROQ_API_KEYS=tu_key_de_groq           # https://console.groq.com
-NEXUS_GROQ_MODEL=<modelo de Groq>      # p. ej. uno de la lista "Models" de la consola
+NEXUS_GROQ_MODEL=openai/gpt-oss-20b    # probado: estable, ~1 s por respuesta, buen español
 
 GEMINI_API_KEYS=tu_key_de_gemini       # https://aistudio.google.com (Get API key)
 NEXUS_GEMINI_MODEL=<modelo de Gemini>  # p. ej. un modelo "flash" vigente
+# La key de Gemini debe ser de AI Studio (empieza por "AIza"); otra da HTTP 401.
 
 # Opcional
 OPENROUTER_API_KEYS=
