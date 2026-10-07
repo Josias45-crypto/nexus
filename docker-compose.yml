@@ -40,6 +40,7 @@ services:
       - ./data:/data
       - whisper_models:/models
       - ${NEXUS_BACKUP_HOST_DIR:-./backups}:/backups
+      - ./profiles:/app/profiles:ro
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=5)"]
       interval: 30s
