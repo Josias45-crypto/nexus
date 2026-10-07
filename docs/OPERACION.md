@@ -30,7 +30,8 @@ docker compose up -d --build  # la primera vez descarga ~11 GB entre imagen y mo
 curl localhost:8000/health    # "status": "ok"
 ```
 
-`ollama-models` descarga los modelos que falten y termina; `core` espera a que acabe. Si se
+Desde un clon limpio, `up` tardó 10 min (construir la imagen y descargar Ollama y los
+modelos); el primer audio suma unos 4 min por la descarga de Whisper. `ollama-models` descarga los modelos que falten y termina; `core` espera a que acabe. Si se
 corta internet, repite el comando: continúa donde quedó.
 
 ## Actualizar
