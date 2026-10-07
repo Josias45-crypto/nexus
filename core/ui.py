@@ -149,9 +149,15 @@ async function stats() {
   try {
     const g = await (await fetch('/growth')).json();
     pending = g.pendientes_de_digerir;
+    let dig = '';
+    try {
+      const w = await (await fetch('/worker')).json();
+      const d = w.digiriendo;
+      if (d) dig = ' · digiriendo ' + (d.archivo || '') + (d.total ? ' (' + d.hecho + '/' + d.total + ')' : '');
+    } catch (e) {}
     document.getElementById('stats').textContent =
       '· ' + g.aprendido.elementos + ' elementos · racha ' + g.racha_dias + ' · por digerir ' + g.pendientes_de_digerir +
-      (g.fallidos > 0 ? ' · fallidos ' + g.fallidos : '');
+      (g.fallidos > 0 ? ' · fallidos ' + g.fallidos : '') + dig;
   } catch (e) {}
 }
 

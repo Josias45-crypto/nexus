@@ -339,6 +339,7 @@ function handle(ev) {
       break;
     case 'digested':
       if (n) {
+        n.processing = false;
         for (const c of ev.conceptos || []) {
           const id = 'c:' + c.toLowerCase();
           const fresh = !byId.has(id);
@@ -353,6 +354,11 @@ function handle(ev) {
     case 'recall':
       (ev.ids || []).forEach((id, i) => effect(byId.get(id), 'recall', 2600, i * 280));
       toast((ev.origen === 'ask' ? 'Pregunta' : 'Búsqueda') + ': ' + ev.ids.length + ' recuerdo(s) usados');
+      break;
+    case 'digest_progress':
+      if (n) { n.processing = true; wake(0); }
+      if (ev.paso === 'secciones' && ev.total > 1)
+        toast('Digiriendo ' + (n ? n.label : '') + ': sección ' + Math.min(ev.hecho + 1, ev.total) + ' de ' + ev.total);
       break;
     case 'backup':
       toast('Respaldo hecho' + (ev.eventos != null ? ' (' + ev.eventos + ' eventos)' : ''));

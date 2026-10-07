@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 
 from config import settings
 from core import profile as nexus_profile
-from core import ask, backup, brain, briefing, dashboard, events, growth, inbox, outbox, processor, reindex, reminders, search, ui, worker
+from core import ask, backup, brain, briefing, digest, dashboard, events, growth, inbox, outbox, processor, reindex, reminders, search, ui, worker
 from core.db import connect, init_db
 from core.logs import setup_logging
 from providers.factory import get_provider
@@ -215,6 +215,7 @@ def worker_status():
     return {
         **worker.state,
         "llm": provider.status(),
+        "digiriendo": digest.progress,
         "eventos_por_estado": {r["status"]: r["total"] for r in rows},
     }
 

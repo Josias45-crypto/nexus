@@ -13,8 +13,11 @@ from providers.factory import get_provider
 
 log = logging.getLogger("nexus.digest")
 
-SECTION_CHARS = 6000  # cabe en el contexto de un modelo pequeño
+SECTION_CHARS = settings.DIGEST_SECTION_CHARS  # cabe en el contexto de un modelo pequeño
 _lock = asyncio.Lock()
+
+# Progreso de la digestión en curso (lo muestran /worker, la interfaz y /brain)
+progress: dict | None = None
 
 SYSTEM = (
     "Eres un asistente que resume textos en español con precisión. "
@@ -50,14 +53,40 @@ def _group(parts: list[str], limit: int) -> list[str]:
     return groups
 
 
-async def summarize(parts: list[str], private: bool = False, used: list | None = None) -> str:
-    """Resume por secciones y luego combina los resúmenes parciales."""
+def _sample(sections: list[str], limit: int) -> list[str]:
+    """Si hay más secciones que el límite, elige `limit` repartidas de principio a fin."""
+    if limit <= 0 or len(sections) <= limit:
+        return sections
+    if limit == 1:
+        return sections[:1]
+    step = (len(sections) - 1) / (limit - 1)
+    return [sections[round(i * step)] for i in range(limit)]
+
+
+def _progress(event_id: str, **fields) -> None:
+    global progress
+    progress = {**(progress or {}), "event_id": event_id, **fields}
+    events.publish("digest_progress", {"id": event_id, **fields})
+
+
+async def summarize(
+    parts: list[str], private: bool = False, used: list | None = None, event_id: str = ""
+) -> str:
+    """Resume por secciones (hasta NEXUS_DIGEST_MAX_SECTIONS) y combina los resúmenes."""
     used = [] if used is None else used
-    sections = _group(parts, SECTION_CHARS)
-    summaries = [
-        await _llm(f"Resume en 3 o 4 frases el siguiente texto:\n\n{s}", private, used)
-        for s in sections
-    ]
+    all_sections = _group(parts, SECTION_CHARS)
+    sections = _sample(all_sections, settings.DIGEST_MAX_SECTIONS)
+    if len(sections) < len(all_sections):
+        log.info(
+            "Digestión %s: documento grande, se resumen %d de %d secciones repartidas",
+            event_id, len(sections), len(all_sections),
+        )
+    summaries = []
+    for i, s in enumerate(sections, 1):
+        _progress(event_id, paso="secciones", hecho=i - 1, total=len(sections),
+                  secciones_documento=len(all_sections))
+        summaries.append(await _llm(f"Resume en 3 o 4 frases el siguiente texto:\n\n{s}", private, used))
+    _progress(event_id, paso="combinando", hecho=len(sections), total=len(sections))
     while len(summaries) > 1:
         merged = _group(summaries, SECTION_CHARS)
         if len(merged) >= len(summaries):
@@ -134,7 +163,11 @@ async def _digest_event(event_id: str) -> str:
         return "skipped"
 
     used: list[dict] = []
-    summary = await summarize(parts, private, used)
+    with connect() as conn:
+        name = conn.execute("SELECT filename FROM events WHERE id = ?", (event_id,)).fetchone()["filename"]
+    _progress(event_id, archivo=name, paso="secciones", hecho=0, total=0)
+    summary = await summarize(parts, private, used, event_id)
+    _progress(event_id, paso="conceptos")
     concepts = await extract_concepts(summary, private, used)
     # Quién resumió de verdad (local o nube), p. ej. "ollama:qwen2.5:1.5b" o "groq:<modelo>"
     model = ", ".join(dict.fromkeys(f"{u['proveedor']}:{u['modelo']}" for u in used))
@@ -164,6 +197,7 @@ async def _digest_event(event_id: str) -> str:
 
 
 async def digest_pending(limit: int = 5) -> dict:
+    global progress
     async with _lock:
         with connect() as conn:
             rows = conn.execute(
@@ -187,4 +221,6 @@ async def digest_pending(limit: int = 5) -> dict:
                 log.exception("Fallo digiriendo %s", row["id"])
                 status = _register_failure(row["id"], f"{type(exc).__name__}: {exc}")
                 result["fallidos" if status == "failed" else "a_reintentar"] += 1
+            finally:
+                progress = None
         return result
