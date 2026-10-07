@@ -1,5 +1,8 @@
 import asyncio
 import json
+import logging
+
+import httpx
 
 from fastapi import FastAPI, File, HTTPException, Query, Request, UploadFile
 from fastapi.exceptions import RequestValidationError
@@ -22,6 +25,27 @@ MAX_BYTES = settings.MAX_UPLOAD_MB * 1024 * 1024
 TOO_LARGE = f"El archivo supera el límite de {settings.MAX_UPLOAD_MB} MB (NEXUS_MAX_UPLOAD_MB)."
 
 
+log = logging.getLogger("nexus.api")
+
+
+@app.exception_handler(httpx.TransportError)
+async def model_unreachable(request: Request, exc: httpx.TransportError):
+    log.warning("Ollama no responde en %s (%s)", request.url.path, type(exc).__name__)
+    return JSONResponse(
+        status_code=503,
+        content={"detail": "El modelo local (Ollama) no responde. Reintenta en unos segundos."},
+    )
+
+
+@app.exception_handler(Exception)
+async def internal_error(request: Request, exc: Exception):
+    log.exception("Error no controlado en %s", request.url.path)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Error interno de NEXUS. Detalle en: docker logs nexus-core"},
+    )
+
+
 @app.exception_handler(RequestValidationError)
 async def validation_error(request: Request, exc: RequestValidationError):
     errores = [
@@ -40,10 +64,36 @@ class TextIn(BaseModel):
     source: str = Field("api", max_length=40)
 
 
+async def _ollama_check() -> dict:
+    try:
+        async with httpx.AsyncClient(timeout=3) as client:
+            r = await client.get(f"{settings.OLLAMA_BASE_URL.rstrip('/')}/api/tags")
+            r.raise_for_status()
+        names = {m["name"] for m in r.json().get("models", [])}
+        missing = [
+            m for m in (settings.LLM_MODEL, settings.EMBED_MODEL)
+            if m not in names and f"{m}:latest" not in names
+        ]
+        return {"ok": not missing, "modelos_faltantes": missing}
+    except Exception as exc:
+        return {"ok": False, "error": f"no responde ({type(exc).__name__})"}
+
+
 @app.get("/health")
-def health():
+async def health():
+    try:
+        with connect() as conn:
+            conn.execute("SELECT 1").fetchone()
+    except Exception as exc:
+        log.exception("La base de datos no responde")
+        return JSONResponse(
+            status_code=503,
+            content={"status": "error", "detail": f"Base de datos inaccesible ({type(exc).__name__})"},
+        )
+    ollama = await _ollama_check()
     return {
-        "status": "ok",
+        "status": "ok" if ollama["ok"] else "degradado",
+        "ollama": ollama,
         "provider": settings.LLM_PROVIDER,
         "llm_model": settings.LLM_MODEL,
         "ollama_url": settings.OLLAMA_BASE_URL,
