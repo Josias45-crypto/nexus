@@ -51,6 +51,9 @@ EMBED_DIM = 768
 # <= MAX_DISTANCE, o <= MAX_DISTANCE + FTS_MARGIN cuando además coincide por palabras.
 MAX_DISTANCE = float(os.getenv("NEXUS_MAX_DISTANCE", "0.78"))
 FTS_MARGIN = float(os.getenv("NEXUS_FTS_MARGIN", "0.04"))
+# Un nombre propio o cifra de la pregunta que aparece en <= N trozos es "raro": esos trozos
+# entran siempre como candidatos de /ask, sin importar su distancia.
+RARE_MAX_DF = int(os.getenv("NEXUS_RARE_MAX_DF", "5"))
 WORKER_ENABLED = os.getenv("NEXUS_WORKER", "on").lower() == "on"
 WORKER_INTERVAL = int(os.getenv("NEXUS_WORKER_INTERVAL", "20"))
 MAX_ATTEMPTS = int(os.getenv("NEXUS_MAX_ATTEMPTS", "3"))

@@ -17,6 +17,39 @@ def _fts_query(query: str) -> str:
     return " OR ".join(f'"{w}"' for w in words)
 
 
+# Palabras con mayúscula que no son nombres propios (inicio de pregunta)
+_NOT_NAMES = {
+    "que", "qué", "cual", "cuál", "cuales", "cuáles", "cuanto", "cuánto", "cuanta", "cuánta",
+    "cuantos", "cuántos", "cuantas", "cuántas", "como", "cómo", "donde", "dónde", "cuando",
+    "cuándo", "quien", "quién", "quienes", "quiénes", "por", "para", "el", "la", "los", "las",
+    "un", "una", "dime", "dame", "hay", "tengo", "tiene", "me", "en", "de", "a", "y", "o",
+}
+
+
+def rare_terms(query: str) -> list[str]:
+    """Candidatos a término raro: nombres propios (con mayúscula) y cifras o códigos."""
+    out = []
+    for w in re.findall(r"\w+", query):
+        if any(c.isdigit() for c in w) or (w[0].isupper() and w.lower() not in _NOT_NAMES and len(w) >= 3):
+            if w.lower() not in (x.lower() for x in out):
+                out.append(w)
+    return out
+
+
+def _rare_rows(conn, query: str) -> set[int]:
+    """Trozos que contienen un término raro de la pregunta (aparece en pocos trozos)."""
+    ids: set[int] = set()
+    limit = settings.RARE_MAX_DF
+    for term in rare_terms(query):
+        rows = conn.execute(
+            "SELECT rowid FROM chunks_fts WHERE chunks_fts MATCH ? LIMIT ?",
+            (f'"{term}"', limit + 1),
+        ).fetchall()
+        if 0 < len(rows) <= limit:
+            ids.update(r["rowid"] for r in rows)
+    return ids
+
+
 async def search(query: str, k: int = 5, publish: bool = True) -> list[dict]:
     qvec = await get_embedder().embed_query(query)
     pool = k * 4
@@ -39,6 +72,9 @@ async def search(query: str, k: int = 5, publish: bool = True) -> list[dict]:
 
         distances = {r["rowid"]: r["distance"] for r in vec_rows}
         fts_ids = {r["rowid"] for r in fts_rows}
+        rare_ids = _rare_rows(conn, query)
+        fts_rows = list(fts_rows) + [{"rowid": i} for i in rare_ids - fts_ids]
+        fts_ids |= rare_ids
         # Los que solo encontró la búsqueda por palabras también reciben su distancia real,
         # para que el umbral NEXUS_MAX_DISTANCE se aplique a todos por igual
         qblob = sqlite_vec.serialize_float32(qvec)
@@ -55,8 +91,11 @@ async def search(query: str, k: int = 5, publish: bool = True) -> list[dict]:
             for rank, r in enumerate(ranking):
                 scores[r["rowid"]] = scores.get(r["rowid"], 0.0) + 1.0 / (RRF_K + rank + 1)
 
+        ranked = sorted(scores, key=scores.get, reverse=True)
+        # Un término raro (nombre propio, cifra) entra siempre, aunque no esté en el top k
+        chosen = ranked[:k] + [c for c in ranked[k:] if c in rare_ids]
         results = []
-        for cid in sorted(scores, key=scores.get, reverse=True)[:k]:
+        for cid in chosen:
             row = conn.execute(
                 "SELECT c.id, c.position, c.content, c.meta, e.id AS event_id, e.filename,"
                 " e.source, e.created_at, e.private"
@@ -70,6 +109,7 @@ async def search(query: str, k: int = 5, publish: bool = True) -> list[dict]:
                         **dict(row),
                         "meta": parse_meta(row["meta"]),
                         "coincide_texto": cid in fts_ids,
+                        "termino_raro": cid in rare_ids,
                         "score": round(scores[cid], 5),
                         "distance": round(d, 4) if d is not None else None,
                     }
