@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+from datetime import date
 
 import httpx
 
@@ -11,7 +12,7 @@ from pydantic import BaseModel, Field
 
 from config import settings
 from core import profile as nexus_profile
-from core import ask, backup, brain, dashboard, events, growth, inbox, outbox, processor, reminders, search, ui, worker
+from core import ask, backup, brain, briefing, dashboard, events, growth, inbox, outbox, processor, reminders, search, ui, worker
 from core.db import connect, init_db
 from core.logs import setup_logging
 from providers import factory, fallback
@@ -304,6 +305,28 @@ async def run_backup_endpoint():
 @app.get("/backup")
 def backup_status():
     return backup.status()
+
+
+@app.get("/today")
+def today(dia: str | None = Query(None, pattern=r"^\d{4}-\d{2}-\d{2}$")):
+    """Qué aprendió NEXUS en un día local (hoy por defecto) y sus recordatorios."""
+    try:
+        day = date.fromisoformat(dia) if dia else None
+    except ValueError:
+        raise HTTPException(422, "Fecha inválida; usa AAAA-MM-DD.")
+    return briefing.today(day)
+
+
+@app.get("/briefing")
+async def briefing_preview():
+    """Vista previa del resumen matutino (no envía nada)."""
+    return await briefing.build()
+
+
+@app.post("/briefing/send")
+async def briefing_send(channel: str | None = Query(None, max_length=40)):
+    """Envía ahora el resumen matutino al buzón del canal."""
+    return await briefing.send(channel)
 
 
 class ReminderText(BaseModel):
