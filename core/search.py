@@ -4,6 +4,7 @@ import sqlite_vec
 
 from core import events
 from core.db import connect
+from core.memory import parse_meta
 from providers.embeddings import get_embedder
 
 RRF_K = 60  # constante estándar de Reciprocal Rank Fusion
@@ -43,7 +44,7 @@ async def search(query: str, k: int = 5, publish: bool = True) -> list[dict]:
         results = []
         for cid in sorted(scores, key=scores.get, reverse=True)[:k]:
             row = conn.execute(
-                "SELECT c.id, c.position, c.content, e.id AS event_id, e.filename,"
+                "SELECT c.id, c.position, c.content, c.meta, e.id AS event_id, e.filename,"
                 " e.source, e.created_at, e.private"
                 " FROM chunks c JOIN events e ON e.id = c.event_id WHERE c.id = ?",
                 (cid,),
@@ -53,6 +54,7 @@ async def search(query: str, k: int = 5, publish: bool = True) -> list[dict]:
                 results.append(
                     {
                         **dict(row),
+                        "meta": parse_meta(row["meta"]),
                         "score": round(scores[cid], 5),
                         "distance": round(d, 4) if d is not None else None,
                     }

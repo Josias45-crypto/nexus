@@ -75,7 +75,7 @@ async function ask() {
       data.sources.forEach(s => {
         const p = document.createElement('div');
         p.className = 'src';
-        p.textContent = '[' + s.n + '] ' + s.filename + ' · distancia ' + s.distance + '\n' + s.snippet;
+        p.textContent = '[' + s.n + '] ' + (s.cita || s.filename) + (s.distance != null ? ' · distancia ' + s.distance : '') + '\n' + s.snippet;
         det.appendChild(p);
       });
       wait.appendChild(det);

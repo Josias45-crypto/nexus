@@ -1,7 +1,7 @@
 import re
 
 from config import settings
-from core import profile
+from core import citations, profile
 from core.search import publish_recall, search
 from providers.factory import get_provider
 
@@ -29,7 +29,7 @@ async def ask(question: str, k: int = 4) -> dict:
     publish_recall("ask", hits)
 
     context = "\n\n".join(
-        f"Fuente {i} ({h['filename']}):\n{h['content']}" for i, h in enumerate(hits, 1)
+        f"Fuente {i} ({citations.cite(h)}):\n{h['content']}" for i, h in enumerate(hits, 1)
     )
     messages = [
         {"role": "system", "content": f"{profile.system_prompt()} {RULES}"},
@@ -38,18 +38,29 @@ async def ask(question: str, k: int = 4) -> dict:
     # Si algún trozo usado es privado, responde solo el modelo local
     private = any(h.get("private") for h in hits)
     answer, llm = await get_provider().chat_ex(messages, cloud=True, private=private)
+    answer = citations.strip_markers(answer)
+    if NO_INFO.rstrip(".").lower() in answer.lower():
+        # Dijo que no sabe: mostrar fuentes sería engañoso
+        return {"answer": NO_INFO, "sources": [], "llm": llm}
     if _is_empty_answer(answer):
         answer = "Esto es lo que encontré en mi memoria:\n" + hits[0]["content"][:500]
+        backing = hits[:1]
+    else:
+        backing = citations.supporting(answer, hits)
+    return {"answer": answer, "sources": sources_for(backing), "llm": llm}
 
-    sources = [
+
+def sources_for(hits: list[dict]) -> list[dict]:
+    return [
         {
             "n": i,
             "event_id": h["event_id"],
             "filename": h["filename"],
+            "cita": citations.cite(h),
+            "ubicacion": citations.location(h.get("meta") or {}),
             "position": h["position"],
             "distance": h["distance"],
             "snippet": h["content"][:200],
         }
         for i, h in enumerate(hits, 1)
     ]
-    return {"answer": answer, "sources": sources, "llm": llm}

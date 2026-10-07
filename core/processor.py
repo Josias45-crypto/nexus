@@ -5,7 +5,7 @@ from pathlib import Path
 
 from config import settings
 from core import events, memory
-from core.chunker import chunk_text
+from core.chunker import Segment, chunk_segments
 from core.db import connect
 from providers.embeddings import get_embedder
 
@@ -20,12 +20,14 @@ QUEUES = {"texto": ("text", "document"), "audio": ("audio",)}
 _locks = {name: asyncio.Lock() for name in QUEUES}
 
 
-def extract_text(path: Path, mime: str) -> str | None:
+def extract_segments(path: Path, mime: str) -> list[Segment] | None:
+    """Texto del original en segmentos con metadatos (página, marca de tiempo).
+    None = formato no soportado todavía."""
     ext = path.suffix.lower()
     if mime.startswith("audio/") or ext in AUDIO_EXT:
-        from core.transcriber import transcribe
+        from core.transcriber import transcribe_segments
 
-        return transcribe(str(path))
+        return transcribe_segments(str(path))
     if ext == ".pdf" or mime == "application/pdf":
         from pypdf import PdfReader
 
@@ -38,9 +40,12 @@ def extract_text(path: Path, mime: str) -> str | None:
                 opened = 0
             if not opened:
                 raise ValueError("PDF protegido con contraseña")
-        return "\n\n".join((page.extract_text() or "") for page in reader.pages)
+        return [
+            Segment(page.extract_text() or "", {"pagina": i})
+            for i, page in enumerate(reader.pages, 1)
+        ]
     if ext in TEXT_EXT or mime.startswith("text/"):
-        return path.read_text(encoding="utf-8", errors="replace")
+        return [Segment(path.read_text(encoding="utf-8", errors="replace"))]
     return None
 
 
@@ -100,10 +105,10 @@ async def _process_pending(limit: int, kinds: tuple[str, ...]) -> dict:
         events.publish("processing", {"id": row["id"]})
         started = time.monotonic()
         try:
-            text = await asyncio.to_thread(
-                extract_text, Path(row["raw_path"]), row["mime"] or ""
+            segments = await asyncio.to_thread(
+                extract_segments, Path(row["raw_path"]), row["mime"] or ""
             )
-            if text is None:
+            if segments is None:
                 ext = Path(row["raw_path"]).suffix.lower() or "sin extensión"
                 _set_status(
                     row["id"],
@@ -113,7 +118,8 @@ async def _process_pending(limit: int, kinds: tuple[str, ...]) -> dict:
                 )
                 result["no_soportados"] += 1
                 continue
-            chunks = chunk_text(text)
+            pieces = chunk_segments(segments)
+            chunks = [text for text, _ in pieces]
             if not chunks:
                 _set_status(row["id"], "empty", "No se encontró texto en el archivo.")
                 result["sin_texto"] += 1
@@ -124,8 +130,8 @@ async def _process_pending(limit: int, kinds: tuple[str, ...]) -> dict:
                 # Restos de un intento anterior o de una reindexación: el resumen se rehace
                 memory.delete_chunks(conn, row["id"])
                 conn.execute("DELETE FROM digests WHERE event_id = ?", (row["id"],))
-                for pos, (content, vec) in enumerate(zip(chunks, vectors)):
-                    memory.insert_chunk(conn, row["id"], pos, content, vec)
+                for pos, ((content, meta), vec) in enumerate(zip(pieces, vectors)):
+                    memory.insert_chunk(conn, row["id"], pos, content, vec, meta)
                 conn.execute(
                     "UPDATE events SET status = 'processed', error = NULL WHERE id = ?",
                     (row["id"],),
