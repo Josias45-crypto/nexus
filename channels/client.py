@@ -55,8 +55,26 @@ class NexusClient:
     async def today(self) -> dict:
         return await self._req("GET", "/today")
 
-    async def parse_reminder(self, text: str) -> dict:
-        return await self._req("POST", "/reminders/parse", json={"text": text})
+    async def parse_reminder(self, text: str, channel: str | None = None, chat_id: str | None = None) -> dict:
+        """Con canal y chat, lo entendido queda pendiente de confirmar en la base."""
+        return await self._req(
+            "POST", "/reminders/parse", json={"text": text, "channel": channel, "chat_id": chat_id}
+        )
+
+    async def pending_reminder(self, channel: str, chat_id: str) -> dict | None:
+        return await self._req("GET", "/reminders/pending", params={"channel": channel, "chat_id": chat_id})
+
+    async def confirm_reminder(self, channel: str, chat_id: str) -> dict:
+        return await self._req("POST", "/reminders/confirm", json={"channel": channel, "chat_id": chat_id})
+
+    async def test_reminder(self, channel: str, chat_id: str, seconds: int = 60) -> dict:
+        return await self._req(
+            "POST", "/reminders/test", params={"seconds": seconds},
+            json={"channel": channel, "chat_id": chat_id},
+        )
+
+    async def cancel_pending(self, channel: str, chat_id: str) -> None:
+        await self._req("POST", "/reminders/pending/cancel", json={"channel": channel, "chat_id": chat_id})
 
     async def create_reminder(self, text: str, due_at: str, channel: str, chat_id: str) -> dict:
         return await self._req(

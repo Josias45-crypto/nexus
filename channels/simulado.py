@@ -2,6 +2,9 @@
 
 Autoprueba (la usa tests/e2e.py contra la instancia aislada):
     python -m channels.simulado --url http://localhost:8000
+
+Pasos sueltos, cada uno en un proceso nuevo (e2e reinicia el contenedor entre pedir y confirmar):
+    python -m channels.simulado --step pedir|confirmar|entregar --tag X
 """
 
 import argparse
@@ -111,12 +114,16 @@ async def selftest(url: str, tag: str) -> int:
     check(not any(tag in p["text"] for p in pend), "cancelado no se guarda", str(pend))
 
     r = await say(f"recuérdame en 1 minuto llamar a Tralvex{tag}")
+    r = await say("sí, ¿y a qué hora?")
+    check("No entendí tu respuesta" in r, "un sí con pregunta vuelve a preguntar", r)
+    r = await say("Sí, guárdalo")
+    check("Guardado (n.º" in r and "hora de Perú" in r, "responder sí guarda el recordatorio", r)
     r = await say("sí")
-    check("Listo" in r, "responder sí guarda el recordatorio", r)
+    check("Ya estaba guardado" in r, "un sí repetido no lo duplica", r)
     pend = await nexus.reminders(OWNER)
     check(any(tag in p["text"] for p in pend), "aparece en /recordatorios (API)", str(pend))
     r = await say("/recordatorios")
-    check(tag in r, "/recordatorios lo lista", r)
+    check(tag in r and "hora de Perú" in r and "[pendiente]" in r, "/recordatorios lo lista", r)
 
     first = await _wait_outbox(bot, ch, f"Tralvex{tag}", timeout=150)
     check(first is not None, "el aviso llega por el canal", str(ch.sent[-3:]))
@@ -143,12 +150,38 @@ async def selftest(url: str, tag: str) -> int:
     return 1 if check.failures else 0
 
 
+async def step(url: str, tag: str, name: str) -> int:
+    """Un paso del recordatorio en un bot recién arrancado (nada en memoria)."""
+    ch = SimChannel([OWNER])
+    nexus = NexusClient(url)
+    bot = Assistant(ch, nexus, {OWNER})
+    check = Check()
+    if name == "pedir":
+        r = "\n".join(await bot.handle(ch.text(f"recuérdame en 1 minuto revisar Brontal{tag}")))
+        check("¿Lo guardo?" in r, "pide confirmación", r)
+    elif name == "confirmar":
+        r = "\n".join(await bot.handle(ch.text("Sí, guárdalo")))
+        check("Guardado (n.º" in r and "hora de Perú" in r, "confirma tras el reinicio", r)
+        pend = await nexus.reminders(OWNER)
+        check(any(f"Brontal{tag}" in p["text"] for p in pend), "la fila existe", str(pend))
+    elif name == "entregar":
+        got = await _wait_outbox(bot, ch, f"Brontal{tag}", timeout=150)
+        check(got is not None, "el aviso sale por /outbox", str(ch.sent[-3:]))
+        r = "\n".join(await bot.handle(ch.text("/hecho")))
+        check("Hecho" in r, "/hecho lo cierra", r)
+    await nexus.close()
+    return 1 if check.failures else 0
+
+
 def main() -> int:
     p = argparse.ArgumentParser()
     p.add_argument("--url", default="http://localhost:8000")
     p.add_argument("--tag", default=str(int(time.time())))
+    p.add_argument("--step", choices=["pedir", "confirmar", "entregar"])
     args = p.parse_args()
     logging.basicConfig(level=logging.WARNING)
+    if args.step:
+        return asyncio.run(step(args.url, args.tag, args.step))
     return asyncio.run(selftest(args.url, args.tag))
 
 

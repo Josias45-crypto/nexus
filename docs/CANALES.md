@@ -30,12 +30,19 @@ Telegram / WhatsApp / simulado          núcleo (core)
 | `/recordar …` | Guarda una nota |
 | archivo, foto, nota de voz | Va a la bandeja: se guarda el original y se procesa |
 | `recuérdame mañana a las 9 …` | Interpreta la fecha y **pide confirmación** (sí/no) antes de guardar |
-| `/recordatorios` | Lista los pendientes |
+| `/recordatorios` | Lista los pendientes con hora de Perú y estado |
+| `/probar_recordatorio` | Crea un aviso a 60 s para probar el camino entero (cada etapa queda en el registro) |
 | `/hecho [n]` | Marca hecho el recordatorio n (sin número: el último que te avisó) |
 | `/hoy` | Lo que aprendió hoy y los recordatorios del día |
 | `/estado` | Crecimiento: días de vida, racha, elementos y pendientes |
 | `/privado [texto]` | Marca como privado el siguiente envío (o guarda ese texto como privado) |
 | `/ayuda` | Ayuda con ejemplos del perfil activo |
+
+La confirmación queda guardada en NEXUS (tabla `pending_confirmations`), no en la memoria del
+bot: sobrevive a un reinicio y caduca a los `NEXUS_REMINDER_CONFIRM_MIN` minutos (15). Valen
+"sí", "si", "ok", "dale", "confirmo" y frases que empiezan así ("Sí, guárdalo"). Si la respuesta
+no es clara o trae una pregunta ("sí, ¿y a qué hora?"), el bot vuelve a preguntar. Solo dice
+"Guardado" con el número y la hora tras leer la fila escrita, y un "sí" repetido no la duplica.
 
 Si un recordatorio vence y no respondes `/hecho`, NEXUS insiste cada
 `NEXUS_REMINDER_RETRY_MIN` minutos hasta `NEXUS_REMINDER_MAX_TRIES` avisos.

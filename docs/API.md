@@ -69,7 +69,13 @@ curl -X POST localhost:8000/ask -H 'Content-Type: application/json' \
 | Método | Ruta | Qué hace |
 |---|---|---|
 | POST | `/reminders/parse` | `{"text": "recuérdame mañana a las 9 llamar a Pedro"}` interpreta **sin guardar** (422 si no entiende la fecha) |
-| POST | `/reminders` | `{"text", "due_at", "channel", "chat_id"}` guarda (tras confirmar con el usuario) |
+| POST | `/reminders/parse` con `channel` y `chat_id` | Además deja lo entendido pendiente de confirmar en la base (caduca) |
+| GET | `/reminders/pending?channel=&chat_id=` | Lo que espera el "sí" en ese chat (`null` si nada); `reminder_id` lleno = ya confirmado |
+| GET | `/reminders/pending/all` | Todas las confirmaciones guardadas |
+| POST | `/reminders/confirm` | `{"channel", "chat_id"}` guarda lo pendiente una sola vez y devuelve la fila (`ya_guardado` si se repite); 404 si no hay nada |
+| POST | `/reminders/pending/cancel` | `{"channel", "chat_id"}` descarta lo pendiente |
+| POST | `/reminders/test?seconds=60` | `{"channel", "chat_id"}` recordatorio de prueba sin confirmación |
+| POST | `/reminders` | `{"text", "due_at", "channel", "chat_id"}` guarda directamente |
 | GET | `/reminders?chat_id=` | Recordatorios abiertos |
 | POST | `/reminders/done?chat_id=` | Marca hecho el último avisado |
 | POST | `/reminders/{id}/done` · `/reminders/{id}/cancel` | Marca hecho o cancela |

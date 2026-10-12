@@ -1,10 +1,13 @@
 """Buzón de salida: mensajes que NEXUS quiere enviar. Cada canal los recoge con
 GET /outbox y confirma con POST /outbox/{id}/delivered (así el núcleo no conoce tokens)."""
 
+import logging
 from datetime import timedelta
 
 from core import clock
 from core.db import connect
+
+log = logging.getLogger("nexus.outbox")
 
 # Un resumen matutino que nadie recogió a tiempo (canal apagado) ya no tiene sentido
 STALE = {"briefing": timedelta(hours=12)}
@@ -38,10 +41,11 @@ def pending(channel: str, limit: int = 20) -> list[dict]:
 
 def delivered(msg_id: int) -> bool:
     with connect() as conn:
-        return (
-            conn.execute(
-                "UPDATE outbox SET delivered_at = ? WHERE id = ? AND delivered_at IS NULL",
-                (clock.now_utc().isoformat(), msg_id),
-            ).rowcount
-            == 1
-        )
+        ok = conn.execute(
+            "UPDATE outbox SET delivered_at = ? WHERE id = ? AND delivered_at IS NULL",
+            (clock.now_utc().isoformat(), msg_id),
+        ).rowcount == 1
+        r = conn.execute("SELECT kind, ref_id, channel FROM outbox WHERE id = ?", (msg_id,)).fetchone()
+    if ok and r and r["kind"] == "reminder":
+        log.info("Recordatorio %s · etapa 3: entregado por %s", r["ref_id"], r["channel"])
+    return ok

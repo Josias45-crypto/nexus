@@ -88,6 +88,7 @@ TZ_OFFSET = int(os.getenv("NEXUS_TZ_OFFSET", "-5"))
 # Recordatorios: insistir cada N minutos (admite decimales) hasta M avisos
 REMINDER_RETRY_MIN = float(os.getenv("NEXUS_REMINDER_RETRY_MIN", "30"))
 REMINDER_MAX_TRIES = int(os.getenv("NEXUS_REMINDER_MAX_TRIES", "3"))
+REMINDER_CONFIRM_MIN = float(os.getenv("NEXUS_REMINDER_CONFIRM_MIN", "15"))  # caducidad del "¿lo guardo?"
 SCHEDULER_INTERVAL = int(os.getenv("NEXUS_SCHEDULER_INTERVAL", "30"))
 # Canal por defecto para avisos proactivos
 DEFAULT_CHANNEL = os.getenv("NEXUS_DEFAULT_CHANNEL", "telegram")

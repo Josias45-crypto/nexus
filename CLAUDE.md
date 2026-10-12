@@ -34,7 +34,7 @@ núcleo es genérico; lo propio del rubro vive en profiles/*.toml.
   (senses/ con registro, OCR, video, zip) e interfaz con bandeja y reintento.
 
 ## Cómo probar
-`python3 tests/e2e.py --audio <wav> --audio-phrase <palabra> --chaos` (17 casos, instancia
+`python3 tests/e2e.py --audio <wav> --audio-phrase <palabra> --chaos` (18 casos, instancia
 aislada; la memoria real no se toca). Unitarias dentro del contenedor (ver tests/test_senses.py).
 Antes de probar cambios de código: `docker compose build core`.
 

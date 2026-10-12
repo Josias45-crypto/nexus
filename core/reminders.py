@@ -1,7 +1,8 @@
 """Recordatorios: interpretar, confirmar, guardar y avisar con insistencia.
 
-Flujo: el canal llama a interpret() y muestra la fecha entendida; solo si el usuario confirma,
-llama a create(). El programador (worker) deja los avisos vencidos en el buzón de salida
+Flujo: el canal llama a interpret() con su chat; lo entendido queda en pending_confirmations
+(en la base, con caducidad, así sobrevive a reinicios del canal). Solo si el usuario confirma,
+confirm() escribe la fila en reminders y la devuelve leída de la base. El programador (worker) deja los avisos vencidos en el buzón de salida
 (outbox) y los repite cada NEXUS_REMINDER_RETRY_MIN minutos hasta NEXUS_REMINDER_MAX_TRIES
 avisos o hasta que el usuario responda /hecho.
 """
@@ -79,6 +80,35 @@ async def interpret(text: str) -> dict:
     )
 
 
+def _insert(conn, text: str, due_at: str, channel: str | None, chat_id: str | None,
+            source_event_id: str | None = None) -> int:
+    due = datetime.fromisoformat(due_at)
+    if due.tzinfo is None:
+        raise ValueError("due_at debe incluir zona horaria (UTC)")
+    return conn.execute(
+        "INSERT INTO reminders (created_at, due_at, text, channel, chat_id, source_event_id)"
+        " VALUES (?, ?, ?, ?, ?, ?)",
+        (
+            clock.now_utc().isoformat(),
+            due.astimezone(timezone.utc).isoformat(),
+            text,
+            channel or settings.DEFAULT_CHANNEL,
+            chat_id,
+            source_event_id,
+        ),
+    ).lastrowid
+
+
+def _saved(rid: int) -> dict:
+    """Relee la fila escrita: nunca se da por guardado algo que no está en la base."""
+    r = get(rid)
+    if not r:
+        raise RuntimeError(f"el recordatorio {rid} no quedó guardado")
+    log.info("Recordatorio %s · etapa 1: guardado para %s (hora local)", rid, r["due_local"])
+    events.publish("reminder", {"id": rid})
+    return r
+
+
 def create(
     text: str,
     due_at: str,
@@ -86,24 +116,92 @@ def create(
     chat_id: str | None = None,
     source_event_id: str | None = None,
 ) -> dict:
-    due = datetime.fromisoformat(due_at)
-    if due.tzinfo is None:
-        raise ValueError("due_at debe incluir zona horaria (UTC)")
     with connect() as conn:
-        rid = conn.execute(
-            "INSERT INTO reminders (created_at, due_at, text, channel, chat_id, source_event_id)"
-            " VALUES (?, ?, ?, ?, ?, ?)",
-            (
-                clock.now_utc().isoformat(),
-                due.astimezone(timezone.utc).isoformat(),
-                text,
-                channel or settings.DEFAULT_CHANNEL,
-                chat_id,
-                source_event_id,
-            ),
-        ).lastrowid
-    events.publish("reminder", {"id": rid})
-    return get(rid)
+        rid = _insert(conn, text, due_at, channel, chat_id, source_event_id)
+    return _saved(rid)
+
+
+def create_test(channel: str | None, chat_id: str | None, seconds: int = 60) -> dict:
+    """/probar_recordatorio: aviso a los N segundos, sin confirmación, para ver el camino entero."""
+    due = clock.now_utc() + timedelta(seconds=seconds)
+    r = create(f"Prueba de recordatorio ({seconds} s)", due.isoformat(), channel, chat_id)
+    log.info("Recordatorio %s · prueba: debe llegar a %s por %s", r["id"], r["due_local"], r["channel"])
+    return r
+
+
+def set_pending(channel: str, chat_id: str, parsed: dict) -> dict:
+    """Guarda lo entendido a la espera del "sí" (reemplaza cualquier pendiente del chat)."""
+    now = clock.now_utc()
+    expires = now + timedelta(minutes=settings.REMINDER_CONFIRM_MIN)
+    with connect() as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO pending_confirmations (channel, chat_id, kind, payload,"
+            " created_at, expires_at, reminder_id) VALUES (?, ?, 'reminder', ?, ?, ?, NULL)",
+            (channel, chat_id, json.dumps(parsed, ensure_ascii=False), now.isoformat(), expires.isoformat()),
+        )
+    log.info("Confirmación pendiente en %s (caduca %s)", channel, expires.isoformat(timespec="seconds"))
+    return {**parsed, "caduca": expires.isoformat(), "reminder_id": None}
+
+
+def get_pending(channel: str, chat_id: str) -> dict | None:
+    """Lo pendiente de ese chat (reminder_id lleno = ya confirmado); borra lo caducado."""
+    now = clock.now_utc().isoformat()
+    with connect() as conn:
+        conn.execute("DELETE FROM pending_confirmations WHERE expires_at <= ?", (now,))
+        r = conn.execute(
+            "SELECT payload, expires_at, reminder_id FROM pending_confirmations"
+            " WHERE channel = ? AND chat_id = ?",
+            (channel, chat_id),
+        ).fetchone()
+    if not r:
+        return None
+    return {**json.loads(r["payload"]), "caduca": r["expires_at"], "reminder_id": r["reminder_id"]}
+
+
+def clear_pending(channel: str, chat_id: str) -> bool:
+    """Cancela lo que espera confirmación (lo ya confirmado no se toca)."""
+    with connect() as conn:
+        return conn.execute(
+            "DELETE FROM pending_confirmations WHERE channel = ? AND chat_id = ?"
+            " AND reminder_id IS NULL",
+            (channel, chat_id),
+        ).rowcount > 0
+
+
+def confirm(channel: str, chat_id: str) -> dict | None:
+    """Convierte lo pendiente en recordatorio, una sola vez: leer, insertar y marcar van en la
+    misma transacción, y un "sí" repetido devuelve el ya creado (ya_guardado=True).
+    None si no hay nada pendiente (o caducó)."""
+    now = clock.now_utc().isoformat()
+    with connect() as conn:
+        conn.execute("BEGIN IMMEDIATE")  # dos "sí" a la vez: el segundo espera y ve reminder_id
+        r = conn.execute(
+            "SELECT payload, reminder_id FROM pending_confirmations"
+            " WHERE channel = ? AND chat_id = ? AND expires_at > ?",
+            (channel, chat_id, now),
+        ).fetchone()
+        if not r:
+            return None
+        if r["reminder_id"]:
+            again = r["reminder_id"]
+        else:
+            again = None
+            p = json.loads(r["payload"])
+            rid = _insert(conn, p["tarea"], p["due_at"], channel, chat_id)
+            conn.execute(
+                "UPDATE pending_confirmations SET reminder_id = ? WHERE channel = ? AND chat_id = ?",
+                (rid, channel, chat_id),
+            )
+    if again:
+        saved = get(again)
+        return {**saved, "ya_guardado": True} if saved else None
+    return {**_saved(rid), "ya_guardado": False}
+
+
+def list_pending() -> list[dict]:
+    with connect() as conn:
+        rows = conn.execute("SELECT * FROM pending_confirmations ORDER BY created_at").fetchall()
+    return [dict(r) for r in rows]
 
 
 def _row(r) -> dict:
@@ -173,5 +271,6 @@ def due_step() -> dict:
                 "UPDATE reminders SET status = 'sent', attempts = ?, last_sent_at = ? WHERE id = ?",
                 (n, now.isoformat(), r["id"]),
             )
+            log.info("Recordatorio %s · etapa 2: al buzón de %s (aviso %d)", r["id"], r["channel"], n)
             sent += 1
     return {"avisos": sent}

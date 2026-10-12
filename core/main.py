@@ -346,6 +346,14 @@ async def briefing_send(channel: str | None = Query(None, max_length=40)):
 
 class ReminderText(BaseModel):
     text: str = Field(min_length=1, max_length=1000)
+    # Si llegan, lo entendido queda pendiente de confirmar para ese chat (en la base)
+    channel: str | None = Field(None, max_length=40)
+    chat_id: str | None = Field(None, max_length=80)
+
+
+class ChatRef(BaseModel):
+    channel: str = Field(min_length=1, max_length=40)
+    chat_id: str = Field(min_length=1, max_length=80)
 
 
 class ReminderIn(BaseModel):
@@ -360,9 +368,43 @@ class ReminderIn(BaseModel):
 async def reminder_parse(req: ReminderText):
     """Interpreta sin guardar: el canal debe confirmar con el usuario y luego POST /reminders."""
     try:
-        return await reminders.interpret(req.text)
+        parsed = await reminders.interpret(req.text)
     except reminders.NotUnderstood as exc:
         raise HTTPException(422, str(exc))
+    if req.channel and req.chat_id:
+        return reminders.set_pending(req.channel, req.chat_id, parsed)
+    return parsed
+
+
+@app.get("/reminders/pending")
+def reminder_pending(channel: str = Query(max_length=40), chat_id: str = Query(max_length=80)):
+    """Lo que espera confirmación en ese chat (null si nada o si caducó)."""
+    return reminders.get_pending(channel, chat_id)
+
+
+@app.get("/reminders/pending/all")
+def reminder_pending_all():
+    return reminders.list_pending()
+
+
+@app.post("/reminders/confirm")
+def reminder_confirm(req: ChatRef):
+    """Guarda el recordatorio pendiente de ese chat y devuelve la fila escrita."""
+    saved = reminders.confirm(req.channel, req.chat_id)
+    if not saved:
+        raise HTTPException(404, "No tengo nada pendiente de confirmar (o pasó demasiado tiempo).")
+    return saved
+
+
+@app.post("/reminders/test")
+def reminder_test(req: ChatRef, seconds: int = Query(60, ge=5, le=3600)):
+    """Recordatorio de prueba a los N s (sin confirmación); cada etapa queda en el log."""
+    return reminders.create_test(req.channel, req.chat_id, seconds)
+
+
+@app.post("/reminders/pending/cancel")
+def reminder_pending_cancel(req: ChatRef):
+    return {"cancelado": reminders.clear_pending(req.channel, req.chat_id)}
 
 
 @app.post("/reminders")
@@ -375,6 +417,7 @@ def reminder_create(req: ReminderIn):
 
 @app.get("/reminders")
 def reminder_list(chat_id: str | None = None, limit: int = Query(50, ge=1, le=500)):
+    """Abiertos (pending o sent); due_local en hora local (NEXUS_TZ_OFFSET)."""
     return reminders.list_open(chat_id, limit)
 
 

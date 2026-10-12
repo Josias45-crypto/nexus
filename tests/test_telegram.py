@@ -58,6 +58,8 @@ class FakeNexus:
         p = request.url.path
         if p == "/profile":
             return httpx.Response(200, json={"asistente": {"nombre": "NEXUS"}, "ejemplos": []})
+        if p == "/reminders/pending":
+            return httpx.Response(200, content=b"null")
         if p == "/ask":
             return httpx.Response(200, json={"answer": "Los martes.", "sources": [{"filename": "nota.txt"}]})
         if p == "/inbox/file":

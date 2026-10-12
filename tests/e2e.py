@@ -441,6 +441,40 @@ class Suite:
         oks = sum(1 for l in r.stdout.splitlines() if l.startswith("ok "))
         return f"{oks} comprobaciones: comandos, /privado, recordatorio con confirmación e insistencia"
 
+    def _sim_step(self, name: str) -> str:
+        r = subprocess.run(
+            ["docker", "exec", E2E_NAME, "python", "-m", "channels.simulado",
+             "--url", "http://localhost:8000", "--tag", self.rid, "--step", name],
+            capture_output=True, text=True, timeout=300,
+        )
+        if r.returncode != 0:
+            fails = [l for l in r.stdout.splitlines() if l.startswith("FALLA")]
+            raise Fail(f"{name}: " + ("; ".join(fails) or (r.stderr or r.stdout)[-300:])[:300])
+        return r.stdout
+
+    def t18_reminder_restart(self):
+        if not self.isolated:
+            raise Skip("solo en instancia aislada (reinicia el contenedor)")
+        self._sim_step("pedir")
+        # El bot simulado vive en este contenedor: reiniciarlo borra toda memoria del proceso
+        _docker("restart", "-t", "10", E2E_NAME)
+        deadline = time.monotonic() + 90
+        while True:
+            try:
+                self.api.ok("GET", "/health")
+                break
+            except Exception:
+                if time.monotonic() > deadline:
+                    raise Fail("la instancia no volvió tras el reinicio")
+                time.sleep(2)
+        self._sim_step("confirmar")
+        rows = self.api.ok("GET", "/reminders?" + urllib.parse.urlencode({"chat_id": "1001"}))
+        mine = [r for r in rows if f"Brontal{self.rid}" in r["text"]]
+        if len(mine) != 1:
+            raise Fail(f"se esperaba 1 fila y hay {len(mine)}")
+        self._sim_step("entregar")
+        return f"pedir → reinicio → confirmar (fila {mine[0]['id']}) → aviso por /outbox → /hecho"
+
     def t12_unit(self):
         local = subprocess.run(
             [sys.executable, "-m", "unittest", "-q", "tests.test_when"],
@@ -454,7 +488,7 @@ class Suite:
              "-v", f"{REPO / 'tests'}:/app/tests:ro", image,
              "python", "-m", "unittest", "-q", "tests.test_telegram", "tests.test_whatsapp",
              "tests.test_cloud", "tests.test_questions", "tests.test_chunker", "tests.test_senses",
-             "tests.test_verify"],
+             "tests.test_verify", "tests.test_reminders_flow"],
             capture_output=True, text=True, timeout=120,
         )
         if r.returncode != 0:
@@ -668,6 +702,7 @@ TESTS = [
     ("15 conocimiento", "t15_knowledge"),
     ("16 formatos", "t16_formats"),
     ("17 interfaz y reintento", "t17_ui_retry"),
+    ("18 recordatorio tras reinicio", "t18_reminder_restart"),
 ]
 
 # Programador acelerado en la instancia aislada: avisos e insistencias en segundos

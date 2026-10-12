@@ -5,6 +5,7 @@ conversación vive en channels/assistant.py y habla con NEXUS por su API HTTP.
 """
 
 import re
+import unicodedata
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
@@ -24,8 +25,10 @@ class Intent(str, Enum):
     REMINDER = "recordatorio"  # "recuérdame ..."
     REMINDERS = "recordatorios"
     DONE = "hecho"
+    TEST_REMINDER = "probar_recordatorio"
     YES = "si"
     NO = "no"
+    UNCLEAR = "no_entendi"  # respuesta a "¿lo guardo?" que no es ni sí ni no
 
 
 @dataclass
@@ -54,11 +57,37 @@ COMMANDS = {
     "privado": Intent.PRIVATE,
     "recordatorios": Intent.REMINDERS,
     "hecho": Intent.DONE,
+    "probar_recordatorio": Intent.TEST_REMINDER,
 }
 RE_COMMAND = re.compile(r"^/(\w+)(?:@\w+)?\s*(.*)$", re.S)
 RE_REMINDER = re.compile(r"^\s*(recu[eé]rdame|recordarme|av[ií]same)\b", re.I)
-YES = {"si", "sí", "s", "ok", "dale", "listo", "guardalo", "guárdalo", "correcto", "confirmo", "yes"}
-NO = {"no", "n", "cancelar", "cancela", "nop"}
+YES = {"si", "s", "ok", "okay", "okey", "dale", "listo", "guardalo", "correcto", "confirmo",
+       "confirmado", "claro", "yes", "va", "perfecto", "afirmativo"}
+NO = {"no", "n", "cancelar", "cancela", "cancelalo", "nop", "nel", "olvidalo"}
+QUESTION_WORDS = {"que", "cuando", "como", "donde", "cual", "cuales", "quien", "cuanto", "cuanta",
+                  "porque", "acaso"}
+
+
+def _words(text: str) -> list[str]:
+    plain = "".join(
+        c for c in unicodedata.normalize("NFD", text.lower()) if unicodedata.category(c) != "Mn"
+    )
+    return re.findall(r"[a-z0-9]+", plain)
+
+
+def confirmation(text: str) -> Intent:
+    """Clasifica la respuesta a "¿lo guardo?": "Sí, guárdalo" o "ok gracias" son YES; si la
+    respuesta mezcla sí y no ("si... no, espera"), trae una pregunta ("sí, ¿y a qué hora?") o no
+    es ninguna, UNCLEAR (se vuelve a preguntar)."""
+    words = _words(text)
+    if not words or "?" in text or "¿" in text or set(words) & QUESTION_WORDS:
+        return Intent.UNCLEAR
+    first, rest = words[0], set(words[1:])
+    if first in YES and not rest & NO:
+        return Intent.YES
+    if first in NO and not rest & YES:
+        return Intent.NO
+    return Intent.UNCLEAR
 
 
 def detect_intent(msg: Incoming, awaiting_confirmation: bool = False) -> tuple[Intent, str]:
@@ -71,14 +100,10 @@ def detect_intent(msg: Incoming, awaiting_confirmation: bool = False) -> tuple[I
         if intent:
             return intent, m.group(2).strip()
         return Intent.HELP, ""
-    if awaiting_confirmation:
-        word = re.sub(r"[^\wáéíóúñ]", "", text.lower())
-        if word in YES:
-            return Intent.YES, ""
-        if word in NO:
-            return Intent.NO, ""
     if RE_REMINDER.match(text):
-        return Intent.REMINDER, text
+        return Intent.REMINDER, text  # un pedido nuevo reemplaza al pendiente
+    if awaiting_confirmation:
+        return confirmation(text), ""
     # Un texto libre sin comando se trata como pregunta
     return Intent.ASK, text
 

@@ -1,7 +1,9 @@
 """Lógica de conversación común a todos los canales.
 
 - Solo atiende a los usuarios autorizados; a los demás los ignora en silencio.
-- "recuérdame ..." siempre se confirma con el usuario antes de guardar.
+- "recuérdame ..." siempre se confirma con el usuario antes de guardar. Lo pendiente de
+  confirmar vive en NEXUS (en la base, con caducidad), no en la memoria del canal: sobrevive
+  a reinicios del bot. Nunca se dice "guardado" sin haber leído la fila escrita.
 - /privado marca el siguiente envío (texto o archivo) como privado.
 - deliver_outbox() reparte lo que NEXUS quiere decir (avisos, resumen matutino).
 """
@@ -18,12 +20,13 @@ log = logging.getLogger("nexus.channels")
 MAX_SOURCES = 3
 TYPING_EVERY = 4  # Telegram borra "escribiendo..." a los 5 s
 SLOW_INTENTS = {Intent.ASK, Intent.FILE, Intent.VOICE, Intent.REMINDER, Intent.TODAY}
+STATUS_ES = {"pending": "pendiente", "sent": "avisado, esperando /hecho"}
+TZ_LABEL = "hora de Perú"
 
 
 @dataclass
 class ChatState:
     private_next: bool = False
-    pending_reminder: dict | None = None
 
 
 class Assistant:
@@ -45,15 +48,27 @@ class Assistant:
             log.warning("Mensaje ignorado de un usuario no autorizado (id %s)", msg.user_id)
             return []
         state = self.states.setdefault(msg.chat_id, ChatState())
-        intent, arg = detect_intent(msg, awaiting_confirmation=state.pending_reminder is not None)
-        if intent not in (Intent.YES, Intent.NO):
-            state.pending_reminder = None  # cualquier otra cosa cancela la confirmación
+        intent, arg = detect_intent(msg)
+        pending = None
+        if intent == Intent.ASK:  # texto libre: ¿es la respuesta a un "¿lo guardo?"?
+            try:
+                pending = await self.nexus.pending_reminder(self.channel.name, msg.chat_id)
+            except NexusError as exc:
+                log.warning("No se pudo consultar la confirmación pendiente: %s", exc)
+            if pending:
+                answer, _ = detect_intent(msg, awaiting_confirmation=True)
+                if not pending.get("reminder_id"):
+                    intent, arg = answer, ""
+                elif answer == Intent.YES:
+                    intent, arg = Intent.YES, ""  # "sí" repetido: responde con el ya guardado
+                else:
+                    pending = None  # ya confirmado: el texto es una pregunta normal
         typing = None
         if intent in SLOW_INTENTS:
             await self._typing(msg.chat_id)  # de inmediato; luego se repite en segundo plano
             typing = asyncio.create_task(self._keep_typing(msg.chat_id))
         try:
-            replies = await self._dispatch(intent, arg, msg, state)
+            replies = await self._dispatch(intent, arg, msg, state, pending)
         except NexusError as exc:
             replies = [f"⚠️ {exc}"]
         except Exception:
@@ -81,7 +96,9 @@ class Assistant:
             await asyncio.sleep(TYPING_EVERY)
             await self._typing(chat_id)
 
-    async def _dispatch(self, intent: Intent, arg: str, msg: Incoming, state: ChatState) -> list[str]:
+    async def _dispatch(
+        self, intent: Intent, arg: str, msg: Incoming, state: ChatState, pending: dict | None = None
+    ) -> list[str]:
         if intent in (Intent.START, Intent.HELP):
             return [await self._help()]
         if intent == Intent.PRIVATE:
@@ -107,16 +124,23 @@ class Assistant:
         if intent == Intent.TODAY:
             return [await self._today()]
         if intent == Intent.REMINDER:
-            return [await self._reminder_parse(arg, state)]
+            return [await self._reminder_parse(arg, msg)]
         if intent == Intent.YES:
-            return [await self._reminder_confirm(msg, state)]
+            return [await self._reminder_confirm(msg)]
         if intent == Intent.NO:
-            state.pending_reminder = None
+            await self.nexus.cancel_pending(self.channel.name, msg.chat_id)
             return ["De acuerdo, no lo guardo."]
+        if intent == Intent.UNCLEAR:
+            return [
+                f"No entendí tu respuesta. ¿Guardo el recordatorio «{pending['tarea']}» para "
+                f"{pending['entendido']} ({pending['due_local']}, {TZ_LABEL})? Responde sí o no."
+            ]
         if intent == Intent.REMINDERS:
             return [await self._reminders(msg)]
         if intent == Intent.DONE:
             return [await self._done(arg, msg)]
+        if intent == Intent.TEST_REMINDER:
+            return [await self._test_reminder(msg)]
         return [await self._help()]
 
     def _take_private(self, state: ChatState) -> bool:
@@ -138,6 +162,7 @@ class Assistant:
             "• Envíame archivos, fotos o notas de voz y los aprendo.\n"
             "• «recuérdame mañana a las 9 …» — te aviso (te pido confirmar).\n"
             "• /recordatorios — pendientes · /hecho [n] — marcar hecho.\n"
+            "• /probar_recordatorio — te aviso en 60 s para probar.\n"
             "• /hoy — lo que aprendí hoy · /estado — cómo voy.\n"
             "• /privado — lo siguiente que envíes nunca sale a la nube."
             + (f"\n\nEjemplos:\n{ejemplos}" if ejemplos else "")
@@ -190,25 +215,47 @@ class Assistant:
             lines += [f"• {r['cuando']} — {r['texto']} (/hecho {r['id']})" for r in rem]
         return "\n".join(lines)
 
-    async def _reminder_parse(self, text: str, state: ChatState) -> str:
-        r = await self.nexus.parse_reminder(text)
-        state.pending_reminder = r
+    async def _reminder_parse(self, text: str, msg: Incoming) -> str:
+        try:
+            r = await self.nexus.parse_reminder(text, self.channel.name, msg.chat_id)
+        except NexusError as exc:  # no entendió la fecha: se pregunta, nada queda pendiente
+            return f"🤔 {exc}"
         nota = " (lo interpreté con el modelo; revísalo bien)" if r.get("metodo") == "llm" else ""
-        return f"Entendí: {r['entendido']} — «{r['tarea']}»{nota}.\n¿Lo guardo? Responde sí o no."
+        return (
+            f"Entendí: {r['entendido']} ({r['due_local']}, {TZ_LABEL}) — «{r['tarea']}»{nota}."
+            "\n¿Lo guardo? Responde sí o no."
+        )
 
-    async def _reminder_confirm(self, msg: Incoming, state: ChatState) -> str:
-        r, state.pending_reminder = state.pending_reminder, None
-        if not r:
-            return "No tengo nada pendiente de confirmar."
-        saved = await self.nexus.create_reminder(r["tarea"], r["due_at"], self.channel.name, msg.chat_id)
-        return f"⏰ Listo (n.º {saved['id']}): te aviso {r['entendido']}."
+    async def _reminder_confirm(self, msg: Incoming) -> str:
+        try:
+            saved = await self.nexus.confirm_reminder(self.channel.name, msg.chat_id)
+        except NexusError as exc:
+            return f"⚠️ No lo guardé: {exc}"
+        if not saved.get("id") or not saved.get("due_local"):
+            return "⚠️ No pude comprobar que se guardó. Pídemelo de nuevo, por favor."
+        if saved.get("ya_guardado"):
+            return f"Ya estaba guardado (n.º {saved['id']}) para el {saved['due_local']} ({TZ_LABEL})."
+        return (
+            f"⏰ Guardado (n.º {saved['id']}): «{saved['text']}» el {saved['due_local']} "
+            f"({TZ_LABEL}). Te aviso a esa hora."
+        )
+
+    async def _test_reminder(self, msg: Incoming) -> str:
+        r = await self.nexus.test_reminder(self.channel.name, msg.chat_id, 60)
+        log.info("Recordatorio %s de prueba pedido por %s", r["id"], self.channel.name)
+        return (
+            f"🧪 Recordatorio de prueba n.º {r['id']} guardado para las {r['due_local'][-5:]} "
+            f"({TZ_LABEL}). Debe llegarte en unos 60 s. Etapas en el registro: guardado → "
+            "buzón → entregado."
+        )
 
     async def _reminders(self, msg: Incoming) -> str:
         items = await self.nexus.reminders(msg.chat_id)
         if not items:
             return "No tienes recordatorios pendientes."
-        return "Recordatorios pendientes:\n" + "\n".join(
-            f"• {r['id']}) {r['due_local']} — {r['text']}" for r in items
+        return f"Recordatorios pendientes ({TZ_LABEL}):\n" + "\n".join(
+            f"• {r['id']}) {r['due_local']} — {r['text']} [{STATUS_ES.get(r['status'], r['status'])}]"
+            for r in items
         )
 
     async def _done(self, arg: str, msg: Incoming) -> str:
@@ -232,6 +279,8 @@ class Assistant:
                 log.warning("No se pudo entregar el aviso %s (%s); se reintenta", m["id"], type(exc).__name__)
                 continue
             await self.nexus.delivered(m["id"])
+            if m.get("kind") == "reminder":
+                log.info("Recordatorio %s entregado por %s", m.get("ref_id"), self.channel.name)
             sent += 1
         return sent
 

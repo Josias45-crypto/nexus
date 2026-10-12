@@ -3,6 +3,18 @@
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). Fechas en
 AAAA-MM-DD.
 
+## [Sin publicar]
+
+### Recordatorios
+- La confirmación ("¿Lo guardo?") se guarda en la base (`pending_confirmations`, caduca a los
+  `NEXUS_REMINDER_CONFIRM_MIN` minutos) en vez de en la memoria del bot: sobrevive a reinicios.
+  Antes, "Sí, guárdalo", "si por favor" o un reinicio perdían el recordatorio sin avisar.
+- Acepta "sí, si, ok, dale, confirmo" y frases que empiezan así; si la respuesta no es clara o
+  trae una pregunta, vuelve a preguntar. Solo dice "Guardado" con el n.º y la hora de Perú tras
+  releer la fila; un "sí" repetido no la duplica (confirmación atómica).
+- `/probar_recordatorio` (aviso a 60 s, cada etapa en el registro) y `/recordatorios` con hora de
+  Perú y estado. e2e: caso 18, recordatorio que sobrevive al reinicio del contenedor.
+
 ## [1.0.0] - 2026-10-07
 
 Primera versión completa: probada de extremo a extremo, multicanal y documentada.

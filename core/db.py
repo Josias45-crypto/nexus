@@ -61,6 +61,20 @@ CREATE TABLE IF NOT EXISTS reminders (
 );
 CREATE INDEX IF NOT EXISTS idx_reminders_status ON reminders(status, due_at);
 
+-- Recordatorio entendido que espera el "sí" del usuario (uno por chat). Vive en la base para
+-- sobrevivir a reinicios del canal; caduca en expires_at (UTC, ISO). reminder_id se llena al
+-- confirmar: un "sí" repetido devuelve ese mismo recordatorio en vez de crear otro.
+CREATE TABLE IF NOT EXISTS pending_confirmations (
+    channel TEXT NOT NULL,
+    chat_id TEXT NOT NULL,
+    kind TEXT NOT NULL DEFAULT 'reminder',
+    payload TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    reminder_id INTEGER,
+    PRIMARY KEY (channel, chat_id)
+);
+
 -- Buzón de salida: lo que NEXUS quiere decir; cada canal lo recoge y confirma la entrega.
 -- chat_id NULL = a todos los dueños autorizados de ese canal.
 CREATE TABLE IF NOT EXISTS outbox (
