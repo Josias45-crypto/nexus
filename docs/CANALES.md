@@ -33,10 +33,23 @@ Telegram / WhatsApp / simulado          núcleo (core)
 | `/recordatorios` | Lista los pendientes con hora de Perú y estado |
 | `/probar_recordatorio` | Crea un aviso a 60 s para probar el camino entero (cada etapa queda en el registro) |
 | `/hecho [n]` | Marca hecho el recordatorio n (sin número: el último que te avisó) |
+| `/cancelar n` | Cancela el recordatorio n (solo los de tu propio chat) |
 | `/hoy` | Lo que aprendió hoy y los recordatorios del día |
 | `/estado` | Crecimiento: días de vida, racha, elementos y pendientes |
 | `/privado [texto]` | Marca como privado el siguiente envío (o guarda ese texto como privado) |
 | `/ayuda` | Ayuda con ejemplos del perfil activo |
+
+Horas que entiende: `4:17`, `4 : 17`, `4.17`, `4h17`, `4 y 18`, `4 y cuarto`, `4 y media`,
+`4 menos cuarto`, `16:17`, `4 pm`, `de la mañana/tarde/noche`, `mediodía`, `medianoche`,
+`mañana 9`, `en 20 minutos`. Sin am/pm ni fecha elige la próxima vez que llega esa hora (a las
+04:15, "a las 4" es 16:00 y "a las 4:17" es 04:17). Con fecha, de 1 a 7 es de la tarde. Si la
+hora no queda clara o sobra un número ("a las 4 17 …"), pregunta "¿A qué hora exactamente?" en
+vez de adivinar; si pides una hora con am/pm que hoy ya pasó, pregunta si es para mañana. La
+confirmación se ve así:
+
+    Entendí: hoy 4:17 a. m. (04:17, hora de Perú)
+    Tarea: llamar a Piter
+    ¿Lo guardo? Responde sí o no.
 
 La confirmación queda guardada en NEXUS (tabla `pending_confirmations`), no en la memoria del
 bot: sobrevive a un reinicio y caduca a los `NEXUS_REMINDER_CONFIRM_MIN` minutos (15). Valen

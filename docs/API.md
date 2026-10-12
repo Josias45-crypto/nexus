@@ -68,7 +68,7 @@ curl -X POST localhost:8000/ask -H 'Content-Type: application/json' \
 
 | Método | Ruta | Qué hace |
 |---|---|---|
-| POST | `/reminders/parse` | `{"text": "recuérdame mañana a las 9 llamar a Pedro"}` interpreta **sin guardar** (422 si no entiende la fecha) |
+| POST | `/reminders/parse` | `{"text": "recuérdame mañana a las 9 llamar a Pedro"}` interpreta **sin guardar** (422 si no entiende la fecha o la hora es ambigua; `aviso` si la hora ya pasó hoy y se propone mañana) |
 | POST | `/reminders/parse` con `channel` y `chat_id` | Además deja lo entendido pendiente de confirmar en la base (caduca) |
 | GET | `/reminders/pending?channel=&chat_id=` | Lo que espera el "sí" en ese chat (`null` si nada); `reminder_id` lleno = ya confirmado |
 | GET | `/reminders/pending/all` | Todas las confirmaciones guardadas |
@@ -78,7 +78,7 @@ curl -X POST localhost:8000/ask -H 'Content-Type: application/json' \
 | POST | `/reminders` | `{"text", "due_at", "channel", "chat_id"}` guarda directamente |
 | GET | `/reminders?chat_id=` | Recordatorios abiertos |
 | POST | `/reminders/done?chat_id=` | Marca hecho el último avisado |
-| POST | `/reminders/{id}/done` · `/reminders/{id}/cancel` | Marca hecho o cancela |
+| POST | `/reminders/{id}/done` · `/reminders/{id}/cancel?chat_id=` | Marca hecho o cancela (con `chat_id`, solo si es de ese chat) |
 | GET | `/briefing` | Vista previa del resumen matutino (no envía) |
 | POST | `/briefing/send?channel=telegram` | Envía el resumen ahora |
 | GET | `/outbox?channel=telegram` | Avisos pendientes para un canal (los canales los recogen) |

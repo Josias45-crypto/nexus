@@ -91,6 +91,9 @@ class NexusClient:
             return await self._req("POST", "/reminders/done", params={"chat_id": chat_id})
         return await self._req("POST", f"/reminders/{rid}/done")
 
+    async def cancel(self, rid: int, chat_id: str) -> dict:
+        return await self._req("POST", f"/reminders/{rid}/cancel", params={"chat_id": chat_id})
+
     async def outbox(self, channel: str) -> list[dict]:
         return await self._req("GET", "/outbox", params={"channel": channel})
 

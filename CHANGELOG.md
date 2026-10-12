@@ -15,6 +15,13 @@ AAAA-MM-DD.
 - `/probar_recordatorio` (aviso a 60 s, cada etapa en el registro) y `/recordatorios` con hora de
   Perú y estado. e2e: caso 18, recordatorio que sobrevive al reinicio del contenedor.
 
+- Horas: `4 : 17`, `4.17`, `4h17`, `4 y 18`, `y cuarto/media`, `menos cuarto`, `mañana 9`,
+  medianoche. Sin am/pm ni fecha, la próxima ocurrencia entre h y h+12 (antes: de 1 a 7 siempre
+  p. m. y se perdían los minutos: "hoy a las 4 : 17" a las 04:15 daba 16:00). Si la hora es
+  ambigua o sobra un número, pregunta en vez de adivinar; con am/pm ya pasada, pregunta si es
+  para mañana. Confirmación "hoy 4:17 a. m. (04:17, hora de Perú)" con la tarea aparte.
+- `/cancelar N`, solo para recordatorios del mismo chat.
+
 ### Preguntas
 - Las entidades de la pregunta (nombres propios, códigos, cifras; sin acentos ni mayúsculas,
   "3 200" = "3200") deben salir en alguna fuente; si no, "No tengo información". Ya no responde

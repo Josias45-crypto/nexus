@@ -132,8 +132,8 @@ class Assistant:
             return ["De acuerdo, no lo guardo."]
         if intent == Intent.UNCLEAR:
             return [
-                f"No entendí tu respuesta. ¿Guardo el recordatorio «{pending['tarea']}» para "
-                f"{pending['entendido']} ({pending['due_local']}, {TZ_LABEL})? Responde sí o no."
+                f"No entendí tu respuesta. ¿Guardo el recordatorio para {self._when(pending)}?\n"
+                f"Tarea: {pending['tarea']}\nResponde sí o no."
             ]
         if intent == Intent.REMINDERS:
             return [await self._reminders(msg)]
@@ -141,6 +141,8 @@ class Assistant:
             return [await self._done(arg, msg)]
         if intent == Intent.TEST_REMINDER:
             return [await self._test_reminder(msg)]
+        if intent == Intent.CANCEL:
+            return [await self._cancel(arg, msg)]
         return [await self._help()]
 
     def _take_private(self, state: ChatState) -> bool:
@@ -161,7 +163,7 @@ class Assistant:
             "• /recordar <texto> — guardo una nota.\n"
             "• Envíame archivos, fotos o notas de voz y los aprendo.\n"
             "• «recuérdame mañana a las 9 …» — te aviso (te pido confirmar).\n"
-            "• /recordatorios — pendientes · /hecho [n] — marcar hecho.\n"
+            "• /recordatorios — pendientes · /hecho [n] — marcar hecho · /cancelar n — cancelar.\n"
             "• /probar_recordatorio — te aviso en 60 s para probar.\n"
             "• /hoy — lo que aprendí hoy · /estado — cómo voy.\n"
             "• /privado — lo siguiente que envíes nunca sale a la nube."
@@ -221,10 +223,18 @@ class Assistant:
         except NexusError as exc:  # no entendió la fecha: se pregunta, nada queda pendiente
             return f"🤔 {exc}"
         nota = " (lo interpreté con el modelo; revísalo bien)" if r.get("metodo") == "llm" else ""
+        aviso = f"{r['aviso']}\n" if r.get("aviso") else ""
+        pregunta = "¿Lo guardo para mañana?" if r.get("aviso") else "¿Lo guardo?"
         return (
-            f"Entendí: {r['entendido']} ({r['due_local']}, {TZ_LABEL}) — «{r['tarea']}»{nota}."
-            "\n¿Lo guardo? Responde sí o no."
+            f"{aviso}Entendí: {self._when(r)}{nota}\nTarea: {r['tarea']}\n"
+            f"{pregunta} Responde sí o no."
         )
+
+    @staticmethod
+    def _when(r: dict) -> str:
+        """'hoy 4:17 a. m. (04:17, hora de Perú)'"""
+        hora = r.get("hora") or r["due_local"][-5:]
+        return f"{r['entendido']} ({hora}, {TZ_LABEL})"
 
     async def _reminder_confirm(self, msg: Incoming) -> str:
         try:
@@ -233,19 +243,30 @@ class Assistant:
             return f"⚠️ No lo guardé: {exc}"
         if not saved.get("id") or not saved.get("due_local"):
             return "⚠️ No pude comprobar que se guardó. Pídemelo de nuevo, por favor."
+        when = f"el {saved['due_local'][:10]} a las {saved['due_ampm']} ({saved['due_local'][-5:]}, {TZ_LABEL})"
         if saved.get("ya_guardado"):
-            return f"Ya estaba guardado (n.º {saved['id']}) para el {saved['due_local']} ({TZ_LABEL})."
+            return f"Ya estaba guardado (n.º {saved['id']}) para {when}."
         return (
-            f"⏰ Guardado (n.º {saved['id']}): «{saved['text']}» el {saved['due_local']} "
-            f"({TZ_LABEL}). Te aviso a esa hora."
+            f"⏰ Guardado (n.º {saved['id']}) para {when}.\nTarea: {saved['text']}\n"
+            f"Cancélalo con /cancelar {saved['id']}."
         )
+
+    async def _cancel(self, arg: str, msg: Incoming) -> str:
+        if not arg.strip().isdigit():
+            pending = await self.nexus.pending_reminder(self.channel.name, msg.chat_id)
+            if pending and not pending.get("reminder_id"):
+                await self.nexus.cancel_pending(self.channel.name, msg.chat_id)
+                return "De acuerdo, no lo guardo."
+            return "Escribe /cancelar y el número (lo ves con /recordatorios)."
+        r = await self.nexus.cancel(int(arg), msg.chat_id)  # solo los de este chat
+        return f"❌ Cancelado (n.º {r['id']}): {r['text']}."
 
     async def _test_reminder(self, msg: Incoming) -> str:
         r = await self.nexus.test_reminder(self.channel.name, msg.chat_id, 60)
         log.info("Recordatorio %s de prueba pedido por %s", r["id"], self.channel.name)
         return (
-            f"🧪 Recordatorio de prueba n.º {r['id']} guardado para las {r['due_local'][-5:]} "
-            f"({TZ_LABEL}). Debe llegarte en unos 60 s. Etapas en el registro: guardado → "
+            f"🧪 Recordatorio de prueba n.º {r['id']} guardado para las {r['due_ampm']} "
+            f"({r['due_local'][-5:]}, {TZ_LABEL}). Debe llegarte en unos 60 s. Etapas en el registro: guardado → "
             "buzón → entregado."
         )
 
@@ -254,7 +275,8 @@ class Assistant:
         if not items:
             return "No tienes recordatorios pendientes."
         return f"Recordatorios pendientes ({TZ_LABEL}):\n" + "\n".join(
-            f"• {r['id']}) {r['due_local']} — {r['text']} [{STATUS_ES.get(r['status'], r['status'])}]"
+            f"• {r['id']}) {r['due_local'][:10]} {r['due_ampm']} ({r['due_local'][-5:]}) — {r['text']}"
+            f" [{STATUS_ES.get(r['status'], r['status'])}]"
             for r in items
         )
 

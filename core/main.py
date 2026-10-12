@@ -370,6 +370,8 @@ async def reminder_parse(req: ReminderText):
     try:
         parsed = await reminders.interpret(req.text)
     except reminders.NotUnderstood as exc:
+        if req.channel and req.chat_id:  # un "sí" posterior no debe confirmar un pedido anterior
+            reminders.clear_pending(req.channel, req.chat_id)
         raise HTTPException(422, str(exc))
     if req.channel and req.chat_id:
         return reminders.set_pending(req.channel, req.chat_id, parsed)
@@ -439,8 +441,9 @@ def reminder_done(rid: int):
 
 
 @app.post("/reminders/{rid}/cancel")
-def reminder_cancel(rid: int):
-    return _reminder_status(rid, "cancelled", None)
+def reminder_cancel(rid: int, chat_id: str | None = Query(None, max_length=80)):
+    """Con chat_id solo cancela si el recordatorio es de ese chat (404 si no)."""
+    return _reminder_status(rid, "cancelled", chat_id)
 
 
 @app.get("/outbox")

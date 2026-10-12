@@ -31,20 +31,26 @@ class NotUnderstood(ValueError):
     pass
 
 
-def _result(dt_local: datetime, task: str, method: str, now: datetime) -> dict:
+def _result(
+    dt_local: datetime, task: str, method: str, now: datetime, passed_today: bool = False
+) -> dict:
     if dt_local <= now:
         raise NotUnderstood(
             f"La fecha entendida ({when.describe(dt_local, now)}) ya pasó. Dímela de nuevo."
         )
     if not task:
         raise NotUnderstood("Entendí la fecha, pero no qué debo recordarte.")
-    return {
+    r = {
         "due_at": clock.local_to_utc(dt_local).isoformat(),
         "due_local": dt_local.strftime("%Y-%m-%d %H:%M"),
+        "hora": dt_local.strftime("%H:%M"),
         "entendido": when.describe(dt_local, now),
         "tarea": task,
         "metodo": method,
     }
+    if passed_today:  # pidió una hora inequívoca que hoy ya pasó: se pregunta por mañana
+        r["aviso"] = f"Las {when.ampm(dt_local)} de hoy ya pasaron. ¿Es para mañana?"
+    return r
 
 
 async def _llm_fallback(text: str, now: datetime) -> dict | None:
@@ -69,9 +75,12 @@ async def _llm_fallback(text: str, now: datetime) -> dict | None:
 async def interpret(text: str) -> dict:
     """No guarda nada: devuelve lo entendido para que el usuario lo confirme."""
     now = clock.now_local()
-    p = when.parse(text, now)
+    try:
+        p = when.parse(text, now)
+    except when.Ambiguous as exc:  # no se adivina la hora (ni con el modelo): se pregunta
+        raise NotUnderstood(str(exc)) from exc
     if p:
-        return _result(p.when, p.task, "reglas", now)
+        return _result(p.when, p.task, "reglas", now, p.passed_today)
     guess = await _llm_fallback(text, now)
     if guess:
         return _result(guess["dt"], guess["task"], "llm", now)
@@ -206,7 +215,9 @@ def list_pending() -> list[dict]:
 
 def _row(r) -> dict:
     d = dict(r)
-    d["due_local"] = clock.utc_to_local(r["due_at"]).strftime("%Y-%m-%d %H:%M")
+    local = clock.utc_to_local(r["due_at"])
+    d["due_local"] = local.strftime("%Y-%m-%d %H:%M")
+    d["due_ampm"] = when.ampm(local)
     return d
 
 
@@ -228,7 +239,8 @@ def list_open(chat_id: str | None = None, limit: int = 50) -> list[dict]:
 
 
 def set_status(rid: int | None, status: str, chat_id: str | None = None) -> dict | None:
-    """Marca done/cancelled. Sin id: el último recordatorio ya avisado de ese chat."""
+    """Marca done/cancelled. Sin id: el último recordatorio ya avisado de ese chat. Con id y
+    chat_id: solo si el recordatorio es de ese chat (nadie cancela los de otro)."""
     with connect() as conn:
         if rid is None:
             row = conn.execute(
@@ -241,8 +253,8 @@ def set_status(rid: int | None, status: str, chat_id: str | None = None) -> dict
             rid = row["id"]
         n = conn.execute(
             "UPDATE reminders SET status = ?, done_at = ? WHERE id = ?"
-            " AND status IN ('pending', 'sent')",
-            (status, clock.now_utc().isoformat(), rid),
+            " AND status IN ('pending', 'sent') AND (? IS NULL OR chat_id = ?)",
+            (status, clock.now_utc().isoformat(), rid, chat_id, chat_id),
         ).rowcount
     return get(rid) if n else None
 

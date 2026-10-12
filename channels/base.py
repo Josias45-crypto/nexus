@@ -26,6 +26,7 @@ class Intent(str, Enum):
     REMINDERS = "recordatorios"
     DONE = "hecho"
     TEST_REMINDER = "probar_recordatorio"
+    CANCEL = "cancelar"
     YES = "si"
     NO = "no"
     UNCLEAR = "no_entendi"  # respuesta a "¿lo guardo?" que no es ni sí ni no
@@ -58,6 +59,7 @@ COMMANDS = {
     "recordatorios": Intent.REMINDERS,
     "hecho": Intent.DONE,
     "probar_recordatorio": Intent.TEST_REMINDER,
+    "cancelar": Intent.CANCEL,
 }
 RE_COMMAND = re.compile(r"^/(\w+)(?:@\w+)?\s*(.*)$", re.S)
 RE_REMINDER = re.compile(r"^\s*(recu[eé]rdame|recordarme|av[ií]same)\b", re.I)
