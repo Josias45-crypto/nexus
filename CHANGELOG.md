@@ -23,6 +23,11 @@ AAAA-MM-DD.
   anotado sobre X" va a la ruta de resumen. `NEXUS_LLM_TEMPERATURE` (0): respuestas
   reproducibles del modelo local.
 
+### Informe
+- `tests/informe.py`: revisa todas las tablas de recordatorios y el buzón, el estado de las
+  confirmaciones pendientes y crea un recordatorio por el manejador real del bot (canal
+  simulado, se cancela al final). Decir algo en vez de "no sé" ahora es FALLA.
+
 ## [1.0.0] - 2026-10-07
 
 Primera versión completa: probada de extremo a extremo, multicanal y documentada.
