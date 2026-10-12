@@ -8,9 +8,10 @@ Sin --url usa una instancia temporal aislada (como tests/e2e.py): solo estarán 
 de la corrida. La nube queda APAGADA salvo con --nube (usa las keys de .env; datos sintéticos).
 Con --url las notas quedan guardadas en esa instancia y se usa su configuración.
 
-20 notas inventadas, con distractores y nombres parecidos entre clientes. 14 preguntas con otras
-palabras: 8 con respuesta en una nota, 4 que juntan varias (una es la regresión "Gil Maruri":
-el modelo inventó ese cliente) y 2 sin respuesta. Por pregunta mide: nota correcta en el top 3
+21 notas inventadas, con distractores y nombres parecidos entre clientes. 17 preguntas con otras
+palabras: 9 con respuesta en una nota, 4 que juntan varias (una es la regresión "Gil Maruri":
+el modelo inventó ese cliente) y 4 sin respuesta (regresiones "Quimera": respondió con el código
+de otro proyecto; y "Rosaura/Rosario Quispe": dos clientes de nombre parecido). Por pregunta mide: nota correcta en el top 3
 de /search y su distancia, palabra clave en /ask, "no sé" cuando corresponde, datos inventados
 (nombres o cifras que no están en ninguna nota y que NEXUS no marcó con ⚠) y el tiempo de /ask.
 El resultado se guarda en tests/eval_last.json bajo --label para comparar corridas.
@@ -66,6 +67,8 @@ NOTES = [
     "Marisela Huamán debe 320 soles de una silla ergonómica; paga a fin de mes.",
     "El Colegio San Martín pidió 10 proyectores Epson para sus aulas. Entrega en noviembre.",
     "Teófilo Cáceres pide que no lo llamen antes de las 9 de la mañana.",
+    # 20: distractor de otro tema (regresión "Quimera")
+    "El código secreto del proyecto Atlas es mariposa.",
 ]
 
 # (tipo, pregunta, notas con la respuesta, claves). Cada grupo de claves debe aparecer en la
@@ -79,6 +82,7 @@ QUESTIONS = [
     ("una", "¿A qué hora conviene telefonear a Teodoro?", [9], [("6", "seis", "18")]),
     ("una", "¿En cuántos pagos va a cubrir el colegio los proyectores?", [8], [("tres", "3")]),
     ("una", "¿Qué distribuidor de tóner nos da plazo para pagar?", [10], [("pacifico",)]),
+    ("una", "¿Cuántos mouse compró Gilmer Mamani?", [13], [("6", "seis")]),  # no Gilberto
     ("varias", "¿Qué clientes pidieron laptops?", [0, 3, 11],
      [("rosaura",), ("gilberto",), ("brasa",)]),
     ("varias", "¿Qué clientes nos deben dinero o pagan en partes?", [2, 8, 17],
@@ -89,6 +93,8 @@ QUESTIONS = [
      [("teodoro",), ("teofilo",)]),
     ("ninguna", "¿Cuál es el horario de atención de la tienda los domingos?", [], []),
     ("ninguna", "¿Cuántas tablets Samsung vendimos en julio?", [], []),
+    ("ninguna", "¿Cuál es el código secreto del proyecto Quimera?", [], []),  # no Atlas
+    ("ninguna", "¿Cuántos monitores pidió Rosaura Quispe?", [], []),  # fue Rosario Quispe
 ]
 REGRESSION = "¿Qué clientes nos deben dinero o pagan en partes?"  # inventó "Gil Maruri"
 

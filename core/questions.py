@@ -10,7 +10,7 @@ route() devuelve None si la pregunta no es de estos tipos (sigue la búsqueda no
 import re
 from datetime import date, timedelta
 
-from core import briefing, citations, clock, when
+from core import briefing, citations, clock, verify, when
 from core.db import connect
 from core.search import publish_recall, relevant, search
 from providers.factory import get_provider
@@ -20,7 +20,8 @@ SHORT_TEXT = 400  # más corto que esto se muestra tal cual: resumirlo invita a 
 NEUTRAL = "Resumes textos en español con precisión. No agregues nada que no esté en el texto."
 VERBS = r"(aprend|sub|guard|cont|envi|mand|entr|agreg|recib|anot|ense[nñ]|registr|ingres)\w*"
 RE_ABOUT = re.compile(
-    r"^\s*(?:¿\s*)?(?:qu[eé]\s+(?:sabes|tienes|recuerdas|hay)\s+(?:del?|sobre|acerca\s+del?)"
+    r"^\s*(?:¿\s*)?(?:qu[eé]\s+(?:sabes|tienes|recuerdas|hay)"
+    r"(?:\s+(?:anotado|guardado|registrado|apuntado))?\s+(?:del?|sobre|acerca\s+del?)"
     r"|h[aá]blame\s+(?:del?|sobre)|cu[eé]ntame\s+(?:del?|sobre)|todo\s+lo\s+que\s+sabes\s+(?:del?|sobre))"
     r"\s+(.+?)\s*\??\s*$",
     re.I,
@@ -125,10 +126,14 @@ async def _last() -> dict:
     return {"answer": f"{head}\n\n{summary.strip()}", "sources": [_source(item, 1)], "llm": llm, "tipo": "ultimo"}
 
 
-async def _about(topic: str) -> dict:
-    from core.ask import NO_INFO, sources_for
+async def _about(topic: str, question: str = "") -> dict:
+    from core.ask import NO_INFO, about_entities, sources_for
 
-    hits = relevant(await search(topic, 8, publish=False))
+    found = await search(topic, 8, publish=False)
+    hits = relevant(found)
+    if verify.question_entities(question or topic):
+        # Solo notas que nombran lo que se pregunta (no las de otro proyecto o cliente parecido)
+        hits = (about_entities(question or topic, hits + [h for h in found if h not in hits]) or [])[:8]
     if not hits:
         return {"answer": NO_INFO, "sources": [], "llm": None, "tipo": "sobre"}
     publish_recall("ask", hits)
@@ -147,7 +152,7 @@ async def _about(topic: str) -> dict:
 
 async def route(question: str) -> dict | None:
     if m := RE_ABOUT.match(question):
-        return await _about(m.group(1).strip(" ?¿.\"'"))
+        return await _about(m.group(1).strip(" ?¿.\"'"), question)
     if RE_LAST.search(question):
         return await _last()
     if RE_WHAT.search(question):

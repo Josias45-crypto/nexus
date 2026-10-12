@@ -15,6 +15,14 @@ AAAA-MM-DD.
 - `/probar_recordatorio` (aviso a 60 s, cada etapa en el registro) y `/recordatorios` con hora de
   Perú y estado. e2e: caso 18, recordatorio que sobrevive al reinicio del contenedor.
 
+### Preguntas
+- Las entidades de la pregunta (nombres propios, códigos, cifras; sin acentos ni mayúsculas,
+  "3 200" = "3200") deben salir en alguna fuente; si no, "No tengo información". Ya no responde
+  con el código de otro proyecto ni con datos de un cliente de nombre parecido.
+- Segunda mirada si el modelo dice "no sé" habiendo fuentes que nombran lo preguntado; "qué hay
+  anotado sobre X" va a la ruta de resumen. `NEXUS_LLM_TEMPERATURE` (0): respuestas
+  reproducibles del modelo local.
+
 ## [1.0.0] - 2026-10-07
 
 Primera versión completa: probada de extremo a extremo, multicanal y documentada.

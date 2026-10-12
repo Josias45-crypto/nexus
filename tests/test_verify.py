@@ -2,7 +2,7 @@
 
 import unittest
 
-from core.verify import names, unverified
+from core.verify import names, question_entities, unverified
 
 FUENTES = [
     "Ferretería Los Andes debe 1850 soles desde agosto.",
@@ -76,3 +76,34 @@ class AskRegenerationTest(unittest.TestCase):
     def test_avisa_si_persiste(self):
         r, _ = self._ask(["Gil Maruri debe 1850 soles.", "Gil Maruri debe 1850 soles."])
         self.assertTrue(r["answer"].endswith("⚠ No pude verificar: Gil Maruri"))
+
+
+class QuestionEntitiesTest(unittest.TestCase):
+    def test_extract(self):
+        cases = {
+            "¿Cuál es el código secreto del proyecto Quimera7f3a?": ["quimera7f3a"],
+            "¿Cuántos monitores pidió Rosaura Quispe?": ["rosaura", "quispe"],
+            "¿Cuál será el nuevo costo de la Epson L3250?": ["epson", "l3250"],
+            "¿Quién pagó 3 200 soles?": ["3200"],
+            "¿Qué clientes pidieron laptops?": [],
+            "Cuánto debe la ferretería": [],
+        }
+        for q, want in cases.items():
+            with self.subTest(q=q):
+                self.assertEqual(question_entities(q), want)
+
+    def test_gate(self):
+        from core.ask import about_entities
+
+        def hit(text):
+            return {"content": text, "filename": "n.txt", "position": 0, "meta": {}}
+
+        atlas = hit("El código secreto del proyecto Atlas es mariposa.")
+        self.assertIsNone(about_entities("¿Cuál es el código secreto del proyecto Quimera?", [atlas]))
+        gilberto = hit("Gilberto Mamani pidió 2 laptops HP.")
+        gilmer = hit("Gilmer Mamani compró 6 mouse y pagó 3.200 soles.")
+        self.assertEqual(about_entities("¿Qué compró Gilmer Mamani?", [gilberto, gilmer]), [gilmer])
+        self.assertEqual(about_entities("¿Quién pagó 3 200 soles?", [gilberto, gilmer]), [gilmer])
+        self.assertEqual(about_entities("¿Qué compró GILMER mamani?", [gilberto, gilmer]), [gilmer])
+        self.assertEqual(about_entities("¿Qué pidió Gilberto o Gilmer?", [gilberto, gilmer]),
+                         [gilberto, gilmer])

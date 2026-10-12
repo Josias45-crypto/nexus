@@ -13,6 +13,9 @@ RULES = (
     "(por ejemplo, qué clientes hicieron algo), revisa todas las fuentes y junta todos los que "
     "correspondan. Incluye los nombres y cifras exactos de las fuentes. Responde en español, "
     "con frases completas y breves. "
+    "Si la pregunta nombra a una persona, empresa, producto, código o proyecto, no uses fuentes "
+    "que hablen de otro nombre parecido o de otro proyecto (si pregunta por Rosaura, no "
+    "respondas con datos de Rosario). "
     f'Si ninguna fuente contiene la respuesta, responde exactamente: "{NO_INFO}"'
 )
 
@@ -46,6 +49,20 @@ def candidates(hits: list[dict], limit: int | None = None) -> list[dict]:
     return (rare + rest)[: limit or settings.ASK_CANDIDATES]
 
 
+def about_entities(question: str, hits: list[dict]) -> list[dict] | None:
+    """Exige que las fuentes nombren lo específico de la pregunta (nombres propios, códigos,
+    cifras). Devuelve los trozos que sirven, o None si alguna entidad no sale en ninguno: en ese
+    caso la memoria no sabe de eso, por mucho que otra nota se parezca en el resto."""
+    ents = verify.question_entities(question)
+    if not ents:
+        return hits
+    keys = [verify.text_keys(f"{h['content']} {citations.cite(h)}") for h in hits]
+    if any(not any(e in k for k in keys) for e in ents):
+        return None
+    full = [h for h, k in zip(hits, keys) if all(e in k for e in ents)]
+    return full or [h for h, k in zip(hits, keys) if any(e in k for e in ents)]
+
+
 def _says_no(answer: str) -> bool:
     return NO_INFO.rstrip(".").lower() in answer.lower()
 
@@ -62,7 +79,15 @@ async def ask(question: str, k: int | None = None) -> dict:
     if special is not None:
         return special
     limit = k or (settings.ASK_CANDIDATES_LIST if wants_list(question) else settings.ASK_CANDIDATES)
-    hits = candidates(await search(question, limit, publish=False), limit)
+    if verify.question_entities(question):
+        # Con entidades se mira más allá de los candidatos: la nota que nombra al cliente
+        # puede quedar lejos en distancia y aun así ser la única que sirve
+        found = await search(question, max(limit * 2, 10), publish=False)
+        hits = candidates(found, limit)
+        pool = hits + [h for h in found if h not in hits]
+        hits = (about_entities(question, pool) or [])[:limit]
+    else:
+        hits = candidates(await search(question, limit, publish=False), limit)
     if not hits:
         return {"answer": NO_INFO, "sources": [], "llm": None, "tipo": "memoria"}
     publish_recall("ask", hits)
@@ -82,6 +107,20 @@ async def ask(question: str, k: int | None = None) -> dict:
     # Anti-invención: cada nombre propio y cifra debe estar en las fuentes (o en la pregunta)
     texts = [h["content"] for h in hits] + [citations.cite(h) for h in hits]
     texts.append(profile.get()["asistente"]["nombre"])
+    if _says_no(answer) and verify.question_entities(question):
+        # Dijo que no sabe, pero hay fuentes que nombran todo lo que pide: una segunda mirada
+        named = ", ".join(str(i) for i, h in enumerate(hits, 1) if about_entities(question, [h]))
+        if named:
+            answer, llm = await get_provider().chat_ex(messages + [
+                {"role": "assistant", "content": answer},
+                {"role": "user", "content": (
+                    f"Las fuentes {named} mencionan lo que se pregunta. Léelas otra vez: si "
+                    "responden la pregunta, responde con sus datos exactos; si hablan de otra "
+                    f'cosa, responde exactamente: "{NO_INFO}"'
+                )},
+            ], cloud=True, private=private)
+            answer = _clean(answer)
+            llm = {**llm, "segunda_mirada": True}
     missing = [] if _says_no(answer) else verify.unverified(answer, texts, question)
     if missing:
         retry = messages + [

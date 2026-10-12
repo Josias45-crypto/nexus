@@ -38,6 +38,7 @@ class QuestionsTest(unittest.TestCase):
         self.assertFalse(RE_LAST.search("¿Cuál fue el último pedido de Pedro?"))
         self.assertEqual(RE_ABOUT.match("¿Qué sabes de Pedro Gómez?").group(1), "Pedro Gómez")
         self.assertEqual(RE_ABOUT.match("háblame sobre la cooperativa").group(1), "la cooperativa")
+        self.assertEqual(RE_ABOUT.match("¿Qué hay anotado sobre productos Epson?").group(1), "productos Epson")
         self.assertEqual(RE_ABOUT.match("¿Qué sabes del maíz morado?").group(1), "maíz morado")
         self.assertIsNone(RE_ABOUT.match("¿Qué día paga Pedro?"))
 

@@ -87,3 +87,42 @@ def unverified(answer: str, sources: list[str], question: str = "") -> list[str]
         if n and _digits(n) not in numbers and n not in missing:
             missing.append(n)
     return missing
+
+
+# ---------- entidades de la pregunta ----------
+
+QUESTION_WORDS = {
+    "que", "quien", "quienes", "cual", "cuales", "cuando", "cuanto", "cuanta", "cuantos",
+    "cuantas", "como", "donde", "adonde", "por", "porque", "dime", "dame", "sabes", "hay",
+    "recuerdas", "oye", "hola", "nexus",
+}
+RE_TOKEN = re.compile(r"\d+(?:[.,\s]\d{3})+(?![\d])|\w+", re.U)
+
+
+def _key(token: str) -> str:
+    """Forma comparable: sin acentos ni mayúsculas; '3 200' y '3.200' -> '3200'."""
+    t = norm(token)
+    return re.sub(r"[.,\s]", "", t) if re.fullmatch(r"\d+(?:[.,\s]\d{3})+", t) else t
+
+
+def question_entities(question: str) -> list[str]:
+    """Nombres propios, códigos y cifras de la pregunta (forma comparable, sin repetir).
+    Se ignoran las palabras interrogativas y la mayúscula de inicio de oración."""
+    out: list[str] = []
+    for sentence in re.split(r"[.!?¿¡:;\n]+", question):
+        for i, m in enumerate(RE_TOKEN.finditer(sentence)):
+            tok = m.group()
+            key = _key(tok)
+            if key in QUESTION_WORDS or key in STARTERS or key in CONNECTORS:
+                continue
+            if any(c.isdigit() for c in tok):
+                pass  # cifra o código (L3250, Quimera7f3a): siempre cuenta
+            elif not tok[0].isupper() or i == 0 or len(tok) < 2:
+                continue  # minúscula o primera palabra de la oración
+            if key not in out:
+                out.append(key)
+    return out
+
+
+def text_keys(text: str) -> set[str]:
+    return {_key(t) for t in RE_TOKEN.findall(text or "")}

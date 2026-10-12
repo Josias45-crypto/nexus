@@ -1,5 +1,7 @@
 import httpx
 
+from config import settings
+
 from providers.base import LLMProvider
 
 
@@ -13,7 +15,10 @@ class OllamaProvider(LLMProvider):
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             r = await client.post(
                 f"{self.base_url}/api/chat",
-                json={"model": self.model, "messages": messages, "stream": False},
+                json={
+                    "model": self.model, "messages": messages, "stream": False,
+                    "options": {"temperature": settings.LLM_TEMPERATURE},
+                },
             )
             r.raise_for_status()
             return r.json()["message"]["content"]

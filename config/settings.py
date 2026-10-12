@@ -2,6 +2,8 @@ import os
 
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://ollama:11434")
 LLM_MODEL = os.getenv("NEXUS_LLM_MODEL", "qwen2.5:1.5b")
+# 0 = el modelo local responde siempre igual a la misma pregunta (reproducible); más alto = más variado
+LLM_TEMPERATURE = float(os.getenv("NEXUS_LLM_TEMPERATURE", "0"))
 LLM_PROVIDER = os.getenv("NEXUS_LLM_PROVIDER", "ollama")
 # Ollama remoto preferido para el chat (vacío = solo local); los embeddings siempre van al local
 LLM_URL = os.getenv("NEXUS_LLM_URL", "").strip()
