@@ -28,15 +28,19 @@ núcleo es genérico; lo propio del rubro vive en profiles/*.toml.
 ## Hecho
 - Pasos 1 a 9 (base, Docker, LLM intercambiable, bandeja, búsqueda híbrida RRF, /ask con
   fuentes, worker, digestión, audio, crecimiento y respaldos).
-- MISION.md fases 0 a 6 (v1.0.0, ver CHANGELOG.md): robustez, perfiles y recordatorios,
+- MISION.md fases 0 a 6 (v0.1.0, ver CHANGELOG.md): robustez, perfiles y recordatorios,
   canales (Telegram, WhatsApp apagado, simulado), modo nube de pruebas, conocimiento (troceado
   por estructura, citas por código, preguntas temporales, /reindex), sentidos por formato
   (senses/ con registro, OCR, video, zip) e interfaz con bandeja y reintento.
+- Tras la fase 6 (en v0.1.0): confirmación de recordatorios persistente en la base
+  (pending_confirmations), horas con minutos sin adivinar (core/when.py), /cancelar N por chat,
+  filtro de entidades en /ask (core/verify.py), temperatura 0 en Ollama, tests/informe.py.
 
 ## Cómo probar
 `python3 tests/e2e.py --audio <wav> --audio-phrase <palabra> --chaos` (18 casos, instancia
 aislada; la memoria real no se toca). Unitarias dentro del contenedor (ver tests/test_senses.py).
-Antes de probar cambios de código: `docker compose build core`.
+Antes de probar cambios de código: `docker compose build core`. También: `tests/eval_ventas.py`
+(medir antes y después en /ask) y `tests/informe.py` (estado de la instalación real).
 
 ## Reglas que no cambian
 - Embeddings, audio, OCR, visión y lo privado nunca salen de la máquina. Nube apagada por defecto.

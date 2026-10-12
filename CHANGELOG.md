@@ -3,7 +3,10 @@
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). Fechas en
 AAAA-MM-DD.
 
-## [Sin publicar]
+## [0.1.0] - 2026-10-12
+
+Primera versión: uso personal. Probada de extremo a extremo, con Telegram como canal
+principal y documentada. Límites conocidos en el README.
 
 ### Recordatorios
 - La confirmación ("¿Lo guardo?") se guarda en la base (`pending_confirmations`, caduca a los
@@ -14,7 +17,6 @@ AAAA-MM-DD.
   releer la fila; un "sí" repetido no la duplica (confirmación atómica).
 - `/probar_recordatorio` (aviso a 60 s, cada etapa en el registro) y `/recordatorios` con hora de
   Perú y estado. e2e: caso 18, recordatorio que sobrevive al reinicio del contenedor.
-
 - Horas: `4 : 17`, `4.17`, `4h17`, `4 y 18`, `y cuarto/media`, `menos cuarto`, `mañana 9`,
   medianoche. Sin am/pm ni fecha, la próxima ocurrencia entre h y h+12 (antes: de 1 a 7 siempre
   p. m. y se perdían los minutos: "hoy a las 4 : 17" a las 04:15 daba 16:00). Si la hora es
@@ -35,9 +37,11 @@ AAAA-MM-DD.
   confirmaciones pendientes y crea un recordatorio por el manejador real del bot (canal
   simulado, se cancela al final). Decir algo en vez de "no sé" ahora es FALLA.
 
-## [1.0.0] - 2026-10-07
-
-Primera versión completa: probada de extremo a extremo, multicanal y documentada.
+### Repositorio
+- `requirements.txt` declara `pydantic` y `numpy` (antes solo indirectas) con las versiones de
+  `constraints.txt`; verificado con `pip install` y `pip check` en un contenedor limpio.
+- `.gitignore` y `.dockerignore` cubren secretos (`.env*`), datos, respaldos, cachés y resultados
+  de pruebas; README con estado real, límites conocidos y hoja de ruta; `.env.example` completo.
 
 ### Interfaz
 - **Bandeja** en `/`: estado de cada elemento, motivo de error y botón **Reintentar**; aviso si
@@ -81,15 +85,15 @@ Primera versión completa: probada de extremo a extremo, multicanal y documentad
   registra.
 
 ### Pruebas y documentación
-- `tests/e2e.py`: 17 casos sobre una instancia aislada (la memoria real no se toca), con
+- `tests/e2e.py`: 18 casos sobre una instancia aislada (la memoria real no se toca), con
   caos (Ollama caído), audio, formatos, canal simulado y cascada de nube.
 - Documentación: README, ARQUITECTURA, API, FORMATOS, OPERACION, MODO_NUBE, CANALES, PERFILES.
 
-### Para actualizar desde una versión anterior
+### Para actualizar desde el desarrollo previo
 - Corre `POST /reindex?todos=true` una vez (cambió el troceado y se guardan metadatos de origen).
 - `POST /requeue?estado=unsupported` para leer los formatos que antes no se entendían.
 
-## [0.9.0] - 2026-10-06
+## Desarrollo previo (sin versión) - 2026-10-06
 
 Pasos 1 a 9: base del repositorio, Docker con FastAPI y Ollama, proveedor de modelo
 intercambiable, bandeja con originales, búsqueda híbrida (FTS5 + vectores), `/ask` con fuentes,
