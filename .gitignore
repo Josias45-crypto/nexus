@@ -1,11 +1,36 @@
+# Secretos: solo .env.example va al repositorio
 .env
+.env.*
+!.env.example
+
+# Datos y respaldos del usuario (nunca al repositorio)
 data/*
 !data/.gitkeep
+backups/
+
+# Modelos descargados
+*.gguf
+models/
+
+# Python
 __pycache__/
-*.pyc
+*.py[cod]
 venv/
 .venv/
-*.gguf
 .pytest_cache/
-backups/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Resultados de pruebas y evaluaciones
 tests/eval_last.json
+tests/*.out
+*.log
+
+# Editores y sistema
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db

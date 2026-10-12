@@ -1,5 +1,22 @@
+# El Dockerfile copia solo el código; esto evita enviar al build datos, secretos y cachés
 .git
-data/
+.gitignore
 .env
+.env.*
+data/
+backups/
+models/
+*.gguf
 __pycache__/
+*.py[cod]
 venv/
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+tests/eval_last.json
+tests/*.out
+*.log
+.vscode/
+.idea/
+.DS_Store
