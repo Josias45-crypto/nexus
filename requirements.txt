@@ -1,4 +1,6 @@
 fastapi==0.115.6
+# modelos de las peticiones de la API (core/main.py)
+pydantic==2.13.5
 uvicorn[standard]==0.34.0
 httpx==0.28.1
 python-multipart==0.0.20
@@ -8,8 +10,10 @@ faster-whisper==1.1.1
 av==18.1.0
 # pypdf la necesita para abrir PDF cifrados con AES
 cryptography==50.0.2
-# la usa huggingface_hub (descarga del modelo de Whisper)
+# la importa faster_whisper/utils.py (descarga del modelo de Whisper)
 requests==2.34.2
+# la usan las pruebas (tests/fixtures.py); también llega con faster-whisper
+numpy==2.5.3
 # imágenes y páginas escaneadas de PDF para el OCR (senses/)
 pillow==12.3.0
 pypdfium2==5.14.0
