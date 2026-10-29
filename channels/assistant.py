@@ -14,6 +14,7 @@ from dataclasses import dataclass
 
 from channels.base import Channel, Incoming, Intent, PermanentSendError, detect_intent
 from channels.client import NexusClient, NexusError
+from config import settings
 
 log = logging.getLogger("nexus.channels")
 
@@ -190,8 +191,8 @@ class Assistant:
         if names and "No tengo información" not in answer:
             answer += "\n\nFuentes: " + ", ".join(names[:MAX_SOURCES])
         llm = r.get("llm") or {}
-        if llm.get("nube"):
-            answer += f"\n☁️ NUBE: respondió {llm.get('proveedor')} (modo de pruebas)"
+        if llm.get("nube") and settings.SHOW_PROVIDER:
+            answer += f"\n☁️ NUBE: respondió {llm.get('proveedor')} ({llm.get('modelo')})"
         return answer
 
     async def _status(self) -> str:

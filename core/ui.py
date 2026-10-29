@@ -36,7 +36,7 @@ PAGE = r"""<!doctype html>
   .st-processed{background:#1b5e20}.st-pending{background:#455a64}.st-procesando{background:#1565c0}
   .st-failed{background:#b71c1c}.st-unsupported{background:#6d4c41}.st-empty{background:#5d4037}
 </style></head><body>
-<header><div><b>NEXUS</b> <span id="stats"></span><span id="cloud" title="La última respuesta salió de la nube (solo pruebas)" hidden>NUBE</span></div><nav><button type="button" id="inboxBtn" title="Lo que entró y su estado">Bandeja</button><a href="/brain">Cerebro</a> · <a href="/dashboard">Panel</a></nav></header>
+<header><div><b>NEXUS</b> <span id="stats"></span><span id="cloud" title="La última respuesta salió de la nube" hidden>NUBE</span></div><nav><button type="button" id="inboxBtn" title="Lo que entró y su estado">Bandeja</button><a href="/brain">Cerebro</a> · <a href="/dashboard">Panel</a></nav></header>
 <aside id="panel" hidden><h3>Bandeja <button type="button" id="closePanel" title="Cerrar">✕</button></h3><div id="items" class="m">Cargando…</div></aside>
 <div id="log"><div class="msg sys">Pregúntame algo, o usa «Recordar» para enseñarme. También puedes arrastrar archivos aquí.</div></div>
 <form id="f">
@@ -76,11 +76,11 @@ async function ask() {
     }
     const data = await r.json();
     wait.textContent = data.answer;
-    if (data.llm && data.llm.nube) {
+    if (showProvider && data.llm && data.llm.nube) {
       const b = document.createElement('span');
       b.className = 'nube';
       b.textContent = 'NUBE';
-      b.title = 'Respondió ' + data.llm.proveedor + ' (' + data.llm.modelo + ', ' + data.llm.key + '): solo pruebas';
+      b.title = 'Respondió ' + data.llm.proveedor + ' (' + data.llm.modelo + ', ' + data.llm.key + ')';
       wait.appendChild(b);
     }
     if (!data.sources.length && pending > 0) wait.textContent += ' (Sigo procesando ' + pending + ' elemento(s): prueba de nuevo en un momento.)';
@@ -236,12 +236,14 @@ async function toggleMic() {
   } catch (e) { add('sys', 'No pude usar el micrófono: ' + e.message); }
 }
 
+let showProvider = false;
 async function cloud() {
   try {
     const h = await (await fetch('/health')).json();
     const c = document.getElementById('cloud');
-    c.hidden = !h.nube;
-    if (h.llm && h.llm.ultimo) c.title = 'La última respuesta salió de la nube: ' + h.llm.ultimo.proveedor + ' (solo pruebas)';
+    showProvider = !!h.mostrar_proveedor;
+    c.hidden = !(showProvider && h.nube);
+    if (h.llm && h.llm.ultimo) c.title = 'La última respuesta salió de la nube: ' + h.llm.ultimo.proveedor;
   } catch (e) {}
 }
 
