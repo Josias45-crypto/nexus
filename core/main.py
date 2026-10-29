@@ -12,9 +12,10 @@ from pydantic import BaseModel, Field
 
 from config import settings
 from core import profile as nexus_profile
-from core import ask, backup, brain, briefing, digest, dashboard, events, growth, inbox, outbox, processor, reindex, reminders, search, ui, worker
+from core import ask, backup, brain, briefing, digest, dashboard, events, growth, inbox, outbox, processor, reindex, reminders, search, ui, usage, worker
 from core.db import connect, init_db
 from core.logs import setup_logging
+from providers.base import ChatUnavailable
 from providers.factory import get_provider
 
 setup_logging()
@@ -75,7 +76,7 @@ async def _ollama_check() -> dict:
             r.raise_for_status()
         names = {m["name"] for m in r.json().get("models", [])}
         missing = [
-            m for m in (settings.LLM_MODEL, settings.EMBED_MODEL)
+            m for m in settings.OLLAMA_MODELS
             if m not in names and f"{m}:latest" not in names
         ]
         return {"ok": not missing, "modelos_faltantes": missing}
@@ -103,6 +104,7 @@ async def health():
         "ollama_url": settings.OLLAMA_BASE_URL,
         "llm_activo": llm["ultimo"]["proveedor"],
         "nube": llm["ultimo"]["nube"],  # la última respuesta salió de la nube
+        "mostrar_proveedor": settings.SHOW_PROVIDER,  # pie "NUBE: respondió ..." en web y Telegram
         "llm": llm,
     }
 
@@ -122,7 +124,10 @@ def profile_info():
 
 @app.post("/chat")
 async def chat(req: ChatRequest):
-    reply, llm = await provider.chat_ex([{"role": "user", "content": req.message}], cloud=True)
+    try:
+        reply, llm = await provider.chat_ex([{"role": "user", "content": req.message}], cloud=True)
+    except ChatUnavailable as exc:
+        return {"reply": str(exc), "model": None, "llm": {"aviso": True}}
     return {"reply": reply, "model": llm["modelo"], "llm": llm}
 
 
@@ -208,7 +213,23 @@ class AskRequest(BaseModel):
 
 @app.post("/ask")
 async def ask_memory(req: AskRequest):
-    return await ask.ask(req.question, req.k)
+    try:
+        return await ask.ask(req.question, req.k)
+    except ChatUnavailable as exc:
+        # Aviso claro (sin saldo, respaldo apagado, privado sin modelo local): no es un error 500
+        return {"answer": str(exc), "sources": [], "llm": {"aviso": True}, "tipo": "aviso"}
+
+
+@app.get("/usage")
+def usage_totals(days: int = Query(30, ge=1, le=366)):
+    """Uso del modelo de chat por día: peticiones, tokens y costo estimado (USD)."""
+    dias = usage.by_day(days)
+    return {
+        "presupuesto_diario_usd": settings.DAILY_BUDGET_USD,
+        "gastado_hoy_usd": round(usage.spent_today(), 6),
+        "total_usd": round(sum(d["costo_usd"] for d in dias), 6),
+        "dias": dias,
+    }
 
 
 @app.get("/worker")

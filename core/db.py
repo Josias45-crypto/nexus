@@ -95,6 +95,20 @@ CREATE TABLE IF NOT EXISTS kv (
     value TEXT
 );
 
+-- Uso del modelo de chat por petición (tokens y costo en USD si el proveedor lo informa)
+CREATE TABLE IF NOT EXISTS llm_usage (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at TEXT NOT NULL,
+    day TEXT NOT NULL,              -- día local (NEXUS_TZ_OFFSET)
+    provider TEXT NOT NULL,
+    model TEXT,
+    cloud INTEGER NOT NULL DEFAULT 0,
+    prompt_tokens INTEGER NOT NULL DEFAULT 0,
+    completion_tokens INTEGER NOT NULL DEFAULT 0,
+    cost_usd REAL
+);
+CREATE INDEX IF NOT EXISTS idx_llm_usage_day ON llm_usage(day);
+
 CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
     content, content='chunks', content_rowid='id',
     tokenize='unicode61 remove_diacritics 2'

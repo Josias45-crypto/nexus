@@ -1,12 +1,15 @@
-"""Pool de proveedores en la nube (modo de pruebas).
+"""Pool de proveedores en la nube (OpenRouter por defecto).
 
 Orden configurable (NEXUS_CLOUD_ORDER). En cada proveedor se rota entre sus keys; ante 429,
-5xx o timeout la key se enfría (Retry-After, mínimo NEXUS_CLOUD_COOLDOWN s) y se prueba la
-siguiente key, luego el siguiente proveedor. Si nada responde, quien llama usa Ollama local.
+5xx o timeout se reintenta la misma key con espera creciente (NEXUS_CLOUD_RETRIES) y, si sigue
+fallando, la key se enfría (Retry-After, mínimo NEXUS_CLOUD_COOLDOWN s) y se prueba la
+siguiente key, luego el siguiente proveedor. Si nada responde, el enrutador decide (respaldo
+local o aviso, según NEXUS_LOCAL_FALLBACK).
 
 Nunca se registran keys ni prompts: las keys se nombran "key#1", "key#2"...
 """
 
+import asyncio
 import logging
 import time
 from dataclasses import dataclass, field
@@ -20,7 +23,10 @@ from providers.base import ProviderUnavailable
 log = logging.getLogger("nexus.cloud")
 
 REJECTED_COOLDOWN = 3600  # key rechazada (401/403): no reintentar en una hora
-CONFIG_COOLDOWN = 600  # otros 4xx (modelo inexistente, petición inválida)
+CONFIG_COOLDOWN = 600  # otros 4xx (modelo inexistente, petición inválida, sin saldo)
+MAX_INLINE_WAIT = 10  # un Retry-After más largo no se espera: se enfría la key y se sigue
+# Campos propios de cada proveedor: OpenRouter informa el costo en usage.cost
+EXTRA_BODY = {"openrouter": {"usage": {"include": True}}}
 
 
 @dataclass
@@ -71,7 +77,7 @@ class CloudPool:
         for name in settings.CLOUD_ORDER:
             cfg = settings.CLOUD_PROVIDERS.get(name)
             if cfg is None:
-                notes.append(f"{name}: proveedor desconocido (válidos: groq, gemini, openrouter)")
+                notes.append(f"{name}: proveedor desconocido (válidos: {', '.join(settings.CLOUD_URLS)})")
                 continue
             if not cfg["keys"]:
                 notes.append(f"{name}: sin keys ({name.upper()}_API_KEYS)")
@@ -99,8 +105,26 @@ class CloudPool:
         k.last_error = str(err)
         log.warning("Nube %s %s: %s; enfriando %d s", p.name, k.label, err, wait)
 
+    async def _call(self, client, p: CloudProvider, k: KeyState, messages: list[dict]) -> tuple[str, dict]:
+        """Una key con reintentos y espera creciente ante errores pasajeros."""
+        attempt = 0
+        while True:
+            try:
+                return await openai_compat.chat(
+                    client, p.url, k.secret, p.model, messages, EXTRA_BODY.get(p.name)
+                )
+            except openai_compat.CloudCallError as err:
+                wait = settings.CLOUD_BACKOFF * 2**attempt
+                if err.retry_after is not None:
+                    wait = max(wait, err.retry_after)
+                if not err.transient or attempt >= settings.CLOUD_RETRIES or wait > MAX_INLINE_WAIT:
+                    raise
+                attempt += 1
+                log.info("Nube %s %s: %s; reintento %d en %.0f s", p.name, k.label, err, attempt, wait)
+                await asyncio.sleep(wait)
+
     async def chat(self, messages: list[dict]) -> tuple[str, dict]:
-        tried = 0
+        tried, last_err = 0, None
         async with httpx.AsyncClient(timeout=settings.CLOUD_TIMEOUT, transport=self._transport) as client:
             for p in self.providers:
                 for k in p.rotation():
@@ -108,16 +132,19 @@ class CloudPool:
                         continue
                     tried += 1
                     try:
-                        text = await openai_compat.chat(client, p.url, k.secret, p.model, messages)
+                        text, usage = await self._call(client, p, k, messages)
                     except openai_compat.CloudCallError as err:
                         self._cool(p, k, err)
+                        last_err = err
                         continue
                     k.uses += 1
                     k.last_error = None
-                    return text, {"proveedor": p.name, "modelo": p.model, "nube": True, "key": k.label}
-        raise ProviderUnavailable(
-            "ninguna key disponible" if tried == 0 else f"fallaron {tried} intento(s) en la nube"
-        )
+                    return text, {"proveedor": p.name, "modelo": p.model, "nube": True, "key": k.label, **usage}
+        if tried == 0:
+            raise ProviderUnavailable(
+                "ninguna key disponible", "la nube está en pausa tras errores recientes: prueba en unos minutos"
+            )
+        raise ProviderUnavailable(f"fallaron {tried} intento(s) en la nube", last_err.user_message())
 
     def status(self) -> dict:
         now = time.monotonic()

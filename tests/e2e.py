@@ -538,8 +538,12 @@ class Suite:
         logs = subprocess.run(["docker", "logs", E2E_NAME], capture_output=True, text=True)
         if any(k in logs.stdout + logs.stderr for k in FAKE_KEYS.split(",")):
             raise Fail("una key apareció en los registros")
+        hoy = (self.api.ok("GET", "/usage?days=1").get("dias") or [{}])[0]
+        if not hoy.get("peticiones"):
+            raise Fail(f"/usage no registró las respuestas: {hoy}")
         estados = ", ".join(f"{k['key']} {k['estado']}" for k in keys)
-        return f"cae al local sin romperse ({estados}); privado -> solo local; sin keys en logs"
+        return (f"cae al local sin romperse ({estados}); privado -> solo local; sin keys en logs;"
+                f" /usage {hoy['peticiones']} peticiones hoy")
 
     def t15_knowledge(self):
         md = (
@@ -707,11 +711,16 @@ TESTS = [
 
 # Programador acelerado en la instancia aislada: avisos e insistencias en segundos
 ISOLATED_ENV = {"NEXUS_SCHEDULER_INTERVAL": "2", "NEXUS_REMINDER_RETRY_MIN": "0.1"}
-# Modo nube encendido con keys falsas y una URL local que rechaza la conexión: toda la
-# corrida pasa por la cascada nube -> Ollama local sin enviar nada a Internet.
+# Modo cloud con keys falsas, una URL local que rechaza la conexión y respaldo local encendido:
+# toda la corrida pasa por la cascada nube -> Ollama local sin enviar nada a Internet.
 FAKE_KEYS = "falsa-key-e2e-uno,falsa-key-e2e-dos"
 ISOLATED_ENV |= {
-    "NEXUS_ALLOW_CLOUD": "on",
+    "NEXUS_MODE": "cloud",
+    "NEXUS_CHAT_BACKEND": "openrouter",
+    "NEXUS_LOCAL_FALLBACK": "on",
+    "NEXUS_OLLAMA_MODELS": "nomic-embed-text,qwen2.5:1.5b",
+    "NEXUS_DAILY_BUDGET_USD": "",
+    "NEXUS_CLOUD_BACKOFF": "0.2",
     "NEXUS_CLOUD_ORDER": "groq",
     "GROQ_API_KEYS": FAKE_KEYS,
     "NEXUS_GROQ_MODEL": "modelo-falso",

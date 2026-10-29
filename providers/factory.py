@@ -19,5 +19,7 @@ def get_provider() -> Router:
                 "NEXUS_LLM_PROVIDER=groq ya no se usa: la nube se controla con "
                 "NEXUS_ALLOW_CLOUD y NEXUS_CLOUD_ORDER (docs/MODO_NUBE.md)"
             )
-        _router = build_router()
+        from core import usage  # aquí para no crear un ciclo de importación
+
+        _router = build_router(usage)
     return _router
