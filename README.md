@@ -26,7 +26,8 @@ modelo es intercambiable por configuración y todo corre en tu máquina, en Dock
   que respondas `/hecho`.
 - **Telegram** como canal principal; interfaz web en `http://localhost:8000`.
 - **Respaldos** automáticos, **perfiles por rubro** sin tocar el código ([perfiles](docs/PERFILES.md))
-  y un **modo nube de pruebas** apagado por defecto.
+  y **dos modos** ([MODOS](docs/MODOS.md)): `local` (todo en la máquina, el valor por defecto)
+  y `cloud` (el chat por OpenRouter, con control de costo; lo privado nunca sale).
 
 ### Límites conocidos
 
@@ -103,13 +104,17 @@ valor por defecto. Las más usadas:
 
 | Variable | Por defecto | Para qué |
 |---|---|---|
-| `NEXUS_LLM_MODEL` | `qwen2.5:1.5b` | Modelo de chat (se descarga solo al arrancar) |
+| `NEXUS_MODE` | `local` | `cloud` = chat por OpenRouter; `local` = todo en la máquina ([MODOS](docs/MODOS.md)) |
+| `OPENROUTER_API_KEYS` / `NEXUS_OPENROUTER_MODEL` | vacío | Key y modelo de chat en modo cloud (p. ej. `deepseek/deepseek-v4-flash`) |
+| `NEXUS_LOCAL_FALLBACK` | `off` en cloud | Si la nube falla: `on` = responde Ollama local; `off` = avisa |
+| `NEXUS_DAILY_BUDGET_USD` | vacío | Tope de gasto diario en la nube (ver `GET /usage`) |
+| `NEXUS_SHOW_PROVIDER` | `off` en cloud | Pie "NUBE: respondió …" en Telegram y web |
+| `NEXUS_LLM_MODEL` | `qwen2.5:1.5b` | Modelo de chat local (se descarga solo en modo local) |
 | `NEXUS_LLM_TEMPERATURE` | `0` | 0 = respuestas reproducibles del modelo local |
 | `NEXUS_PROFILE` | `general` | Perfil de rubro (`profiles/*.toml`) |
 | `NEXUS_TZ_OFFSET` | `-5` | Zona horaria para "hoy", recordatorios y resumen |
 | `NEXUS_MAX_DISTANCE` / `NEXUS_FTS_MARGIN` | `0.78` / `0.04` | Qué tan parecido debe ser un recuerdo para usarlo |
 | `NEXUS_LLM_URL` | vacío | Ollama remoto con GPU (respaldo automático en el local) |
-| `NEXUS_ALLOW_CLOUD` | `off` | Nube **solo para pruebas** ([MODO_NUBE](docs/MODO_NUBE.md)) |
 | `NEXUS_OCR` / `NEXUS_VISION_MODEL` | `on` / vacío | OCR de imágenes; descripción de fotos opcional |
 | `NEXUS_BACKUP_HOURS` / `NEXUS_BACKUP_HOST_DIR` | `24` / `./backups` | Respaldos automáticos y dónde guardarlos |
 | `TELEGRAM_BOT_TOKEN` / `TELEGRAM_ALLOWED_IDS` | vacío | Bot de Telegram y quién puede usarlo |
@@ -124,11 +129,11 @@ Cambiar de modelo: edita `NEXUS_LLM_MODEL` y `docker compose up -d` (se descarga
 - `data/`, `backups/` y `.env` están en `.gitignore`. Tokens y keys solo viven en `.env`.
 - Los puertos escuchan solo en `127.0.0.1`; para acceso remoto usa Tailscale o SSH.
 
-> **Aviso sobre el modo nube.** Con `NEXUS_ALLOW_CLOUD=on`, las preguntas y los textos que se
-> resumen (si no son privados) **se envían a servicios externos** (Groq, Gemini u OpenRouter)
-> junto con los fragmentos de tu memoria que sirven para responder. Esos servicios tienen sus
-> propias políticas de datos. Úsalo solo con datos de prueba; para tus datos reales, déjalo en
-> `off` (el valor por defecto) o marca lo sensible con `/privado`.
+> **Aviso sobre el modo nube.** Con `NEXUS_MODE=cloud`, las preguntas y los textos que se
+> resumen (si no son privados) **se envían a OpenRouter** junto con los fragmentos de tu memoria
+> que sirven para responder. OpenRouter y el modelo elegido tienen sus propias políticas de
+> datos. Marca lo sensible con `/privado`: nunca sale, y si no hay modelo local para
+> responderlo, NEXUS lo dice en vez de enviarlo.
 
 ## Pruebas
 
@@ -181,7 +186,8 @@ docker compose down                      # detener (conserva datos y modelos)
 | [OPERACION](docs/OPERACION.md) | Recursos, actualizar, respaldar, restaurar, servidor, problemas |
 | [CANALES](docs/CANALES.md) | Telegram, WhatsApp, comandos y horas que entiende |
 | [PERFILES](docs/PERFILES.md) | Crear un perfil para otro rubro |
-| [MODO_NUBE](docs/MODO_NUBE.md) | Nube de pruebas: activar, apagar, cascada |
+| [MODOS](docs/MODOS.md) | Modo nube y modo local, hardware, privacidad |
+| [MODO_NUBE](docs/MODO_NUBE.md) | Chat por OpenRouter: activar, apagar, reintentos, costo |
 | [CHANGELOG](CHANGELOG.md) | Cambios por versión |
 
 ## Estructura
@@ -189,7 +195,7 @@ docker compose down                      # detener (conserva datos y modelos)
 ```
 core/       API, bandeja, worker, memoria, preguntas, recordatorios, interfaz web
 senses/     un extractor por formato
-providers/  modelos: Ollama, remoto, nube de pruebas, embeddings
+providers/  modelos: Ollama, remoto, nube (OpenRouter), embeddings
 channels/   Telegram, WhatsApp, simulado
 profiles/   perfiles de rubro
 tests/      e2e, evaluación, informe, unitarias y fixtures

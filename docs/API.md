@@ -40,9 +40,10 @@ curl -F file=@ventas.xlsx 'localhost:8000/inbox/file?source=api'
 
 | Método | Ruta | Qué hace |
 |---|---|---|
-| POST | `/ask` | `{"question": "..."}` responde con la memoria. Devuelve `answer`, `sources` (`n`, `cita`, `filename`, `snippet`, `distance`), `llm` (proveedor, modelo, `nube`, `regenerada`) y `sin_verificar`: nombres o cifras de la respuesta que no están en las fuentes (también aparecen al final como «⚠ No pude verificar: …») |
+| POST | `/ask` | `{"question": "..."}` responde con la memoria. Devuelve `answer`, `sources` (`n`, `cita`, `filename`, `snippet`, `distance`), `llm` (proveedor, modelo, `nube`, `regenerada`) y `sin_verificar`: nombres o cifras de la respuesta que no están en las fuentes (también aparecen al final como «⚠ No pude verificar: …»). Si nadie puede responder (nube sin saldo con respaldo apagado, privado sin modelo local), `tipo` es `aviso` y `answer` lo explica |
 | GET | `/search?q=...&k=5` | Búsqueda híbrida sin redactar respuesta: trozos con `event_id`, `meta`, `distance` |
 | POST | `/chat` | `{"message": "..."}` habla con el modelo **sin** memoria |
+| GET | `/usage?days=30` | Uso del modelo de chat por día: peticiones, tokens, costo en USD (si OpenRouter lo informa), `gastado_hoy_usd` y `presupuesto_diario_usd` |
 | GET | `/knowledge?limit=20` | Resúmenes y conceptos generados |
 | GET | `/today?dia=AAAA-MM-DD` | Lo que aprendió ese día (hoy por defecto) y los recordatorios del día |
 
