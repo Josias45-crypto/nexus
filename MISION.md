@@ -5,14 +5,10 @@ Esencia (NO cambiar): cerebro personal que empieza vacío y aprende día a día;
 en el conocimiento acumulado, no en el modelo; el original se guarda siempre intacto; un módulo por
 sentido; el modelo es intercambiable por configuración.
 
-## Privacidad (reemplaza cualquier instrucción anterior sobre Groq o nube)
-- Por defecto TODO es local (Ollama, Whisper, embeddings).
-- Existe un "modo nube de pruebas", opcional y apagado por defecto (NEXUS_ALLOW_CLOUD=off), solo
-  para el chat y la digestión, con datos NO sensibles. Los embeddings y Whisper NUNCA salen de la máquina.
-- Un documento puede marcarse como privado (private=1): si el contexto de una respuesta o digestión
-  incluye un trozo privado, se usa SOLO el modelo local, aunque la nube esté activa.
-- En producción con datos reales, NEXUS_ALLOW_CLOUD=off. Sin telemetría ni servicios externos
-  salvo los que se activen a propósito y estén documentados.
+## Privacidad
+Superado por la Fase 1 de Isabelle (ver CLAUDE.md): el chat va solo por OpenRouter con
+proveedores sin retención; embeddings, audio y OCR siguen en la máquina. Ya no hay modo nube de
+pruebas ni documentos privados.
 
 ## Restricciones
 - Hardware objetivo: laptop o servidor de 8 GB de RAM, sin GPU. Docker Compose. Secretos solo en
