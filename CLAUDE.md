@@ -71,9 +71,13 @@ núcleo es genérico; lo propio del rubro vive en profiles/*.toml.
   FTS, ficha del jefe solo de lo que él dice, resumen), filtro de salida (core/filtro.py), cola
   y botones en el canal, modelo potente por NEXUS_OPENROUTER_MODEL_DEEP, razonamiento apagado
   salvo en el modelo potente. Nombre visible: Isabelle.
+- Fase 2C: recordatorios con máquina de estados en SQLite (core/reminders.py: previo 30 min,
+  a la hora con «Ya lo hice»/«Recuérdame», 3 insistencias de 20 min, sin_confirmar), repetición
+  diaria/semanal/mensual (core/when.py), botones del buzón, sin IA en el programador, textos con
+  variantes en [recordatorios] de profiles/isabelle.toml.
 
 ## Cómo probar
-`python3 tests/e2e.py --audio <wav> --audio-phrase <palabra> --chaos` (19 casos, instancia
+`python3 tests/e2e.py --audio <wav> --audio-phrase <palabra> --chaos` (20 casos, instancia
 aislada; la memoria real no se toca; usa OpenRouter real y --chaos simula OpenRouter inalcanzable). Unitarias dentro del contenedor (ver tests/test_senses.py).
 Antes de probar cambios de código: `docker compose build core`. También: `tests/eval_ventas.py`
 (medir antes y después en /ask), `tests/informe.py` (estado de la instalación real),

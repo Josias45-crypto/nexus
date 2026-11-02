@@ -39,7 +39,7 @@ Telegram / WhatsApp / simulado          núcleo (core)
 
 Horas que entiende: `4:17`, `4 : 17`, `4.17`, `4h17`, `4 y 18`, `4 y cuarto`, `4 y media`,
 `4 menos cuarto`, `16:17`, `4 pm`, `de la mañana/tarde/noche`, `mediodía`, `medianoche`,
-`mañana 9`, `en 20 minutos`. Sin am/pm ni fecha elige la próxima vez que llega esa hora (a las
+`mañana 9`, `en 20 minutos`, `en 90 segundos`. Sin am/pm ni fecha elige la próxima vez que llega esa hora (a las
 04:15, "a las 4" es 16:00 y "a las 4:17" es 04:17). Con fecha, de 1 a 7 es de la tarde. Si la
 hora no queda clara o sobra un número ("a las 4 17 …"), pregunta "¿A qué hora exactamente?" en
 vez de adivinar (y, cuando aclaras, pone esa hora en el pedido); si pides una hora con am/pm que
@@ -53,8 +53,22 @@ instante. Lo que espera respuesta (la hora nueva, el «¿Cancelo el recordatorio
 dudosa) queda en la base, no en la memoria del bot: sobrevive a un reinicio y caduca a los 15
 minutos. Solo dice «Listo» tras leer la fila escrita, y un «sí» repetido no la duplica.
 
-Si un recordatorio vence y no le dices «ya lo hice», Isabelle insiste cada
-`NEXUS_REMINDER_RETRY_MIN` minutos hasta `NEXUS_REMINDER_MAX_TRIES` avisos.
+**Seguimiento (sin IA).** Si se creó con más de 30 min de anticipación, avisa 30 min antes. A la
+hora exacta avisa con **Ya lo hice** y **Recuérdame**; si no respondes, insiste cada 20 min,
+como máximo 3 veces (cada vez más suave). Tras la tercera queda «sin confirmar» y deja de
+insistir (el saludo de la Fase 2D lo mencionará); «ya lo hice» lo sigue cerrando. «Ya lo hice»,
+cancelar o posponer lo detienen al instante. **Recuérdame** pregunta «¿cuándo, jefe?» y entiende
+«en un día», «mañana a las 9», «el viernes a las 3»; si no entiende, repregunta con botones (En 1
+hora, Mañana 9:00 a. m., En 1 día). Lo programado suena a su hora aunque sea de noche. Si el
+sistema estuvo caído, lo vencido sale con «(retrasado)», un aviso a la vez.
+
+**Repetición:** «todos los lunes a las 8 …», «cada día a las 7 …», «el 15 de cada mes …». Cada
+ocurrencia es independiente: «ya lo hice» cierra solo la actual y se programa la siguiente. Al
+cancelar una de una serie pregunta **Solo este** o **Toda la serie**.
+
+**En lenguaje natural:** «ya lo hice», «cancela el 3», «pospón el 2 una hora», «¿qué tengo
+pendiente?» (lista en hora de Perú con su estado). Los textos salen de `[recordatorios]` en
+`profiles/isabelle.toml`, con varias variantes que no se repiten seguidas.
 
 El resumen matutino se envía a la hora `resumen_matutino` del perfil (hora local según
 `NEXUS_TZ_OFFSET`). Si NEXUS estuvo apagado, se envía con hasta 3 h de atraso; después, ese

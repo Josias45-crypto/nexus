@@ -82,8 +82,8 @@ curl -X POST localhost:8000/ask -H 'Content-Type: application/json' \
 | POST | `/reminders/pending/cancel` | `{"channel", "chat_id"}` descarta lo pendiente |
 | POST | `/reminders/test?seconds=60` | `{"channel", "chat_id"}` recordatorio de prueba sin confirmación |
 | POST | `/reminders` | `{"text", "due_at", "channel", "chat_id"}` guarda directamente |
-| GET | `/reminders?chat_id=` | Recordatorios abiertos |
-| POST | `/reminders/done?chat_id=` | Marca hecho el último avisado |
+| GET | `/reminders?chat_id=` | Abiertos y sin confirmar, con `estado` (creado, avisado_previo, avisado, esperando, pospuesto, sin_confirmar), `estado_es`, `proximo_local`, `insistencias` y `regla` |
+| POST | `/reminders/done?chat_id=` | Marca hecho el último que sonó y espera respuesta |
 | POST | `/reminders/{id}/done` · `/reminders/{id}/cancel?chat_id=` | Marca hecho o cancela (con `chat_id`, solo si es de ese chat) |
 | GET | `/briefing` | Vista previa del resumen matutino (no envía) |
 | POST | `/briefing/send?channel=telegram` | Envía el resumen ahora |

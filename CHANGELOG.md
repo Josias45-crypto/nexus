@@ -24,6 +24,15 @@ AAAA-MM-DD.
   opinión»), avisando que cuesta más; `tests/comparar_modelos.py` para elegirlo.
 - Canal: cola que junta mensajes seguidos, «escribiendo…», pausa humana y filtro de salida.
 
+### Agregado (Fase 2C: recordatorios con seguimiento)
+- Máquina de estados persistida (creado, avisado_previo, avisado, esperando, pospuesto, hecho,
+  cancelado, sin_confirmar) con migración no destructiva; sin envíos duplicados ni IA en el
+  programador; lo vencido sale con «(retrasado)».
+- Aviso 30 min antes (si se creó con más anticipación), a la hora con «Ya lo hice» y
+  «Recuérdame», 3 insistencias cada 20 min; repetición diaria, semanal y mensual.
+- Lenguaje natural: «pospón el 2 una hora», «¿qué tengo pendiente?»; «en 90 segundos».
+- `NEXUS_REMINDER_MAX_TRIES` se quita; `NEXUS_REMINDER_RETRY_MIN` queda solo para pruebas.
+
 ### Quitado
 - Los comandos de Telegram (`/recordar`, `/hecho`, `/cancelar`...): todo es lenguaje natural.
 - Modos `cloud`/`local`, backends por capacidad, respaldo local del chat, Groq y Gemini para chat,
