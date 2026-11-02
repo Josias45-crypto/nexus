@@ -12,16 +12,17 @@ from pydantic import BaseModel, Field
 
 from config import settings
 from core import profile as nexus_profile
-from core import ask, backup, brain, briefing, digest, dashboard, events, growth, inbox, outbox, processor, reindex, reminders, search, ui, usage, worker
+from core import ask, backup, brain, briefing, charla, conversa, digest, dashboard, events, growth, inbox, outbox, persona, processor, reindex, reminders, search, ui, usage, worker
 from core.db import connect, init_db
 from core.logs import setup_logging
 from providers.openrouter import ChatUnavailable, get_client
 
 setup_logging()
-app = FastAPI(title="NEXUS", lifespan=worker.lifespan)
+app = FastAPI(title="Isabelle", lifespan=worker.lifespan)
 llm = get_client()
 init_db()
 nexus_profile.get()  # un perfil inválido detiene el arranque con un mensaje claro
+persona.get()  # igual con la personalidad (profiles/isabelle.toml)
 
 MAX_BYTES = settings.MAX_UPLOAD_MB * 1024 * 1024
 TOO_LARGE = f"El archivo supera el límite de {settings.MAX_UPLOAD_MB} MB (NEXUS_MAX_UPLOAD_MB)."
@@ -44,7 +45,7 @@ async def internal_error(request: Request, exc: Exception):
     log.exception("Error no controlado en %s", request.url.path)
     return JSONResponse(
         status_code=500,
-        content={"detail": "Error interno de NEXUS. Detalle en: docker logs nexus-core"},
+        content={"detail": "Error interno de Isabelle. Detalle en: docker logs nexus-core"},
     )
 
 
@@ -119,6 +120,65 @@ async def chat(req: ChatRequest):
     except ChatUnavailable as exc:
         return {"reply": str(exc), "model": None, "llm": {"aviso": exc.reason}}
     return {"reply": reply, "model": info["modelo"], "llm": info}
+
+
+class TurnoIn(BaseModel):
+    mensajes: list[str] = Field(min_length=1, max_length=20)
+    channel: str = Field(min_length=1, max_length=40)
+    chat_id: str = Field(min_length=1, max_length=80)
+
+
+class BotonIn(BaseModel):
+    dato: str = Field(min_length=1, max_length=64)
+    channel: str = Field(min_length=1, max_length=40)
+    chat_id: str = Field(min_length=1, max_length=80)
+
+
+class ArchivoIn(BaseModel):
+    filename: str = Field(max_length=300)
+    kind: str = Field(max_length=20)
+    duplicate: bool = False
+    chat_id: str = Field(min_length=1, max_length=80)
+
+
+@app.post("/conversar")
+async def conversar(req: TurnoIn):
+    """Un turno de conversación en lenguaje natural (uno o varios mensajes seguidos del jefe)."""
+    if sum(len(m) for m in req.mensajes) > 20000:
+        raise HTTPException(413, "El mensaje es demasiado largo.")
+    return await conversa.conversar(req.mensajes, req.channel, req.chat_id)
+
+
+@app.post("/conversar/boton")
+async def conversar_boton(req: BotonIn):
+    return await conversa.boton(req.dato, req.channel, req.chat_id)
+
+
+@app.post("/conversar/archivo")
+def conversar_archivo(req: ArchivoIn):
+    return conversa.archivo(req.filename, req.kind, req.duplicate, req.chat_id)
+
+
+@app.get("/charla")
+def charla_buscar(
+    q: str | None = Query(None, max_length=200),
+    desde: str | None = Query(None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    hasta: str | None = Query(None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    limit: int = Query(50, ge=1, le=500),
+):
+    """Historial de la conversación: por palabras y/o por días locales."""
+    try:
+        d = date.fromisoformat(desde) if desde else None
+        h = date.fromisoformat(hasta) if hasta else None
+    except ValueError:
+        raise HTTPException(422, "Fecha inválida; usa AAAA-MM-DD.")
+    return charla.buscar(q, d, h, limit)
+
+
+@app.get("/charla/memoria")
+def charla_memoria():
+    """Ficha del jefe y resumen corriente (separados del conocimiento con fuentes)."""
+    return {"ficha": charla.ficha(), "resumen": charla.resumen()}
 
 
 @app.post("/inbox/text")

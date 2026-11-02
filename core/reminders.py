@@ -4,7 +4,7 @@ Flujo: el canal llama a interpret() con su chat; lo entendido queda en pending_c
 (en la base, con caducidad, así sobrevive a reinicios del canal). Solo si el usuario confirma,
 confirm() escribe la fila en reminders y la devuelve leída de la base. El programador (worker) deja los avisos vencidos en el buzón de salida
 (outbox) y los repite cada NEXUS_REMINDER_RETRY_MIN minutos hasta NEXUS_REMINDER_MAX_TRIES
-avisos o hasta que el usuario responda /hecho.
+avisos o hasta que el jefe diga «ya lo hice».
 """
 
 import json
@@ -259,6 +259,23 @@ def set_status(rid: int | None, status: str, chat_id: str | None = None) -> dict
     return get(rid) if n else None
 
 
+def reschedule(rid: int, due_at: str, chat_id: str | None = None) -> dict | None:
+    """Cambia la hora de un recordatorio abierto (vuelve a pending: avisa de nuevo a la nueva hora).
+    Con chat_id, solo si es de ese chat."""
+    due = datetime.fromisoformat(due_at)
+    if due.tzinfo is None:
+        raise ValueError("due_at debe incluir zona horaria (UTC)")
+    with connect() as conn:
+        n = conn.execute(
+            "UPDATE reminders SET due_at = ?, status = 'pending', attempts = 0, last_sent_at = NULL"
+            " WHERE id = ? AND status IN ('pending', 'sent') AND (? IS NULL OR chat_id = ?)",
+            (due.astimezone(timezone.utc).isoformat(), rid, chat_id, chat_id),
+        ).rowcount
+    if n:
+        log.info("Recordatorio %s · nueva hora", rid)
+    return get(rid) if n else None
+
+
 def due_step() -> dict:
     """Programador: pasa al buzón los avisos vencidos y las insistencias."""
     now = clock.now_utc()
@@ -276,7 +293,7 @@ def due_step() -> dict:
             extra = f" (aviso {n} de {settings.REMINDER_MAX_TRIES})" if n > 1 else ""
             text = (
                 f"⏰ Recordatorio{extra}: {r['text']}\n"
-                f"Responde /hecho {r['id']} cuando esté listo."
+                "Cuando lo haga, dígame «ya lo hice»."
             )
             outbox.put(conn, r["channel"], r["chat_id"], "reminder", str(r["id"]), text)
             conn.execute(

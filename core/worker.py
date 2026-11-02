@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
 from config import settings
-from core import backup, briefing, digest, processor, reminders
+from core import backup, briefing, charla, conversa, digest, processor, reminders
 
 log = logging.getLogger("nexus.worker")
 
@@ -17,7 +17,9 @@ state: dict = {
     "ultimo_aviso": None,
     "ultima_digestion": None,
     "ultimo_respaldo": None,
+    "ultima_memoria": None,
 }
+MEMORIA_CADA = 60  # segundos entre revisiones de la memoria del jefe
 
 
 async def _process_step() -> dict:
@@ -42,6 +44,10 @@ async def _scheduler_step() -> dict:
     except Exception:
         log.exception("Error armando el resumen matutino")
     return result
+
+
+async def _memoria_step() -> dict:
+    return await charla.revisar(conversa.ocupado)
 
 
 async def _backup_step() -> dict:
@@ -78,6 +84,7 @@ async def lifespan(app):
                 _loop("programador", _scheduler_step, "ultimo_aviso", settings.SCHEDULER_INTERVAL)
             )
         )
+        tasks.append(asyncio.create_task(_loop("memoria", _memoria_step, "ultima_memoria", MEMORIA_CADA)))
         if settings.DIGEST_ENABLED:
             tasks.append(asyncio.create_task(_loop("digestor", _digest_step, "ultima_digestion", every)))
         if settings.BACKUP_HOURS > 0:
