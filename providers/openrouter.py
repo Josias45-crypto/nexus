@@ -5,6 +5,8 @@
   (provider.zdr y provider.data_collection=deny).
 - Registra tokens y costo de cada respuesta (core/usage.py) y respeta el presupuesto diario:
   al alcanzarlo avisa y espera a mañana; no hay respaldo.
+- El modelo potente (análisis a fondo) tiene un modelo de respaldo propio: entra solo si el
+  potente está caído, limitado (429) o no existe; nunca por falta de saldo, clave o tope diario.
 - Si OpenRouter no responde, lanza ChatUnavailable con una línea clara para el dueño y pausa el
   trabajo de fondo con espera creciente (paused_for). Ante 402 avisa al dueño una sola vez.
 
@@ -99,11 +101,12 @@ def _retry_after(value: str | None) -> float | None:
 class OpenRouter:
     def __init__(
         self, key: str, model: str, budget_usd: float | None, ledger: Ledger | None = None,
-        transport: httpx.AsyncBaseTransport | None = None, deep_model: str = "",
+        transport: httpx.AsyncBaseTransport | None = None, deep_model: str = "", deep_fallback: str = "",
     ):
         self._key = key
         self.model = model
         self.deep_model = deep_model
+        self.deep_fallback = deep_fallback
         self.budget = budget_usd
         self.ledger = ledger
         self._transport = transport
@@ -128,6 +131,7 @@ class OpenRouter:
             "proveedor": "openrouter",
             "modelo": self.model,
             "modelo_profundo": self.deep_model or None,
+            "modelo_profundo_respaldo": self.deep_fallback or None,
             "configurado": bool(self._key and self.model),
             "politica_datos": DATA_POLICY,
             "presupuesto_diario_usd": self.budget,
@@ -216,10 +220,20 @@ class OpenRouter:
             body["max_tokens"] = max_tokens
         if not razonar:
             body["reasoning"] = {"enabled": False}
-        try:
-            data = await self._post_retrying(body)
-        except _CallError as err:
-            raise self._fail(err) from None
+        modelos = [model]
+        if model == self.deep_model and self.deep_fallback and self.deep_fallback != model:
+            modelos.append(self.deep_fallback)
+        for i, m in enumerate(modelos):
+            body["model"] = m
+            try:
+                data = await self._post_retrying(body)
+                break
+            except _CallError as err:
+                # Respaldo del potente: solo si está caído, limitado o no existe (404)
+                if i + 1 < len(modelos) and err.reason in ("caido", "limite"):
+                    log.warning("Modelo potente no disponible (%s); uso el de respaldo", err)
+                    continue
+                raise self._fail(err) from None
         u = data.get("usage") or {}
         cost = u.get("cost")
         info = {
@@ -228,6 +242,7 @@ class OpenRouter:
             "tokens_entrada": int(u.get("prompt_tokens") or 0),
             "tokens_salida": int(u.get("completion_tokens") or 0),
             "costo_usd": float(cost) if isinstance(cost, (int, float)) else None,
+            "respaldo": body["model"] != model,
         }
         if self._alert_stale and self.ledger:
             self._safe(self.ledger.clear_alert, "sin_saldo")
@@ -253,7 +268,7 @@ def get_client() -> OpenRouter:
 
         _client = OpenRouter(
             settings.OPENROUTER_API_KEY, settings.OPENROUTER_MODEL, settings.DAILY_BUDGET_USD, usage,
-            deep_model=settings.OPENROUTER_MODEL_DEEP,
+            deep_model=settings.OPENROUTER_MODEL_DEEP, deep_fallback=settings.OPENROUTER_MODEL_DEEP_RESPALDO,
         )
         if not (_client._key and _client.model):
             log.warning("Falta OPENROUTER_API_KEYS o NEXUS_OPENROUTER_MODEL en .env: el chat no responderá")

@@ -6,6 +6,8 @@ OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEYS", "").split(",")[0].strip()
 # Modelos por variable, sin valor en el código: uso diario y potente (solo cuando el jefe lo pide)
 OPENROUTER_MODEL = os.getenv("NEXUS_OPENROUTER_MODEL", "").strip()
 OPENROUTER_MODEL_DEEP = os.getenv("NEXUS_OPENROUTER_MODEL_DEEP", "").strip()
+# Respaldo del modelo potente: solo si está caído, limitado (429) o no existe
+OPENROUTER_MODEL_DEEP_RESPALDO = os.getenv("NEXUS_OPENROUTER_MODEL_DEEP_RESPALDO", "").strip()
 # Tope de gasto diario en USD (vacío = sin tope). Al alcanzarlo, el chat avisa y espera a mañana.
 DAILY_BUDGET_USD = float(os.getenv("NEXUS_DAILY_BUDGET_USD", "").strip() or 0) or None
 # Perfil de rubro: profiles/<NEXUS_PROFILE>.toml

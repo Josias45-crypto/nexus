@@ -82,6 +82,65 @@ class Base(unittest.TestCase):
         self.addCleanup(p.stop)
 
 
+class PorModelo(Script):
+    """Responde según el modelo pedido (ok si no está en el mapa)."""
+
+    def __init__(self, fallos: dict):
+        super().__init__(ok)
+        self.fallos = fallos
+
+    def __call__(self, request):
+        body = json.loads(request.content)
+        self.bodies.append(body)
+        return self.fallos.get(body["model"], ok)()
+
+
+def potente(script, ledger=None, budget=None):
+    return OpenRouter(KEY, "deepseek/deepseek-v4-flash", budget, ledger or FakeLedger(), httpx.MockTransport(script),
+                      deep_model="anthropic/claude-sonnet-5.5", deep_fallback="deepseek/deepseek-v4-pro")
+
+
+class TestRespaldoPotente(Base):
+    def _run(self, c):
+        return asyncio.run(c.chat_ex(MSG, model=c.deep_model, razonar=True))
+
+    def test_caido_o_inexistente_usa_el_respaldo(self):
+        for status in (404, 503, 429):
+            s = PorModelo({"anthropic/claude-sonnet-5.5": lambda: httpx.Response(status)})
+            _, info = self._run(potente(s))
+            self.assertEqual(s.bodies[-1]["model"], "deepseek/deepseek-v4-pro")
+            self.assertEqual(s.bodies[0]["model"], "anthropic/claude-sonnet-5.5")
+            self.assertTrue(info["respaldo"])
+            self.assertEqual(s.bodies[-1]["provider"], {"zdr": True, "data_collection": "deny"})
+
+    def test_sin_saldo_o_clave_no_usa_el_respaldo(self):
+        for status, razon in ((402, "sin_saldo"), (401, "clave")):
+            s = Script(httpx.Response(status), ok)
+            with self.assertRaises(ChatUnavailable) as cm:
+                self._run(potente(s))
+            self.assertEqual(cm.exception.reason, razon)
+            self.assertEqual({b["model"] for b in s.bodies}, {"anthropic/claude-sonnet-5.5"})
+
+    def test_tope_diario_no_usa_el_respaldo(self):
+        s = Script(ok)
+        with self.assertRaises(ChatUnavailable) as cm:
+            self._run(potente(s, FakeLedger(spent=5), budget=1))
+        self.assertEqual(cm.exception.reason, "presupuesto")
+        self.assertEqual(s.bodies, [])
+
+    def test_el_diario_no_tiene_respaldo(self):
+        s = Script(httpx.Response(404), ok)
+        with self.assertRaises(ChatUnavailable):
+            run(potente(s))
+        self.assertEqual(len(s.bodies), 1)
+
+    def test_potente_bien_no_marca_respaldo(self):
+        s = Script(ok)
+        _, info = self._run(potente(s))
+        self.assertFalse(info["respaldo"])
+        self.assertNotIn("reasoning", s.bodies[0])
+
+
 class TestOpenRouter(Base):
     def test_ok_registra_uso_y_politica_de_datos(self):
         s, ledger = Script(ok), FakeLedger()

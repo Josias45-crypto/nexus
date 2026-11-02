@@ -108,6 +108,8 @@ valor por defecto. Las más usadas:
 |---|---|---|
 | `OPENROUTER_API_KEYS` | vacío | Clave de OpenRouter |
 | `NEXUS_OPENROUTER_MODEL` | `deepseek/deepseek-v4-flash` | Modelo de chat |
+| `NEXUS_OPENROUTER_MODEL_DEEP` | `anthropic/claude-sonnet-5.5` | Modelo potente para «analiza a fondo» |
+| `NEXUS_OPENROUTER_MODEL_DEEP_RESPALDO` | `deepseek/deepseek-v4-pro` | Respaldo del potente si está caído, limitado o no existe (no por saldo ni tope) |
 | `NEXUS_DAILY_BUDGET_USD` | vacío | Tope de gasto diario; al llegar avisa y espera a mañana (ver `GET /usage`) |
 | `NEXUS_PROFILE` | `general` | Perfil de rubro (`profiles/*.toml`) |
 | `NEXUS_TZ_OFFSET` | `-5` | Zona horaria para "hoy", recordatorios y resumen |
