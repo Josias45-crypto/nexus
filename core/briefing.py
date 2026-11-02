@@ -2,7 +2,7 @@
 
 Los datos se arman con código (recordatorios, lo último que entró); el LLM solo redacta un
 saludo breve a partir de esos datos. La lista de datos va siempre tal cual, así nada inventado
-puede colarse como dato. El contenido marcado como privado nunca se pasa al LLM.
+puede colarse como dato.
 """
 
 import logging
@@ -12,7 +12,7 @@ from datetime import date, datetime, timedelta
 from config import settings
 from core import clock, outbox, profile
 from core.db import connect
-from providers.factory import get_provider
+from providers.openrouter import get_client
 
 log = logging.getLogger("nexus.briefing")
 
@@ -47,7 +47,7 @@ def learned(
         end = _day_bounds_utc(until_day or first)[1]
     with connect() as conn:
         rows = conn.execute(
-            "SELECT e.id, e.created_at, e.kind, e.filename, e.status, e.private, d.summary,"
+            "SELECT e.id, e.created_at, e.kind, e.filename, e.status, d.summary,"
             " (SELECT content FROM chunks c WHERE c.event_id = e.id AND c.position = 0) AS first"
             " FROM events e LEFT JOIN digests d ON d.event_id = e.id AND d.status = 'done'"
             " WHERE e.created_at >= ? AND e.created_at < ? ORDER BY e.created_at DESC LIMIT ?",
@@ -61,7 +61,6 @@ def learned(
             "tipo": r["kind"],
             "archivo": r["filename"],
             "estado": r["status"],
-            "privado": bool(r["private"]),
             "resumen": _snippet(r["summary"] or r["first"]),
         }
         for r in rows
@@ -106,13 +105,13 @@ def _facts_text(rem: dict, items: list[dict]) -> str:
     if items:
         lines.append("Lo último que aprendí:")
         for it in items[-8:]:
-            detalle = "(privado)" if it["privado"] else it["resumen"]
+            detalle = it["resumen"]
             lines.append(f"• {it['archivo']}: {detalle}" if detalle else f"• {it['archivo']}")
     return "\n".join(lines)
 
 
 def _compact(rem: dict, items: list[dict]) -> str:
-    """Lo mínimo para el saludo: cuántas cosas hay y qué recordatorios (sin contenido privado)."""
+    """Lo mínimo para el saludo: cuántas cosas hay y qué recordatorios ."""
     parts = [f"Recordatorios de hoy: {len(rem['hoy'])}"]
     parts += [f"- {r['cuando']} {r['texto']}" for r in rem["hoy"][:3]]
     parts.append(f"Pendientes atrasados: {len(rem['atrasados'])}")
@@ -136,7 +135,7 @@ async def _greeting(rem: dict, items: list[dict]) -> str:
     fallback = f"Buenos días. Soy {p['asistente']['nombre']}; esto es lo que tienes hoy."
     compact = _compact(rem, items)
     try:
-        reply = await get_provider().chat(
+        reply = await get_client().chat(
             [
                 {"role": "system", "content": profile.system_prompt()},
                 {

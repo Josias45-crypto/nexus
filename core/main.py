@@ -15,12 +15,11 @@ from core import profile as nexus_profile
 from core import ask, backup, brain, briefing, digest, dashboard, events, growth, inbox, outbox, processor, reindex, reminders, search, ui, usage, worker
 from core.db import connect, init_db
 from core.logs import setup_logging
-from providers.base import ChatUnavailable
-from providers.factory import get_provider
+from providers.openrouter import ChatUnavailable, get_client
 
 setup_logging()
 app = FastAPI(title="NEXUS", lifespan=worker.lifespan)
-provider = get_provider()
+llm = get_client()
 init_db()
 nexus_profile.get()  # un perfil inválido detiene el arranque con un mensaje claro
 
@@ -33,10 +32,10 @@ log = logging.getLogger("nexus.api")
 
 @app.exception_handler(httpx.TransportError)
 async def model_unreachable(request: Request, exc: httpx.TransportError):
-    log.warning("Ollama no responde en %s (%s)", request.url.path, type(exc).__name__)
+    log.warning("Ollama (embeddings) no responde en %s (%s)", request.url.path, type(exc).__name__)
     return JSONResponse(
         status_code=503,
-        content={"detail": "El modelo local (Ollama) no responde. Reintenta en unos segundos."},
+        content={"detail": "Ollama (embeddings) no responde. Reintenta en unos segundos."},
     )
 
 
@@ -65,8 +64,6 @@ class ChatRequest(BaseModel):
 class TextIn(BaseModel):
     text: str = Field(min_length=1)
     source: str = Field("api", max_length=40)
-    # Privado: nunca se envía a la nube (aunque el modo nube de pruebas esté activo)
-    private: bool = False
 
 
 async def _ollama_check() -> dict:
@@ -75,10 +72,8 @@ async def _ollama_check() -> dict:
             r = await client.get(f"{settings.OLLAMA_BASE_URL.rstrip('/')}/api/tags")
             r.raise_for_status()
         names = {m["name"] for m in r.json().get("models", [])}
-        missing = [
-            m for m in settings.OLLAMA_MODELS
-            if m not in names and f"{m}:latest" not in names
-        ]
+        m = settings.EMBED_MODEL
+        missing = [] if m in names or f"{m}:latest" in names else [m]
         return {"ok": not missing, "modelos_faltantes": missing}
     except Exception as exc:
         return {"ok": False, "error": f"no responde ({type(exc).__name__})"}
@@ -95,17 +90,12 @@ async def health():
             status_code=503,
             content={"status": "error", "detail": f"Base de datos inaccesible ({type(exc).__name__})"},
         )
-    ollama = await _ollama_check()
-    llm = provider.status()
+    ollama = await _ollama_check()  # solo embeddings
     return {
         "status": "ok" if ollama["ok"] else "degradado",
         "ollama": ollama,
-        "llm_model": settings.LLM_MODEL,
-        "ollama_url": settings.OLLAMA_BASE_URL,
-        "llm_activo": llm["ultimo"]["proveedor"],
-        "nube": llm["ultimo"]["nube"],  # la última respuesta salió de la nube
-        "mostrar_proveedor": settings.SHOW_PROVIDER,  # pie "NUBE: respondió ..." en web y Telegram
-        "llm": llm,
+        "llm_model": settings.OPENROUTER_MODEL,
+        "llm": llm.status(),
     }
 
 
@@ -125,10 +115,10 @@ def profile_info():
 @app.post("/chat")
 async def chat(req: ChatRequest):
     try:
-        reply, llm = await provider.chat_ex([{"role": "user", "content": req.message}], cloud=True)
+        reply, info = await llm.chat_ex([{"role": "user", "content": req.message}])
     except ChatUnavailable as exc:
-        return {"reply": str(exc), "model": None, "llm": {"aviso": True}}
-    return {"reply": reply, "model": llm["modelo"], "llm": llm}
+        return {"reply": str(exc), "model": None, "llm": {"aviso": exc.reason}}
+    return {"reply": reply, "model": info["modelo"], "llm": info}
 
 
 @app.post("/inbox/text")
@@ -138,9 +128,7 @@ async def inbox_text(item: TextIn):
         raise HTTPException(422, "El texto está vacío.")
     if len(data) > MAX_BYTES:
         raise HTTPException(413, TOO_LARGE)
-    return await asyncio.to_thread(
-        inbox.save, data, "nota.txt", "text/plain", item.source, kind="text", private=item.private
-    )
+    return await asyncio.to_thread(inbox.save, data, "nota.txt", "text/plain", item.source, kind="text")
 
 
 @app.post("/inbox/file")
@@ -148,7 +136,6 @@ async def inbox_file(
     request: Request,
     file: UploadFile = File(...),
     source: str = Query("api", max_length=40),
-    private: bool = False,
 ):
     declared = request.headers.get("content-length")
     if declared and declared.isdigit() and int(declared) > MAX_BYTES + 64 * 1024:
@@ -160,7 +147,6 @@ async def inbox_file(
             file.filename or "sin_nombre",
             file.content_type or "application/octet-stream",
             source,
-            private=private,
         )
     except inbox.TooLarge:
         raise HTTPException(413, TOO_LARGE)
@@ -173,7 +159,7 @@ def inbox_list(limit: int = Query(20, ge=1, le=500)):
     with connect() as conn:
         rows = conn.execute(
             "SELECT e.id, e.created_at, e.kind, e.source, e.filename, e.size, e.status, e.attempts,"
-            " e.error, e.private, d.status AS digest"
+            " e.error, d.status AS digest"
             " FROM events e LEFT JOIN digests d ON d.event_id = e.id"
             " ORDER BY e.created_at DESC LIMIT ?",
             (limit,),
@@ -216,8 +202,8 @@ async def ask_memory(req: AskRequest):
     try:
         return await ask.ask(req.question, req.k)
     except ChatUnavailable as exc:
-        # Aviso claro (sin saldo, respaldo apagado, privado sin modelo local): no es un error 500
-        return {"answer": str(exc), "sources": [], "llm": {"aviso": True}, "tipo": "aviso"}
+        # Una línea clara (sin saldo, tope del día, OpenRouter caído): no es un error 500
+        return {"answer": str(exc), "sources": [], "llm": {"aviso": exc.reason}, "tipo": "aviso"}
 
 
 @app.get("/usage")
@@ -240,7 +226,7 @@ def worker_status():
         ).fetchall()
     return {
         **worker.state,
-        "llm": provider.status(),
+        "llm": llm.status(),
         "digiriendo": digest.progress,
         "eventos_por_estado": {r["status"]: r["total"] for r in rows},
     }

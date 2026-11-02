@@ -98,7 +98,7 @@ async def search(query: str, k: int = 5, publish: bool = True) -> list[dict]:
         for cid in chosen:
             row = conn.execute(
                 "SELECT c.id, c.position, c.content, c.meta, e.id AS event_id, e.filename,"
-                " e.source, e.created_at, e.private"
+                " e.source, e.created_at"
                 " FROM chunks c JOIN events e ON e.id = c.event_id WHERE c.id = ?",
                 (cid,),
             ).fetchone()

@@ -84,7 +84,6 @@ def save_stream(
     mime: str,
     source: str,
     kind: str | None = None,
-    private: bool = False,
 ) -> dict:
     """Guarda el original intacto en data/raw y registra el evento. Es bloqueante:
     desde código async llamarla con asyncio.to_thread."""
@@ -108,10 +107,10 @@ def save_stream(
             with connect() as conn:
                 conn.execute(
                     "INSERT INTO events (id, created_at, kind, source, filename, mime, size,"
-                    " sha256, raw_path, private) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    " sha256, raw_path) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         event_id, now.isoformat(), kind, source, safe_name, mime, size,
-                        sha, str(path), int(private),
+                        sha, str(path),
                     ),
                 )
         except sqlite3.IntegrityError:
@@ -126,7 +125,7 @@ def save_stream(
         tmp.unlink(missing_ok=True)
 
     events.publish("ingest", {"id": event_id, "kind": kind, "filename": safe_name})
-    return {"id": event_id, "kind": kind, "size": size, "private": private, "duplicate": False}
+    return {"id": event_id, "kind": kind, "size": size, "duplicate": False}
 
 
 def save(
@@ -135,6 +134,5 @@ def save(
     mime: str,
     source: str,
     kind: str | None = None,
-    private: bool = False,
 ) -> dict:
-    return save_stream(io.BytesIO(data), filename, mime, source, kind, private)
+    return save_stream(io.BytesIO(data), filename, mime, source, kind)

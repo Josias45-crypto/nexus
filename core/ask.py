@@ -3,7 +3,7 @@ import re
 from config import settings
 from core import citations, profile, verify
 from core.search import publish_recall, search
-from providers.factory import get_provider
+from providers.openrouter import get_client
 
 NO_INFO = "No tengo información sobre eso en mi memoria."
 
@@ -99,9 +99,7 @@ async def ask(question: str, k: int | None = None) -> dict:
         {"role": "system", "content": f"{profile.system_prompt()} {RULES}"},
         {"role": "user", "content": f"{context}\n\nPregunta: {question}\nRespuesta:"},
     ]
-    # Si algún trozo usado es privado, responde solo el modelo local
-    private = any(h.get("private") for h in hits)
-    answer, llm = await get_provider().chat_ex(messages, cloud=True, private=private)
+    answer, llm = await get_client().chat_ex(messages)
     answer = _clean(answer)
 
     # Anti-invención: cada nombre propio y cifra debe estar en las fuentes (o en la pregunta)
@@ -111,14 +109,14 @@ async def ask(question: str, k: int | None = None) -> dict:
         # Dijo que no sabe, pero hay fuentes que nombran todo lo que pide: una segunda mirada
         named = ", ".join(str(i) for i, h in enumerate(hits, 1) if about_entities(question, [h]))
         if named:
-            answer, llm = await get_provider().chat_ex(messages + [
+            answer, llm = await get_client().chat_ex(messages + [
                 {"role": "assistant", "content": answer},
                 {"role": "user", "content": (
                     f"Las fuentes {named} mencionan lo que se pregunta. Léelas otra vez: si "
                     "responden la pregunta, responde con sus datos exactos; si hablan de otra "
                     f'cosa, responde exactamente: "{NO_INFO}"'
                 )},
-            ], cloud=True, private=private)
+            ])
             answer = _clean(answer)
             llm = {**llm, "segunda_mirada": True}
     missing = [] if _says_no(answer) else verify.unverified(answer, texts, question)
@@ -130,7 +128,7 @@ async def ask(question: str, k: int | None = None) -> dict:
                 "usando solo nombres y cifras que estén escritos en las fuentes."
             )},
         ]
-        answer, llm = await get_provider().chat_ex(retry, cloud=True, private=private)
+        answer, llm = await get_client().chat_ex(retry)
         answer = _clean(answer)
         missing = [] if _says_no(answer) else verify.unverified(answer, texts, question)
         llm = {**llm, "regenerada": True}

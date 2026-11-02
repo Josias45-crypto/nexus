@@ -1,4 +1,4 @@
-"""Uso y costo del modelo de chat: una fila por petición (nunca el contenido)."""
+"""Uso y costo del chat (OpenRouter): una fila por petición, nunca el contenido."""
 
 from core import clock
 from core.db import connect
@@ -12,7 +12,7 @@ def record(info: dict) -> None:
             " completion_tokens, cost_usd) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 clock.now_utc().isoformat(), now.date().isoformat(), info.get("proveedor") or "?",
-                info.get("modelo"), int(bool(info.get("nube"))), info.get("tokens_entrada") or 0,
+                info.get("modelo"), 1, info.get("tokens_entrada") or 0,
                 info.get("tokens_salida") or 0, info.get("costo_usd"),
             ),
         )
@@ -54,3 +54,23 @@ def by_day(days: int = 30) -> list[dict]:
             "peticiones_sin_costo": r["sin_costo"] if r["cloud"] else 0,
         })
     return list(out.values())[:days]
+
+
+def alert_once(key: str, text: str) -> None:
+    """Deja un aviso para el dueño en el buzón del canal por defecto, una sola vez hasta que
+    clear_alert(key) lo rearme (p. ej. 402: sin saldo)."""
+    from config import settings
+    from core import outbox
+
+    with connect() as conn:
+        done = conn.execute(
+            "INSERT INTO kv (key, value) VALUES (?, ?) ON CONFLICT(key) DO NOTHING",
+            (f"alerta:{key}", clock.now_utc().isoformat()),
+        ).rowcount
+        if done:
+            outbox.put(conn, settings.DEFAULT_CHANNEL, None, "alerta", key, text)
+
+
+def clear_alert(key: str) -> None:
+    with connect() as conn:
+        conn.execute("DELETE FROM kv WHERE key = ?", (f"alerta:{key}",))

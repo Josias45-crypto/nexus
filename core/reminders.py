@@ -15,7 +15,7 @@ from datetime import datetime, timedelta, timezone
 from config import settings
 from core import clock, events, outbox, when
 from core.db import connect
-from providers.factory import get_provider
+from providers.openrouter import get_client
 
 log = logging.getLogger("nexus.reminders")
 
@@ -58,7 +58,7 @@ async def _llm_fallback(text: str, now: datetime) -> dict | None:
         hoy=f"{when.WEEKDAY_NAMES[now.weekday()]} {now:%Y-%m-%d}", hora=f"{now:%H:%M}", texto=text
     )
     try:
-        raw = await get_provider().chat([{"role": "user", "content": prompt}])
+        raw = await get_client().chat([{"role": "user", "content": prompt}])
         m = re.search(r"\{.*\}", raw, re.S)
         data = json.loads(m.group(0)) if m else {}
         if not data.get("fecha"):

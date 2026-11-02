@@ -13,7 +13,7 @@ from datetime import date, timedelta
 from core import briefing, citations, clock, verify, when
 from core.db import connect
 from core.search import publish_recall, relevant, search
-from providers.factory import get_provider
+from providers.openrouter import get_client
 
 MAX_LIST = 15
 SHORT_TEXT = 400  # más corto que esto se muestra tal cual: resumirlo invita a inventar
@@ -65,7 +65,7 @@ def _source(e: dict, n: int) -> dict:
     return {
         "n": n, "event_id": e["id"], "filename": e["archivo"], "cita": e["archivo"],
         "ubicacion": None, "position": 0, "distance": None,
-        "snippet": "(privado)" if e["privado"] else e["resumen"][:200],
+        "snippet": e["resumen"][:200],
     }
 
 
@@ -77,7 +77,7 @@ def _temporal(start: date, end: date, label: str) -> dict:
     lines = [f"{label[0].upper()}{label[1:]} aprendí {len(items)} cosa(s):"]
     for e in items[-MAX_LIST:]:
         when_ = f"{e['dia'][8:10]}/{e['dia'][5:7]} {e['hora']}" if multi_day else e["hora"]
-        detalle = "(privado)" if e["privado"] else (e["resumen"] or e["estado"])
+        detalle = e["resumen"] or e["estado"]
         lines.append(f"• {when_} {e['archivo']}: {detalle}")
     if len(items) > MAX_LIST:
         lines.append(f"… y {len(items) - MAX_LIST} más antes.")
@@ -88,7 +88,7 @@ def _temporal(start: date, end: date, label: str) -> dict:
 async def _last() -> dict:
     with connect() as conn:
         e = conn.execute(
-            "SELECT e.id, e.created_at, e.filename, e.status, e.private, d.summary"
+            "SELECT e.id, e.created_at, e.filename, e.status, d.summary"
             " FROM events e LEFT JOIN digests d ON d.event_id = e.id AND d.status = 'done'"
             " ORDER BY e.created_at DESC LIMIT 1"
         ).fetchone()
@@ -103,7 +103,7 @@ async def _last() -> dict:
         ]
     local = clock.utc_to_local(e["created_at"])
     head = f"Lo último que me enviaste fue «{e['filename']}» ({local:%d/%m %H:%M})."
-    item = {"id": e["id"], "archivo": e["filename"], "privado": bool(e["private"]), "resumen": e["summary"] or ""}
+    item = {"id": e["id"], "archivo": e["filename"], "resumen": e["summary"] or ""}
     if e["status"] == "pending":
         return {"answer": f"{head} Todavía lo estoy procesando.", "sources": [], "llm": None, "tipo": "ultimo"}
     if e["summary"]:
@@ -114,13 +114,11 @@ async def _last() -> dict:
     if len(text) <= SHORT_TEXT:
         item["resumen"] = text
         return {"answer": f"{head}\n\n{text}", "sources": [_source(item, 1)], "llm": None, "tipo": "ultimo"}
-    summary, llm = await get_provider().chat_ex(
+    summary, llm = await get_client().chat_ex(
         [
             {"role": "system", "content": NEUTRAL},
             {"role": "user", "content": f"Resume en 2 o 3 frases este texto, sin inventar nada:\n\n{text}"},
         ],
-        cloud=True,
-        private=bool(e["private"]),
     )
     item["resumen"] = summary
     return {"answer": f"{head}\n\n{summary.strip()}", "sources": [_source(item, 1)], "llm": llm, "tipo": "ultimo"}
@@ -138,13 +136,11 @@ async def _about(topic: str, question: str = "") -> dict:
         return {"answer": NO_INFO, "sources": [], "llm": None, "tipo": "sobre"}
     publish_recall("ask", hits)
     context = "\n\n".join(f"Fuente {i} ({citations.cite(h)}):\n{h['content']}" for i, h in enumerate(hits, 1))
-    answer, llm = await get_provider().chat_ex(
+    answer, llm = await get_client().chat_ex(
         [
             {"role": "system", "content": f"{NEUTRAL} Usa solo la información de las fuentes."},
             {"role": "user", "content": f"{context}\n\nResume en 3 a 5 frases todo lo que dicen las fuentes sobre: {topic}"},
         ],
-        cloud=True,
-        private=any(h.get("private") for h in hits),
     )
     answer = citations.strip_markers(answer)
     return {"answer": answer, "sources": sources_for(citations.supporting(answer, hits)), "llm": llm, "tipo": "sobre"}

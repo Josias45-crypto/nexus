@@ -9,7 +9,7 @@ from config import settings
 from core import events, memory
 from core.db import connect
 from providers.embeddings import get_embedder
-from providers.factory import get_provider
+from providers.openrouter import ChatUnavailable, get_client
 
 log = logging.getLogger("nexus.digest")
 
@@ -29,11 +29,9 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-async def _llm(prompt: str, private: bool, used: list[dict]) -> str:
-    reply, info = await get_provider().chat_ex(
-        [{"role": "system", "content": SYSTEM}, {"role": "user", "content": prompt}],
-        cloud=True,
-        private=private,
+async def _llm(prompt: str, used: list[dict]) -> str:
+    reply, info = await get_client().chat_ex(
+        [{"role": "system", "content": SYSTEM}, {"role": "user", "content": prompt}]
     )
     used.append(info)
     return reply.strip()
@@ -70,7 +68,7 @@ def _progress(event_id: str, **fields) -> None:
 
 
 async def summarize(
-    parts: list[str], private: bool = False, used: list | None = None, event_id: str = ""
+    parts: list[str], used: list | None = None, event_id: str = ""
 ) -> str:
     """Resume por secciones (hasta NEXUS_DIGEST_MAX_SECTIONS) y combina los resúmenes."""
     used = [] if used is None else used
@@ -85,7 +83,7 @@ async def summarize(
     for i, s in enumerate(sections, 1):
         _progress(event_id, paso="secciones", hecho=i - 1, total=len(sections),
                   secciones_documento=len(all_sections))
-        summaries.append(await _llm(f"Resume en 3 o 4 frases el siguiente texto:\n\n{s}", private, used))
+        summaries.append(await _llm(f"Resume en 3 o 4 frases el siguiente texto:\n\n{s}", used))
     _progress(event_id, paso="combinando", hecho=len(sections), total=len(sections))
     while len(summaries) > 1:
         merged = _group(summaries, SECTION_CHARS)
@@ -95,7 +93,6 @@ async def summarize(
             await _llm(
                 "Combina estos resúmenes parciales en un solo resumen coherente "
                 f"de 4 a 6 frases:\n\n{m}",
-                private,
                 used,
             )
             for m in merged
@@ -103,12 +100,11 @@ async def summarize(
     return summaries[0]
 
 
-async def extract_concepts(summary: str, private: bool = False, used: list | None = None) -> list[str]:
+async def extract_concepts(summary: str, used: list | None = None) -> list[str]:
     raw = await _llm(
         "Del siguiente resumen, lista entre 5 y 8 conceptos clave. "
         "Responde solo con los conceptos separados por comas, sin explicaciones:\n\n"
         + summary,
-        private,
         [] if used is None else used,
     )
     concepts: list[str] = []
@@ -125,6 +121,15 @@ def _mark(event_id: str, status: str) -> None:
             "INSERT INTO digests (event_id, status, created_at) VALUES (?, ?, ?)"
             " ON CONFLICT(event_id) DO UPDATE SET status = excluded.status",
             (event_id, status, _now()),
+        )
+
+
+def _queue(event_id: str, reason: str) -> None:
+    with connect() as conn:
+        conn.execute(
+            "INSERT INTO digests (event_id, status, error, created_at) VALUES (?, 'retry', ?, ?)"
+            " ON CONFLICT(event_id) DO UPDATE SET status = 'retry', error = excluded.error",
+            (event_id, f"en cola: {reason}", _now()),
         )
 
 
@@ -147,9 +152,6 @@ def _register_failure(event_id: str, error: str) -> str:
 
 async def _digest_event(event_id: str) -> str:
     with connect() as conn:
-        private = bool(
-            conn.execute("SELECT private FROM events WHERE id = ?", (event_id,)).fetchone()["private"]
-        )
         parts = [
             r["content"]
             for r in conn.execute(
@@ -166,10 +168,10 @@ async def _digest_event(event_id: str) -> str:
     with connect() as conn:
         name = conn.execute("SELECT filename FROM events WHERE id = ?", (event_id,)).fetchone()["filename"]
     _progress(event_id, archivo=name, paso="secciones", hecho=0, total=0)
-    summary = await summarize(parts, private, used, event_id)
+    summary = await summarize(parts, used, event_id)
     _progress(event_id, paso="conceptos")
-    concepts = await extract_concepts(summary, private, used)
-    # Quién resumió de verdad (local o nube), p. ej. "ollama:qwen2.5:1.5b" o "groq:<modelo>"
+    concepts = await extract_concepts(summary, used)
+    # Modelo que resumió, p. ej. "openrouter:deepseek/deepseek-v4-flash"
     model = ", ".join(dict.fromkeys(f"{u['proveedor']}:{u['modelo']}" for u in used))
     text = summary + (f"\nConceptos clave: {', '.join(concepts)}" if concepts else "")
     vec = (await get_embedder().embed_documents([text]))[0]
@@ -198,6 +200,9 @@ async def _digest_event(event_id: str) -> str:
 
 async def digest_pending(limit: int = 5) -> dict:
     global progress
+    wait = get_client().paused_for()
+    if wait:  # OpenRouter falló hace poco: la cola espera (la pausa crece con cada fallo)
+        return {"en_pausa_s": int(wait)}
     async with _lock:
         with connect() as conn:
             rows = conn.execute(
@@ -208,7 +213,7 @@ async def digest_pending(limit: int = 5) -> dict:
                 (limit,),
             ).fetchall()
 
-        result = {"digeridos": 0, "omitidos": 0, "a_reintentar": 0, "fallidos": 0}
+        result = {"digeridos": 0, "omitidos": 0, "a_reintentar": 0, "fallidos": 0, "en_cola": 0}
         for row in rows:
             started = time.monotonic()
             try:
@@ -217,6 +222,13 @@ async def digest_pending(limit: int = 5) -> dict:
                     "Digestión %s: %s en %.1f s", row["id"], outcome, time.monotonic() - started
                 )
                 result["digeridos" if outcome == "done" else "omitidos"] += 1
+            except ChatUnavailable as exc:
+                # OpenRouter caído, sin saldo o tope del día: no es culpa del documento. Queda en
+                # cola sin gastar intentos y se para la tanda hasta que pase la pausa.
+                _queue(row["id"], exc.reason)
+                result["en_cola"] += len(rows) - sum(result.values())
+                log.warning("Digestión en cola (%s): %s", exc.reason, row["id"])
+                break
             except Exception as exc:
                 log.exception("Fallo digiriendo %s", row["id"])
                 status = _register_failure(row["id"], f"{type(exc).__name__}: {exc}")

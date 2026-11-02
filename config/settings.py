@@ -1,91 +1,11 @@
 import os
 
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://ollama:11434")
-LLM_MODEL = os.getenv("NEXUS_LLM_MODEL", "qwen2.5:1.5b")
-# 0 = el modelo local responde siempre igual a la misma pregunta (reproducible); más alto = más variado
-LLM_TEMPERATURE = float(os.getenv("NEXUS_LLM_TEMPERATURE", "0"))
-LLM_PROVIDER = os.getenv("NEXUS_LLM_PROVIDER", "ollama")
-# Ollama remoto preferido para el chat (vacío = solo local); los embeddings siempre van al local
-LLM_URL = os.getenv("NEXUS_LLM_URL", "").strip()
-LLM_REMOTE_MODEL = os.getenv("NEXUS_LLM_REMOTE_MODEL") or LLM_MODEL
-
-# Modo y backends por capacidad (docs/MODOS.md). NEXUS_MODE fija los valores por defecto:
-#   cloud: chat por OpenRouter; embeddings, audio y OCR siguen en la máquina.
-#   local: todo en la máquina (Ollama, Whisper, Tesseract).
-# Compatibilidad: sin NEXUS_MODE, NEXUS_ALLOW_CLOUD=on equivale a cloud.
-_LEGACY_CLOUD = os.getenv("NEXUS_ALLOW_CLOUD", "off").lower() == "on"
-MODE = os.getenv("NEXUS_MODE", "cloud" if _LEGACY_CLOUD else "local").strip().lower()
-if MODE not in ("cloud", "local"):
-    raise ValueError(f"NEXUS_MODE desconocido: {MODE} (usa cloud o local)")
-_CLOUD = MODE == "cloud"
-
-
-def _choice(name: str, default: str, valid: tuple[str, ...]) -> str:
-    value = os.getenv(name, "").strip().lower() or default
-    if value not in valid:
-        raise ValueError(f"{name}={value} no es válido (usa {' o '.join(valid)})")
-    return value
-
-
-def _on(name: str, default: bool) -> bool:
-    return os.getenv(name, "on" if default else "off").strip().lower() == "on"
-
-
-CHAT_BACKEND = _choice("NEXUS_CHAT_BACKEND", "openrouter" if _CLOUD else "ollama", ("openrouter", "ollama"))
-# Preparadas para el futuro: hoy audio y visión son siempre locales
-AUDIO_BACKEND = _choice("NEXUS_AUDIO_BACKEND", "local", ("local", "openrouter"))
-VISION_BACKEND = _choice("NEXUS_VISION_BACKEND", "ocr", ("ocr", "openrouter"))
-EMBED_BACKEND = _choice("NEXUS_EMBED_BACKEND", "local", ("local",))
-# Si la nube falla o se acaba el presupuesto: on = responde el Ollama local; off = avisa
-LOCAL_FALLBACK = _on("NEXUS_LOCAL_FALLBACK", not _CLOUD)
-# Tope de gasto diario en la nube (USD; vacío = sin tope). Al superarlo no se gasta más.
+# Chat: solo OpenRouter (providers/openrouter.py). Una key; el nombre de la variable se conserva.
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEYS", "").split(",")[0].strip()
+OPENROUTER_MODEL = os.getenv("NEXUS_OPENROUTER_MODEL", "").strip() or "deepseek/deepseek-v4-flash"
+# Tope de gasto diario en USD (vacío = sin tope). Al alcanzarlo, el chat avisa y espera a mañana.
 DAILY_BUDGET_USD = float(os.getenv("NEXUS_DAILY_BUDGET_USD", "").strip() or 0) or None
-# Pie "NUBE: respondió ..." en Telegram y en la web
-SHOW_PROVIDER = _on("NEXUS_SHOW_PROVIDER", not _CLOUD)
-# Modelos que descarga el contenedor ollama-models y que /health exige (en modo cloud, solo
-# embeddings: el VPS no carga un modelo de chat que no usa)
-_OLLAMA_MODELS = os.getenv("NEXUS_OLLAMA_MODELS", "").strip()
-OLLAMA_MODELS = (
-    [m.strip() for m in _OLLAMA_MODELS.split(",") if m.strip()]
-    if _OLLAMA_MODELS
-    else [os.getenv("NEXUS_EMBED_MODEL", "nomic-embed-text")] + ([] if _CLOUD else [LLM_MODEL])
-)
-
-# El chat va a la nube (y solo el chat: nunca embeddings, audio, OCR ni lo privado)
-ALLOW_CLOUD = CHAT_BACKEND == "openrouter"
-# Proveedores de nube en orden (el principal es OpenRouter)
-CLOUD_ORDER = [
-    p.strip().lower()
-    for p in os.getenv("NEXUS_CLOUD_ORDER", "openrouter").split(",")
-    if p.strip()
-]
-CLOUD_TIMEOUT = float(os.getenv("NEXUS_CLOUD_TIMEOUT", "30"))
-CLOUD_MIN_COOLDOWN = int(os.getenv("NEXUS_CLOUD_COOLDOWN", "60"))
-# Reintentos por key ante 429/5xx/timeout, con espera creciente (1 s, 2 s, 4 s...)
-CLOUD_RETRIES = int(os.getenv("NEXUS_CLOUD_RETRIES", "2"))
-CLOUD_BACKOFF = float(os.getenv("NEXUS_CLOUD_BACKOFF", "1"))
-# Endpoints compatibles con OpenAI (reemplazables, p. ej. para pruebas sin red)
-CLOUD_URLS = {
-    "groq": "https://api.groq.com/openai/v1",
-    "gemini": "https://generativelanguage.googleapis.com/v1beta/openai",
-    "openrouter": "https://openrouter.ai/api/v1",
-}
-
-
-def _keys(name: str) -> list[str]:
-    raw = os.getenv(f"{name}_API_KEYS", "") or os.getenv(f"{name}_API_KEY", "")
-    return [k.strip() for k in raw.split(",") if k.strip()]
-
-
-# Por proveedor: lista de keys, modelo (sin valor por defecto: lo eliges tú) y URL
-CLOUD_PROVIDERS = {
-    name: {
-        "keys": _keys(name.upper()),
-        "model": os.getenv(f"NEXUS_{name.upper()}_MODEL", "").strip(),
-        "url": os.getenv(f"NEXUS_{name.upper()}_URL", "").strip() or url,
-    }
-    for name, url in CLOUD_URLS.items()
-}
 # Perfil de rubro: profiles/<NEXUS_PROFILE>.toml
 PROFILE = os.getenv("NEXUS_PROFILE", "general").strip().lower()
 PROFILES_DIR = os.getenv("NEXUS_PROFILES_DIR", "/app/profiles")

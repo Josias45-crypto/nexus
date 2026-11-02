@@ -9,8 +9,6 @@ PAGE = r"""<!doctype html>
   header{display:flex;justify-content:space-between;align-items:center;padding:12px 20px;border-bottom:1px solid #232850}
   header a{color:var(--acc);text-decoration:none;font-size:14px}
   #stats{color:var(--mut);font-size:13px}
-  .nube{margin-left:8px;padding:1px 6px;border-radius:6px;background:#d32f2f;color:#fff;font-size:10px;font-weight:700;letter-spacing:.05em;vertical-align:middle}
-  #cloud{margin-left:6px;padding:2px 8px;border-radius:6px;background:#d32f2f;color:#fff;font-size:11px;font-weight:700;letter-spacing:.05em}
   #log{flex:1;overflow-y:auto;padding:20px;display:flex;flex-direction:column;gap:12px}
   .msg{max-width:780px;padding:12px 14px;border-radius:12px;white-space:pre-wrap;line-height:1.45}
   .me{align-self:flex-end;background:var(--acc)}
@@ -36,7 +34,7 @@ PAGE = r"""<!doctype html>
   .st-processed{background:#1b5e20}.st-pending{background:#455a64}.st-procesando{background:#1565c0}
   .st-failed{background:#b71c1c}.st-unsupported{background:#6d4c41}.st-empty{background:#5d4037}
 </style></head><body>
-<header><div><b>NEXUS</b> <span id="stats"></span><span id="cloud" title="La última respuesta salió de la nube" hidden>NUBE</span></div><nav><button type="button" id="inboxBtn" title="Lo que entró y su estado">Bandeja</button><a href="/brain">Cerebro</a> · <a href="/dashboard">Panel</a></nav></header>
+<header><div><b>NEXUS</b> <span id="stats"></span></div><nav><button type="button" id="inboxBtn" title="Lo que entró y su estado">Bandeja</button><a href="/brain">Cerebro</a> · <a href="/dashboard">Panel</a></nav></header>
 <aside id="panel" hidden><h3>Bandeja <button type="button" id="closePanel" title="Cerrar">✕</button></h3><div id="items" class="m">Cargando…</div></aside>
 <div id="log"><div class="msg sys">Pregúntame algo, o usa «Recordar» para enseñarme. También puedes arrastrar archivos aquí.</div></div>
 <form id="f">
@@ -76,13 +74,6 @@ async function ask() {
     }
     const data = await r.json();
     wait.textContent = data.answer;
-    if (showProvider && data.llm && data.llm.nube) {
-      const b = document.createElement('span');
-      b.className = 'nube';
-      b.textContent = 'NUBE';
-      b.title = 'Respondió ' + data.llm.proveedor + ' (' + data.llm.modelo + ', ' + data.llm.key + ')';
-      wait.appendChild(b);
-    }
     if (!data.sources.length && pending > 0) wait.textContent += ' (Sigo procesando ' + pending + ' elemento(s): prueba de nuevo en un momento.)';
     if (data.sources && data.sources.length) {
       const det = document.createElement('details');
@@ -99,7 +90,6 @@ async function ask() {
     }
   } catch (e) { wait.textContent = 'No pude responder: ' + e.message; }
   busy(false);
-  cloud();
   q.focus();
 }
 
@@ -189,7 +179,7 @@ async function inbox() {
       const b = document.createElement('span'); b.className = 'st st-' + st; b.textContent = LABEL[st] || st;
       n.appendChild(b);
       const m = document.createElement('div'); m.className = 'm';
-      m.textContent = e.kind + ' · ' + e.source + ' · ' + ago(e.created_at) + (e.private ? ' · privado' : '') +
+      m.textContent = e.kind + ' · ' + e.source + ' · ' + ago(e.created_at) +
         (e.attempts ? ' · intentos ' + e.attempts : '') + (e.digest && DIGEST[e.digest] ? ' · ' + DIGEST[e.digest] : '');
       it.append(n, m);
       if (e.status === 'pending' && !e.procesando && Date.now() - Date.parse(e.created_at) > 10 * 60000) {
@@ -236,17 +226,6 @@ async function toggleMic() {
   } catch (e) { add('sys', 'No pude usar el micrófono: ' + e.message); }
 }
 
-let showProvider = false;
-async function cloud() {
-  try {
-    const h = await (await fetch('/health')).json();
-    const c = document.getElementById('cloud');
-    showProvider = !!h.mostrar_proveedor;
-    c.hidden = !(showProvider && h.nube);
-    if (h.llm && h.llm.ultimo) c.title = 'La última respuesta salió de la nube: ' + h.llm.ultimo.proveedor;
-  } catch (e) {}
-}
-
 async function stats() {
   try {
     const g = await (await fetch('/growth')).json();
@@ -270,8 +249,6 @@ document.getElementById('file').addEventListener('change', e => { if (e.target.f
 document.body.addEventListener('dragover', e => e.preventDefault());
 document.body.addEventListener('drop', e => { e.preventDefault(); [...e.dataTransfer.files].forEach(upload); });
 stats();
-cloud();
 inbox();
 setInterval(stats, 15000);
-setInterval(cloud, 15000);
 </script></body></html>"""
