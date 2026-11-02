@@ -28,7 +28,7 @@ flowchart LR
     OL[Ollama local<br/>chat + embeddings]
     WH[faster-whisper<br/>en el proceso]
     TS[Tesseract OCR]
-    CL[Nube de pruebas<br/>apagada]
+    CL[OpenRouter<br/>chat]
   end
   DB[(SQLite<br/>data/nexus.db)]
   RAW[(Originales<br/>data/raw)]
@@ -41,8 +41,7 @@ flowchart LR
   SEN --> WH & TS
   MEM -->|embeddings| OL
   API --> ASK --> MEM
-  ASK -->|chat| OL
-  ASK -.->|solo si NEXUS_ALLOW_CLOUD=on y no privado| CL
+  ASK -->|chat| CL
   WK --> REM --> OUT
   T & WA -->|recogen avisos| OUT
   WK -->|cada 24 h| BK
@@ -59,15 +58,15 @@ Sin Mermaid (por ejemplo, en la terminal):
            outbox ◄────────────│  /ask: preguntas por fecha │ búsqueda híbrida│
                                └───────────────┬────────────────────────────┘
                                                ▼
-                                 Ollama (qwen2.5:1.5b, nomic-embed-text)
+             OpenRouter (chat)   Ollama local (solo nomic-embed-text)
 ```
 
 ## Servicios (docker-compose.yml)
 
 | Servicio | Qué hace | Puertos |
 |---|---|---|
-| `ollama` | Modelos locales: chat y embeddings. Versión fijada (`0.35.1`) | ninguno hacia afuera |
-| `ollama-models` | Al arrancar, descarga los modelos que falten y termina | — |
+| `ollama` | Embeddings locales. Versión fijada (`0.35.1`) | ninguno hacia afuera |
+| `ollama-models` | Al arrancar, descarga el modelo de embeddings si falta y termina | — |
 | `core` | API, interfaz web, worker, sentidos, memoria | `127.0.0.1:8000` |
 | `telegram` | Canal de Telegram por long polling (profile `channels`) | ninguno |
 | `whatsapp` | Canal oficial de Meta, apagado (profile `whatsapp`) | `127.0.0.1:8081` |
@@ -106,16 +105,15 @@ SSH, nunca abriendo puertos a internet.
 
 ## Modelos y privacidad
 
-| Tarea | Dónde corre | ¿Puede ir a la nube? |
-|---|---|---|
-| Chat de `/ask` y digestión | `providers/router.py`: Ollama remoto (opcional) → Ollama local | Solo con `NEXUS_ALLOW_CLOUD=on` y si no es privado ([MODO_NUBE.md](MODO_NUBE.md)) |
-| Embeddings | Ollama local, siempre | Nunca |
-| Audio y video | faster-whisper dentro de `core` | Nunca |
-| OCR y visión | Tesseract y Ollama local | Nunca |
-| Recordatorios y resumen matutino | Ollama local | Nunca |
+| Tarea | Dónde corre |
+|---|---|
+| Chat: `/ask`, digestión, saludo matutino, fechas difíciles de recordatorios | OpenRouter (`providers/openrouter.py`), solo proveedores sin retención ([MODO_NUBE.md](MODO_NUBE.md)) |
+| Embeddings | Ollama local |
+| Audio y video | faster-whisper dentro de `core` |
+| OCR y visión | Tesseract y Ollama local |
 
-No hay telemetría. Lo único que sale a internet: descargas de modelos, la API de Telegram si el
-canal está activo y la nube de pruebas si la enciendes.
+No hay telemetría. Lo que sale a internet: el chat (preguntas, fragmentos de memoria que sirven
+para responder y textos a resumir) hacia OpenRouter, descargas de modelos y la API de Telegram.
 
 ## Datos
 
@@ -141,7 +139,7 @@ ejemplos salen de `profiles/<NEXUS_PROFILE>.toml` ([PERFILES.md](PERFILES.md)).
 ```
 core/        API, bandeja, worker, memoria, preguntas, interfaz web
 senses/      un extractor por formato (texto, documentos, oficina, correo, imagen, audio, zip)
-providers/   modelos: Ollama, remoto con respaldo, nube de pruebas, embeddings
+providers/   chat (OpenRouter) y embeddings (Ollama local)
 channels/    Telegram, WhatsApp, simulado y la conversación común (assistant.py)
 config/      lectura de variables de entorno
 profiles/    perfiles de rubro (.toml)

@@ -35,8 +35,7 @@ Telegram / WhatsApp / simulado          núcleo (core)
 | `/hecho [n]` | Marca hecho el recordatorio n (sin número: el último que te avisó) |
 | `/cancelar n` | Cancela el recordatorio n (solo los de tu propio chat) |
 | `/hoy` | Lo que aprendió hoy y los recordatorios del día |
-| `/estado` | Crecimiento: días de vida, racha, elementos y pendientes |
-| `/privado [texto]` | Marca como privado el siguiente envío (o guarda ese texto como privado) |
+| `/estado` | Crecimiento: días de vida, elementos y pendientes |
 | `/ayuda` | Ayuda con ejemplos del perfil activo |
 
 Horas que entiende: `4:17`, `4 : 17`, `4.17`, `4h17`, `4 y 18`, `4 y cuarto`, `4 y media`,
@@ -84,9 +83,8 @@ se descargan.
 Límite: la API de bots solo deja descargar archivos de **hasta 20 MB**.
 
 > **Privacidad.** Los chats con bots de Telegram **no tienen cifrado de extremo a extremo**:
-> Telegram puede ver los mensajes en sus servidores. NEXUS reduce lo que viaja (en `/hoy` y en
-> el resumen, el contenido privado aparece solo como "(privado)"), pero lo que tú escribes o
-> envías por el chat sí pasa por Telegram. Para información muy sensible usa la interfaz web
+> Telegram puede ver los mensajes en sus servidores: lo que escribes o envías por el chat pasa
+> por Telegram. Para información muy sensible usa la interfaz web
 > por Tailscale.
 
 ## WhatsApp (oficial, apagado por defecto)

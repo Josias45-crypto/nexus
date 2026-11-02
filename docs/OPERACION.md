@@ -11,12 +11,12 @@ y `docker stats`.
 |---|---|---|
 | Imagen `nexus-core` (Python, Tesseract, PyAV, faster-whisper) | 1,03 GB | 49 MB en reposo · 775 MB de pico (Whisper y OCR durante el e2e) con audio y OCR |
 | Imagen `ollama/ollama:0.35.1` (trae librerías de GPU aunque no se usen) | 9,4 GB | — |
-| Modelos de Ollama (`qwen2.5:1.5b` 986 MB + `nomic-embed-text` 274 MB) | 1,26 GB | 1,5 GB con ambos cargados · 1,6 GB de pico |
+| Modelo de embeddings de Ollama (`nomic-embed-text`) | 274 MB | menos de 1 GB (no se volvió a medir sin el modelo de chat) |
 | Modelo de voz Whisper `small` (se descarga al primer audio) | 486 MB | incluido en `nexus-core` |
 | Canal de Telegram (misma imagen que `core`) | — | ~50 MB |
 
 **Mínimo razonable:** 4 núcleos, 8 GB de RAM y 15 GB de disco libre más tus datos. El servidor
-previsto (8 vCPU, 16 GB) sobra; deja margen para un modelo de chat más grande.
+previsto (8 vCPU, 16 GB) sobra.
 
 Tiempos en CPU (laptop): una pregunta tarda de 5 a 25 s; un audio de 1 min, unos 20 s; una
 página escaneada con OCR, unos segundos; la digestión de un documento largo, 1 a 2 min.
@@ -110,6 +110,6 @@ pensada para quedar detrás de Tailscale.
 | `env file .env not found` | Falta `cp .env.example .env` |
 | Permisos en `data/` | El contenedor usa UID 1000: `sudo chown -R 1000:1000 data backups` |
 | "No lo sé" con algo que subiste | Mira la Bandeja: puede seguir en cola o haber quedado `empty`/`unsupported` |
-| Respuestas lentas | Normal en CPU. Modelo más chico o `NEXUS_LLM_URL` a un Ollama con GPU |
+| «No pude conectar con OpenRouter» o «sin saldo» | Revisa `GET /health` (`llm.ultimo`) y el saldo en OpenRouter; lo que llega queda guardado y se procesa solo |
 | Un audio largo no avanza | Va en su propia cola; no frena al texto. Revisa `docker compose logs core` |
 | Telegram no responde | Falta tu id en `TELEGRAM_ALLOWED_IDS`: búscalo en `docker logs nexus-telegram` |

@@ -1,103 +1,54 @@
-# Modo nube (chat por OpenRouter)
+# Chat por OpenRouter
 
-> ⚠️ Con este modo encendido, las preguntas (`/ask`, `/chat`) y los textos no privados que se
-> digieren se envían a OpenRouter. Lo privado nunca sale. Visión general de los modos y cómo
-> pasar a local: [MODOS.md](MODOS.md).
+NEXUS conversa, resume y redacta solo con OpenRouter (`providers/openrouter.py`). No hay modelo
+de chat local ni respaldo. Embeddings, audio y OCR siguen en la máquina.
 
-Por defecto NEXUS es 100 % local (`NEXUS_MODE=local`). El modo nube existe para tener respuestas
-de mejor calidad sin hardware potente (VPS de 8 GB sin GPU). Está **apagado por defecto**.
+## Configurar
 
-## Qué nunca sale de la máquina
-
-- Los **embeddings** (vectores de búsqueda) y la **transcripción de audio** (Whisper).
-- Los **originales**: archivos, audios e imágenes.
-- Todo lo marcado como **privado** (`private=1`): si una respuesta o una digestión usa aunque
-  sea un trozo privado, responde solo el modelo local, aunque la nube esté encendida.
-- Los **recordatorios** (interpretar fechas) y el **resumen matutino**: siempre locales.
-
-Para marcar algo como privado: `/privado` en Telegram, `"private": true` en `POST /inbox/text`
-o `?private=true` en `POST /inbox/file`.
-
-## Cómo encenderlo
-
-En `.env` (nunca en el repositorio; edítalo con `nano .env`):
+En `.env` (la clave solo ahí, nunca en el repositorio):
 
 ```env
-NEXUS_MODE=cloud
-OPENROUTER_API_KEYS=tu_key             # https://openrouter.ai/keys
+OPENROUTER_API_KEYS=<tu clave>
 NEXUS_OPENROUTER_MODEL=deepseek/deepseek-v4-flash
-NEXUS_LOCAL_FALLBACK=off               # on = si la nube falla, responde Ollama local
-NEXUS_DAILY_BUDGET_USD=0.50            # opcional: tope de gasto diario
-NEXUS_SHOW_PROVIDER=off                # on = pie "NUBE: respondió ..."
-
-# Opcional: otros proveedores compatibles, en cascada detrás de OpenRouter
-NEXUS_CLOUD_ORDER=openrouter           # p. ej. openrouter,groq
-GROQ_API_KEYS=
-NEXUS_GROQ_MODEL=
-GEMINI_API_KEYS=                       # de AI Studio (empieza por "AIza")
-NEXUS_GEMINI_MODEL=
+NEXUS_DAILY_BUDGET_USD=0.50     # opcional; vacío = sin tope
 ```
 
-Aplica con `docker compose up -d`. Al arrancar, el registro muestra
-`CHAT EN LA NUBE (openrouter)`. Si falta la key o el modelo de un proveedor, muestra un aviso y
-ese proveedor queda fuera. Los modelos no tienen valor por defecto en el código: cambian seguido.
-Para ver los vigentes desde el contenedor:
+Luego `docker compose up -d`. `GET /health` muestra el modelo, la política de datos, el último
+resultado, los fallos seguidos y la pausa del trabajo de fondo.
 
-```bash
-docker compose exec core python -c "import httpx; [print(m['id']) for m in httpx.get('https://openrouter.ai/api/v1/models').json()['data'] if m['id'].startswith('deepseek/')]"
-```
+## Política de datos
 
-## Cómo apagarlo
+Cada petición lleva `provider: {"zdr": true, "data_collection": "deny"}`: OpenRouter solo usa
+proveedores con **retención cero** que **no guardan ni entrenan** con tus datos
+([documentación](https://openrouter.ai/docs/features/provider-routing)). Está fijo en el código.
 
-`NEXUS_MODE=local` (o `NEXUS_CHAT_BACKEND=ollama`) en `.env` y `docker compose up -d`. En modo
-local hace falta un modelo de chat en Ollama (ver [MODOS.md](MODOS.md)). Puedes dejar las keys
-escritas: con la nube apagada no se usan.
+Probado el 2026-11-02 con `deepseek/deepseek-v4-flash`: respondió (proveedor Wafer). La mayoría
+de los proveedores del modelo cumplen (DeepInfra, Relace, Parasail, Wafer, Azure...), y entre
+ellos están los más baratos (~0,05–0,09 USD por millón de tokens de entrada y ~0,14–0,45 USD de
+salida), así que el precio prácticamente no cambia. Quedan fuera StreamLake, GMICloud, Baidu,
+AtlasCloud y Alibaba.
 
-## Cómo decide quién responde
+## Qué sale de la máquina
 
-1. Si quien pregunta no admite nube (recordatorios, resumen) o el contexto es privado:
-   Ollama local.
-2. Si no, prueba los proveedores en el orden de `NEXUS_CLOUD_ORDER`. Dentro de cada uno,
-   rota entre sus keys.
-3. Si ya se gastó `NEXUS_DAILY_BUDGET_USD` hoy, no se llama a la nube (paso 6).
-4. Ante **429** (límite), **5xx** (caída) o **timeout** (`NEXUS_CLOUD_TIMEOUT`, 30 s) se
-   reintenta la misma key `NEXUS_CLOUD_RETRIES` veces (2) con espera creciente (1 s, 2 s; o lo
-   que diga `Retry-After`, si es de 10 s o menos). Si sigue fallando, la key se **enfría** como
-   mínimo `NEXUS_CLOUD_COOLDOWN` (60 s) y se prueba la siguiente key y el siguiente proveedor.
-5. **402** (sin saldo) y otros 4xx (modelo inexistente) enfrían la key 10 minutos sin
-   reintentar; una key rechazada (401/403), 1 hora.
-6. Si nada responde: con `NEXUS_LOCAL_FALLBACK=on`, **Ollama local**; con `off`, un aviso claro
-   al usuario ("⚠ No pude responder: la cuenta de la nube no tiene saldo (402)…").
+La pregunta, los fragmentos de memoria que sirven para responderla, los textos a resumir y los
+datos del saludo matutino. Nunca: embeddings, audio, OCR, la clave ni los registros.
 
-## Cómo saber quién respondió y cuánto costó
+## Si OpenRouter falla
 
-- Con `NEXUS_SHOW_PROVIDER=on`, la interfaz web muestra una insignia roja **NUBE** junto a la
-  respuesta (al pasar el cursor: proveedor, modelo y key) y en Telegram la respuesta termina
-  con `☁️ NUBE: respondió <proveedor> (<modelo>)`.
-- `GET /usage?days=30`: peticiones, tokens y costo en USD por día y modelo, lo gastado hoy y el
-  presupuesto (tabla `llm_usage`; nunca el contenido).
-- `GET /health` y `GET /worker`, en `llm`, muestran:
-  - `ultimo`: proveedor, modelo, si fue nube y qué key (`key#1`). Si respondió el local,
-    `motivo_local` explica por qué (`contenido privado`, `nube no disponible: …`,
-    `presupuesto diario agotado`).
-  - `nube.proveedores`: el estado de cada key (`lista` o `enfriando N s`, usos, fallos y
-    último error), siempre como `key#n`. **Nunca se muestra ni se registra el valor de una
-    key ni el contenido de los prompts.**
-- En `/knowledge`, el campo `model` de cada resumen dice quién lo hizo (p. ej.
-  `groq:<modelo>` u `ollama:qwen2.5:1.5b`).
+| Situación | Qué pasa |
+|---|---|
+| 429, 5xx, timeout o red | Reintenta con espera creciente (1, 2 y 4 s). Si sigue, avisa |
+| 402 (sin saldo) | Avisa en una línea; por Telegram te avisa **una sola vez** hasta que vuelva a responder |
+| 401/403 (clave) | Avisa que revises `OPENROUTER_API_KEYS` |
+| Tope diario alcanzado | «⏸ Llegué al tope de hoy»: no llama a OpenRouter hasta mañana |
 
-## Advertencia sobre cuentas y cuotas gratuitas
+En todos los casos **no se pierde nada**: el original ya está guardado, el troceado y los
+embeddings son locales y la digestión queda en cola (`retry`) sin gastar intentos. El trabajo de
+fondo espera una pausa que crece con cada fallo (30 s, 60 s... hasta 30 min) y sigue solo cuando
+OpenRouter vuelve.
 
-Abrir **varias cuentas para multiplicar las cuotas gratuitas puede violar los términos de
-servicio** de los proveedores y arriesga el **bloqueo** de todas ellas. Recomendación: **una key
-por proveedor**. Varias keys de un mismo proveedor solo tienen sentido si son legítimas (por
-ejemplo, varios proyectos de pago de la misma organización, si los términos lo permiten).
+## Costo
 
-## Pruebas
-
-`python3 tests/e2e.py` arranca la instancia aislada en modo cloud con **keys falsas**, una URL
-local que rechaza la conexión y respaldo local encendido. Comprueba que todo cae al local sin
-romperse, que un documento privado se responde solo en local, que `/usage` registra las
-peticiones y que ninguna key aparece en los registros. `tests/test_cloud.py` simula, sin tocar
-la red, 429 con y sin `Retry-After` (reintentos), 5xx, 401, 402 con respaldo encendido y
-apagado, el presupuesto diario y una pregunta privada sin modelo local.
+`GET /usage?days=30`: peticiones, tokens y costo por día (lo informa OpenRouter en cada
+respuesta), `gastado_hoy_usd` y `presupuesto_diario_usd`. En `tests/eval_ventas.py` cada
+pregunta cuesta unos 0,0001 USD.

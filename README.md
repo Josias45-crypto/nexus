@@ -2,13 +2,14 @@
 
 **Versión 0.1.0, uso personal.**
 
-Asistente **privado y local** para el dueño de un negocio (primer caso: ventas). Le mandas
+Asistente personal para el dueño de un negocio (primer caso: ventas). Le mandas
 notas, archivos, fotos y notas de voz por Telegram o por la web; NEXUS guarda el original, lo
 entiende y después responde tus preguntas **citando de dónde sale cada dato**. También te
 escribe primero: recordatorios y un resumen cada mañana.
 
 Empieza vacío y aprende día a día. La inteligencia vive en lo que acumula, no en el modelo: el
-modelo es intercambiable por configuración y todo corre en tu máquina, en Docker.
+chat va por OpenRouter (el modelo se cambia con una variable) y la memoria, los embeddings, el
+audio y el OCR corren en tu máquina, en Docker.
 
 ## Estado real
 
@@ -25,18 +26,15 @@ modelo es intercambiable por configuración y todo corre en tu máquina, en Dock
   confirmación, sobrevive a reinicios del bot, pregunta si la hora es ambigua e insiste hasta
   que respondas `/hecho`.
 - **Telegram** como canal principal; interfaz web en `http://localhost:8000`.
-- **Respaldos** automáticos, **perfiles por rubro** sin tocar el código ([perfiles](docs/PERFILES.md))
-  y **dos modos** ([MODOS](docs/MODOS.md)): `local` (todo en la máquina, el valor por defecto)
-  y `cloud` (el chat por OpenRouter, con control de costo; lo privado nunca sale).
+- **Respaldos** automáticos y **perfiles por rubro** sin tocar el código ([perfiles](docs/PERFILES.md)).
+- **Chat por OpenRouter** con reintentos, costo por día (`/usage`), tope diario y solo proveedores
+  sin retención ([chat](docs/MODO_NUBE.md)). Si falla o no hay saldo, nada se pierde: queda en cola.
 
 ### Límites conocidos
 
-- **Preguntas que juntan varias notas** ("¿qué clientes pidieron laptops?"): con el modelo local
-  `qwen2.5:1.5b` acierta entre 0 y 2 de 4 en `tests/eval_ventas.py`; a veces omite o mezcla
-  clientes. Las preguntas sobre una sola nota aciertan 9 de 9.
-- **Gemini sin configurar**: la cascada de nube lo admite, pero no hay una key válida probada.
-- **Groq gratis tiene límite**: tras unas 11 preguntas seguidas responde 429 y NEXUS cae al
-  modelo local (más lento, de 2 a 10 s por respuesta en CPU).
+- **Preguntas que juntan varias notas** ("¿qué clientes pidieron laptops?"): acierta 2 de 4 en
+  `tests/eval_ventas.py`. Las preguntas sobre una sola nota aciertan 9 de 9.
+- **Sin internet o sin saldo en OpenRouter no conversa**: guarda todo y avisa en una línea.
 - **Sin verificar por el usuario en uso real**: la nota de voz por Telegram y el resumen
   matutino (pasan las pruebas automáticas, falta confirmarlos en el día a día).
 - **WhatsApp** está implementado pero apagado: exige una cuenta de Meta Business.
@@ -56,8 +54,8 @@ curl localhost:8000/health                 # "status": "ok"
 docker compose --profile channels up -d    # bot de Telegram (ver abajo)
 ```
 
-La primera vez descarga Ollama y los modelos (`qwen2.5:1.5b` y `nomic-embed-text`) de forma
-automática; el modelo de voz se descarga con el primer audio. Después funciona sin internet.
+Pon tu clave en `OPENROUTER_API_KEYS` dentro de `.env`. La primera vez descarga Ollama y el
+modelo de embeddings (`nomic-embed-text`); el modelo de voz se descarga con el primer audio.
 
 Abre <http://localhost:8000>: escribe y pulsa **Recordar** para enseñarle, o **Preguntar**.
 Arrastra archivos a la página. El botón **Bandeja** muestra el estado de cada uno.
@@ -82,8 +80,7 @@ Arrastra archivos a la página. El botón **Bandeja** muestra el estado de cada 
 | `/cancelar n` | Cancela el recordatorio n (solo los de tu chat) |
 | `/probar_recordatorio` | Aviso de prueba a los 60 s |
 | `/hoy` | Lo que aprendió hoy y los recordatorios del día |
-| `/estado` | Días de vida, racha, elementos y pendientes |
-| `/privado [texto]` | Lo siguiente que envíes (o ese texto) nunca sale a la nube |
+| `/estado` | Días de vida, elementos y pendientes |
 | `/ayuda` | Ayuda con ejemplos del perfil activo |
 
 Más detalles (horas que entiende, WhatsApp): [docs/CANALES.md](docs/CANALES.md).
@@ -104,36 +101,28 @@ valor por defecto. Las más usadas:
 
 | Variable | Por defecto | Para qué |
 |---|---|---|
-| `NEXUS_MODE` | `local` | `cloud` = chat por OpenRouter; `local` = todo en la máquina ([MODOS](docs/MODOS.md)) |
-| `OPENROUTER_API_KEYS` / `NEXUS_OPENROUTER_MODEL` | vacío | Key y modelo de chat en modo cloud (p. ej. `deepseek/deepseek-v4-flash`) |
-| `NEXUS_LOCAL_FALLBACK` | `off` en cloud | Si la nube falla: `on` = responde Ollama local; `off` = avisa |
-| `NEXUS_DAILY_BUDGET_USD` | vacío | Tope de gasto diario en la nube (ver `GET /usage`) |
-| `NEXUS_SHOW_PROVIDER` | `off` en cloud | Pie "NUBE: respondió …" en Telegram y web |
-| `NEXUS_LLM_MODEL` | `qwen2.5:1.5b` | Modelo de chat local (se descarga solo en modo local) |
-| `NEXUS_LLM_TEMPERATURE` | `0` | 0 = respuestas reproducibles del modelo local |
+| `OPENROUTER_API_KEYS` | vacío | Clave de OpenRouter |
+| `NEXUS_OPENROUTER_MODEL` | `deepseek/deepseek-v4-flash` | Modelo de chat |
+| `NEXUS_DAILY_BUDGET_USD` | vacío | Tope de gasto diario; al llegar avisa y espera a mañana (ver `GET /usage`) |
 | `NEXUS_PROFILE` | `general` | Perfil de rubro (`profiles/*.toml`) |
 | `NEXUS_TZ_OFFSET` | `-5` | Zona horaria para "hoy", recordatorios y resumen |
 | `NEXUS_MAX_DISTANCE` / `NEXUS_FTS_MARGIN` | `0.78` / `0.04` | Qué tan parecido debe ser un recuerdo para usarlo |
-| `NEXUS_LLM_URL` | vacío | Ollama remoto con GPU (respaldo automático en el local) |
 | `NEXUS_OCR` / `NEXUS_VISION_MODEL` | `on` / vacío | OCR de imágenes; descripción de fotos opcional |
 | `NEXUS_BACKUP_HOURS` / `NEXUS_BACKUP_HOST_DIR` | `24` / `./backups` | Respaldos automáticos y dónde guardarlos |
 | `TELEGRAM_BOT_TOKEN` / `TELEGRAM_ALLOWED_IDS` | vacío | Bot de Telegram y quién puede usarlo |
 
-Cambiar de modelo: edita `NEXUS_LLM_MODEL` y `docker compose up -d` (se descarga solo).
+Cambiar de modelo: edita `NEXUS_OPENROUTER_MODEL` y `docker compose up -d`.
 
 ## Privacidad
 
-- Todo se procesa y guarda en tu máquina; no hay telemetría.
-- Embeddings, audio, OCR, visión, recordatorios y todo lo marcado como **privado** nunca salen
-  de ella.
+- Todo se guarda en tu máquina; no hay telemetría.
+- Embeddings, audio, OCR y visión nunca salen de ella.
 - `data/`, `backups/` y `.env` están en `.gitignore`. Tokens y keys solo viven en `.env`.
 - Los puertos escuchan solo en `127.0.0.1`; para acceso remoto usa Tailscale o SSH.
 
-> **Aviso sobre el modo nube.** Con `NEXUS_MODE=cloud`, las preguntas y los textos que se
-> resumen (si no son privados) **se envían a OpenRouter** junto con los fragmentos de tu memoria
-> que sirven para responder. OpenRouter y el modelo elegido tienen sus propias políticas de
-> datos. Marca lo sensible con `/privado`: nunca sale, y si no hay modelo local para
-> responderlo, NEXUS lo dice en vez de enviarlo.
+> **Aviso.** Las preguntas y los textos que se resumen **se envían a OpenRouter** junto con los
+> fragmentos de tu memoria que sirven para responder. NEXUS solo admite proveedores con
+> retención cero que no guardan ni entrenan con tus datos ([detalles](docs/MODO_NUBE.md)).
 
 ## Pruebas
 
@@ -145,8 +134,10 @@ python3 tests/informe.py                   # qué funciona hoy en TU instalació
 python3 tests/calibrate.py                 # recalibra NEXUS_MAX_DISTANCE con tus datos (solo lee)
 ```
 
-- **e2e**: levanta su propio contenedor con datos temporales; tu memoria real no se toca. Sin
-  `--audio` o `--chaos`, esos casos quedan en SKIP. `--chaos` detiene Ollama unos segundos.
+- **e2e**: levanta su propio contenedor con datos temporales; tu memoria real no se toca. Usa
+  OpenRouter de verdad (centavos). Sin `--audio` o `--chaos`, esos casos quedan en SKIP.
+  `--chaos` levanta otra instancia con una clave inválida: comprueba que el original se guarda,
+  la digestión queda en cola con reintentos y el bot responde una línea clara.
 - **eval_ventas**: mide recuperación, respuestas, "no sé" correctos, datos inventados y tiempos;
   guarda el resultado en `tests/eval_last.json` (ignorado por git) para comparar corridas.
 - **informe**: corre contra la instancia en marcha. Guarda una nota de prueba y crea un
@@ -157,12 +148,15 @@ python3 tests/calibrate.py                 # recalibra NEXUS_MAX_DISTANCE con tu
 
 ## Hoja de ruta
 
-- **Próximo**: desplegar en un VPS (Ubuntu 24.04, 16 GB, 8 vCPU, sin GPU) accesible solo por
-  Tailscale y SSH con llave, con respaldos sincronizados a la laptop ([OPERACION](docs/OPERACION.md)).
-- **Opcional**: entidades extraídas por el modelo (clientes, productos, montos); experimental con
-  un modelo de 1.5B.
-- **Ideas**: marcas de tiempo finas en audio, regenerar resúmenes con un modelo mejor, fechas de
-  Excel, mejorar las preguntas que juntan varias notas.
+NEXUS pasará a llamarse **Isabelle**: una secretaria personal en Telegram, sin comandos.
+
+1. Limpieza y chat solo por OpenRouter (hecho).
+2. Isabelle: personalidad, conversación sin comandos, recordatorios con botones.
+3. Ver y oír: comentar fotos, audios y documentos.
+4. Embeddings sin Ollama.
+5. Web: chat minimalista, subida de archivos, vista de lo guardado y contraseña.
+6. Servidor: VPS (Ubuntu 24.04, 16 GB, 8 vCPU) solo por Tailscale y SSH con llave, con respaldos
+   sincronizados a la laptop ([OPERACION](docs/OPERACION.md)).
 
 ## Comandos útiles
 
@@ -186,8 +180,7 @@ docker compose down                      # detener (conserva datos y modelos)
 | [OPERACION](docs/OPERACION.md) | Recursos, actualizar, respaldar, restaurar, servidor, problemas |
 | [CANALES](docs/CANALES.md) | Telegram, WhatsApp, comandos y horas que entiende |
 | [PERFILES](docs/PERFILES.md) | Crear un perfil para otro rubro |
-| [MODOS](docs/MODOS.md) | Modo nube y modo local, hardware, privacidad |
-| [MODO_NUBE](docs/MODO_NUBE.md) | Chat por OpenRouter: activar, apagar, reintentos, costo |
+| [MODO_NUBE](docs/MODO_NUBE.md) | Chat por OpenRouter: configurar, política de datos, fallos, costo |
 | [CHANGELOG](CHANGELOG.md) | Cambios por versión |
 
 ## Estructura
@@ -195,7 +188,7 @@ docker compose down                      # detener (conserva datos y modelos)
 ```
 core/       API, bandeja, worker, memoria, preguntas, recordatorios, interfaz web
 senses/     un extractor por formato
-providers/  modelos: Ollama, remoto, nube (OpenRouter), embeddings
+providers/  chat (OpenRouter) y embeddings (Ollama local)
 channels/   Telegram, WhatsApp, simulado
 profiles/   perfiles de rubro
 tests/      e2e, evaluación, informe, unitarias y fixtures

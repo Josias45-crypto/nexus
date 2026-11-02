@@ -3,6 +3,19 @@
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). Fechas en
 AAAA-MM-DD.
 
+## [Sin publicar]
+
+### Cambiado
+- El chat va solo por OpenRouter con un cliente único (`providers/openrouter.py`): reintentos
+  1/2/4 s, avisos de una línea (402, 429, clave, caída), uso y costo en `/usage`, tope diario sin
+  respaldo y política `zdr` + `data_collection=deny`. Ollama queda solo para embeddings.
+- Si OpenRouter falla, la digestión queda en cola sin gastar intentos, con pausa creciente. Sin
+  saldo (402), avisa por Telegram una sola vez.
+
+### Quitado
+- Modos `cloud`/`local`, backends por capacidad, respaldo local del chat, Groq y Gemini para chat,
+  Ollama remoto, `/privado` y lo "privado solo local", el pie de proveedor y la racha.
+
 ## [0.1.0] - 2026-10-12
 
 Primera versión: uso personal. Probada de extremo a extremo, con Telegram como canal

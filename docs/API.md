@@ -10,18 +10,18 @@ No hay autenticación: la API escucha solo en `127.0.0.1` y se accede por Tailsc
 
 | Método | Ruta | Qué hace |
 |---|---|---|
-| GET | `/health` | `status` `ok` o `degradado`; si Ollama responde y tiene los modelos; `llm_activo`; `nube` (si la última respuesta salió de la nube). 503 si la base no responde |
+| GET | `/health` | `status` `ok` o `degradado` (si Ollama responde y tiene el modelo de embeddings); `llm_model`; `llm`: modelo, política de datos, presupuesto, último resultado, fallos seguidos y pausa. 503 si la base no responde |
 | GET | `/profile` | Perfil activo: nombre del asistente, negocio, categorías, reglas proactivas, ejemplos |
 | GET | `/worker` | Estado de los bucles, digestión en curso (`digiriendo`) y eventos por estado |
-| GET | `/growth?days=14` | Días de vida, racha, elementos aprendidos, pendientes y fallidos |
+| GET | `/growth?days=14` | Días de vida, elementos aprendidos, pendientes y fallidos |
 | GET | `/stats` | Elementos por tipo y pendientes |
 
 ## Enseñar (bandeja)
 
 | Método | Ruta | Qué hace |
 |---|---|---|
-| POST | `/inbox/text` | `{"text": "...", "source": "api", "private": false}` guarda una nota |
-| POST | `/inbox/file?source=api&private=false` | Sube un archivo (multipart, campo `file`). Límite: `NEXUS_MAX_UPLOAD_MB` (413 si lo supera) |
+| POST | `/inbox/text` | `{"text": "...", "source": "api"}` guarda una nota |
+| POST | `/inbox/file?source=api` | Sube un archivo (multipart, campo `file`). Límite: `NEXUS_MAX_UPLOAD_MB` (413 si lo supera) |
 | GET | `/inbox?limit=20` | Últimos elementos: `status`, `error` (motivo), `attempts`, `digest`, `procesando`, `reintentable` |
 
 Respuesta de la bandeja: `{"id", "kind", "duplicate", ...}`. Si el contenido ya existía,
@@ -40,10 +40,10 @@ curl -F file=@ventas.xlsx 'localhost:8000/inbox/file?source=api'
 
 | Método | Ruta | Qué hace |
 |---|---|---|
-| POST | `/ask` | `{"question": "..."}` responde con la memoria. Devuelve `answer`, `sources` (`n`, `cita`, `filename`, `snippet`, `distance`), `llm` (proveedor, modelo, `nube`, `regenerada`) y `sin_verificar`: nombres o cifras de la respuesta que no están en las fuentes (también aparecen al final como «⚠ No pude verificar: …»). Si nadie puede responder (nube sin saldo con respaldo apagado, privado sin modelo local), `tipo` es `aviso` y `answer` lo explica |
+| POST | `/ask` | `{"question": "..."}` responde con la memoria. Devuelve `answer`, `sources` (`n`, `cita`, `filename`, `snippet`, `distance`), `llm` (proveedor, modelo, tokens, `costo_usd`, `regenerada`) y `sin_verificar`: nombres o cifras de la respuesta que no están en las fuentes (también aparecen al final como «⚠ No pude verificar: …»). Si OpenRouter no puede responder (sin saldo, tope del día, caído), `tipo` es `aviso`, `answer` lo explica en una línea y `llm.aviso` trae la causa |
 | GET | `/search?q=...&k=5` | Búsqueda híbrida sin redactar respuesta: trozos con `event_id`, `meta`, `distance` |
 | POST | `/chat` | `{"message": "..."}` habla con el modelo **sin** memoria |
-| GET | `/usage?days=30` | Uso del modelo de chat por día: peticiones, tokens, costo en USD (si OpenRouter lo informa), `gastado_hoy_usd` y `presupuesto_diario_usd` |
+| GET | `/usage?days=30` | Uso del modelo de chat por día: peticiones, tokens, costo en USD (lo informa OpenRouter), `gastado_hoy_usd` y `presupuesto_diario_usd` |
 | GET | `/knowledge?limit=20` | Resúmenes y conceptos generados |
 | GET | `/today?dia=AAAA-MM-DD` | Lo que aprendió ese día (hoy por defecto) y los recordatorios del día |
 

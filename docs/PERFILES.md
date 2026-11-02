@@ -51,8 +51,7 @@ Los campos que no pongas toman el valor por defecto. `GET /profile` muestra el p
 Ejemplos de `persona`:
 
 - **Clínica:** "Eres el asistente del médico titular. Le ayudas a recordar citas, indicaciones
-  y pendientes administrativos. No das diagnósticos ni hablas con pacientes." Marca como
-  `/privado` todo dato de salud.
+  y pendientes administrativos. No das diagnósticos ni hablas con pacientes."
 - **Taller mecánico:** "Eres el asistente del dueño del taller. Recuerdas qué se le hizo a cada
   vehículo, presupuestos y repuestos por pedir."
 - **Estudio contable:** "Eres el asistente del contador. Recuerdas vencimientos tributarios de
