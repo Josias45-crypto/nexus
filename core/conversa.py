@@ -155,18 +155,23 @@ def _limpiar_espera(channel: str, chat_id: str) -> None:
 # ---------- recordatorios ----------
 
 
-def cuando(due_local: str) -> str:
-    """'2026-11-02 16:17' -> 'hoy a las 4:17 p. m.', 'mañana martes 3 a las 9:00 a. m.'"""
+def cuando(due_local: str, regla: dict | None = None) -> str:
+    """'2026-11-02 16:17' -> 'hoy a las 4:17 p. m.', 'mañana martes 3 a las 9:00 a. m.'; con regla,
+    'todos los lunes a las 8:00 a. m. (el primero, mañana lunes 9)'."""
     dt = datetime.strptime(due_local, "%Y-%m-%d %H:%M")
     now = clock.now_local()
     hora = when.ampm(dt)
     a_las = f"a la {hora}" if hora.startswith("1:") else f"a las {hora}"
     delta = (dt.date() - now.date()).days
     if delta == 0:
-        return f"hoy {a_las}"
-    rel = {1: "mañana ", 2: "pasado mañana "}.get(delta, "")
-    mes = "" if rel else f" de {when.MONTH_NAMES[dt.month - 1]}"
-    return f"{rel}{when.WEEKDAY_NAMES[dt.weekday()]} {dt.day}{mes} {a_las}"
+        dia = "hoy"
+    else:
+        rel = {1: "mañana ", 2: "pasado mañana "}.get(delta, "")
+        mes = "" if rel else f" de {when.MONTH_NAMES[dt.month - 1]}"
+        dia = f"{rel}{when.WEEKDAY_NAMES[dt.weekday()]} {dt.day}{mes}"
+    if regla:
+        return f"{when.describir_regla(regla)} {a_las} (el primero, {dia})"
+    return f"{dia} {a_las}"
 
 
 RE_HORA_DUDOSA = re.compile(
@@ -185,17 +190,34 @@ def aclarar(original: str, respuesta: str) -> str:
 
 RE_DIA = re.compile(
     r"\b(hoy|manana|pasado|lunes|martes|miercoles|jueves|viernes|sabado|domingo|semana|mes"
-    r"|minutos?|horas?|\d{1,2} de|el \d{1,2})\b"
+    r"|minutos?|horas?|dias?|\d{1,2} de|el \d{1,2})\b"
 )
+RE_POSPONER = re.compile(
+    r"\b(pospon\w*|posterga\w*|aplaza\w*|mueve(?:lo)?|corre(?:lo)?|retrasa(?:lo)?)\b"
+    r"(?:\s+el)?(?:\s+recordatorio)?(?:\s+n(?:ro|o|umero)?)?\s+(?P<id>\d{1,6})\b(?:\s+(?:para|a))?(?P<resto>.*)$"
+)
+RE_SIN_EN = re.compile(r"^\s*(un|una|dos|tres|cuatro|cinco|diez|quince|veinte|treinta|media|\d{1,3})\s+"
+                       r"(minutos?|mins?|horas?|hora|dias?|semanas?)\b")
+OPCIONES_POSPONER = {"1h": ("En 1 hora", "en 1 hora"), "manana9": ("Mañana 9:00 a. m.", "mañana a las 9 am"),
+                     "1d": ("En 1 día", "en 1 día")}
 
 
 def _botones(rid: int) -> list:
     return [[{"texto": "Cambiar", "dato": f"rec:cambiar:{rid}"}, {"texto": "Cancelar", "dato": f"rec:cancelar:{rid}"}]]
 
 
-def _listo(r: dict, verbo: str = "") -> Respuesta:
-    texto = f"Listo, {persona.tratamiento()}: {verbo}{cuando(r['due_local'])}: {r['text']}."
+def _listo(r: dict) -> Respuesta:
+    texto = persona.frase("recordatorios.creado", cuando=cuando(r["due_local"], r.get("regla")), tarea=r["text"])
     return Respuesta(texto, "recordatorio", botones=_botones(r["id"]))
+
+
+def _activo(rid: int, chat_id: str, sin_confirmar: bool = True) -> dict | None:
+    """El recordatorio si sigue abierto (o sin confirmar) y es de este chat."""
+    r = reminders.get(rid)
+    estados = reminders.ABIERTOS + (("sin_confirmar",) if sin_confirmar else ())
+    if not r or r["estado"] not in estados or (r["chat_id"] and r["chat_id"] != chat_id):
+        return None
+    return r
 
 
 async def _recordatorio(texto: str, channel: str, chat_id: str) -> Respuesta:
@@ -207,21 +229,75 @@ async def _recordatorio(texto: str, channel: str, chat_id: str) -> Respuesta:
         return Respuesta(f"{exc}", "recordatorio")
     if p.get("aviso") or p.get("metodo") == "llm":  # dudosa: ya pasó hoy o la entendió el modelo
         reminders.set_pending(channel, chat_id, p)
-        pregunta = "¿Se lo guardo para mañana?" if p.get("aviso") else "¿Se lo guardo así?"
+        _esperar(channel, chat_id, tipo="dudosa", texto=texto)
         aviso = f"{p['aviso']} " if p.get("aviso") else ""
+        pregunta = "¿Se lo guardo para mañana?" if p.get("aviso") else "¿Se lo guardo así?"
         return Respuesta(
-            f"{aviso}Entendí {cuando(p['due_local'])}: {p['tarea']}. {pregunta}", "recordatorio"
+            f"{aviso}Entendí {cuando(p['due_local'], p.get('regla'))}: {p['tarea']}. {pregunta}", "recordatorio",
+            botones=[[{"texto": "Sí", "dato": "pend:si"}, {"texto": "No, otra hora", "dato": "pend:otra"}]],
         )
-    return _listo(reminders.create(p["tarea"], p["due_at"], channel, chat_id))
+    return _listo(reminders.create(p["tarea"], p["due_at"], channel, chat_id, regla=p.get("regla")))
 
 
 def _lista_recordatorios(chat_id: str) -> Respuesta:
-    items = reminders.list_open(chat_id)
+    items = reminders.list_open(chat_id, sin_confirmar=True)
     if not items:
         return Respuesta(f"No tiene recordatorios pendientes, {persona.tratamiento()}.", "recordatorios")
-    lineas = [f"Sus recordatorios, {persona.tratamiento()}:"]
-    lineas += [f"• n.º {r['id']} — {cuando(r['due_local'])}: {r['text']}" for r in items]
+    lineas = [f"Sus recordatorios, {persona.tratamiento()} (hora de Perú):"]
+    for r in items:
+        serie = f", {when.describir_regla(r['regla'])}" if r["regla"] else ""
+        lineas.append(f"• n.º {r['id']} — {cuando(r['due_local'])}: {r['text']} ({r['estado_es']}{serie})")
     return Respuesta("\n".join(lineas), "recordatorios")
+
+
+def _cancelar(r: dict, channel: str, chat_id: str, confirmar: bool) -> Respuesta:
+    """Una serie pregunta «Solo este» o «Toda la serie»; uno suelto se cancela (o se confirma antes)."""
+    if r["regla"]:
+        return Respuesta(
+            f"Es un recordatorio que se repite ({when.describir_regla(r['regla'])}): {r['text']}. ¿Cancelo solo este o toda la serie?",
+            "recordatorio",
+            botones=[[{"texto": "Solo este", "dato": f"rec:uno:{r['id']}"}, {"texto": "Toda la serie", "dato": f"rec:serie:{r['id']}"}]],
+        )
+    if confirmar:
+        _esperar(channel, chat_id, tipo="borrar", id=r["id"])
+        return Respuesta(f"¿Cancelo el recordatorio n.º {r['id']} ({cuando(r['due_local'])}: {r['text']})?", "recordatorio")
+    hecho = reminders.cerrar(r["id"], "cancelado", chat_id)
+    if not hecho:
+        return Respuesta("Ese recordatorio ya no está activo.", "recordatorio")
+    return Respuesta(persona.frase("recordatorios.cancelado", tarea=r["text"]), "recordatorio")
+
+
+def _pedir_cuando(channel: str, chat_id: str, rid: int, otra_vez: bool = False) -> Respuesta:
+    _esperar(channel, chat_id, tipo="posponer", id=rid)
+    texto = (f"No le entendí la hora, {persona.tratamiento()}. ¿Cuándo?" if otra_vez
+             else persona.frase("recordatorios.cuando"))
+    botones = [[{"texto": t, "dato": f"rec:pos:{rid}:{k}"} for k, (t, _) in OPCIONES_POSPONER.items()]]
+    return Respuesta(texto, "recordatorio", botones=botones)
+
+
+async def _posponer(r: dict, texto: str, channel: str, chat_id: str) -> Respuesta:
+    """Nueva hora en lenguaje natural (solo core/when.py, sin IA). Si no queda clara, repregunta
+    con botones. «mejor a las 10» de algo que aún no sonó conserva el día."""
+    resto = texto.strip()
+    if RE_SIN_EN.match(plano(resto)):  # «pospón el 2 una hora» -> «en una hora»
+        resto = f"en {resto}"
+    try:
+        p = await reminders.interpret(f"recuérdame {resto} {r['text']}", usar_ia=False)
+    except reminders.NotUnderstood:
+        return _pedir_cuando(channel, chat_id, r["id"], otra_vez=True)
+    _limpiar_espera(channel, chat_id)
+    due_at = p["due_at"]
+    if not RE_DIA.search(plano(resto)) and r["estado"] in ("creado", "avisado_previo", "pospuesto"):
+        antes = datetime.strptime(r["due_local"], "%Y-%m-%d %H:%M")
+        nueva = datetime.strptime(p["due_local"], "%Y-%m-%d %H:%M")
+        mismo_dia = antes.replace(hour=nueva.hour, minute=nueva.minute)
+        if mismo_dia > clock.now_local():
+            due_at = clock.local_to_utc(mismo_dia).isoformat()
+    nuevo = reminders.posponer(r["id"], due_at, chat_id)
+    if not nuevo:
+        return Respuesta("Ese recordatorio ya no está activo.", "recordatorio")
+    texto = persona.frase("recordatorios.pospuesto", cuando=cuando(nuevo["due_local"]), tarea=nuevo["text"])
+    return Respuesta(texto, "recordatorio", botones=_botones(nuevo["id"]))
 
 
 async def _resolver_espera(e: dict, texto: str, channel: str, chat_id: str) -> Respuesta | None:
@@ -229,45 +305,35 @@ async def _resolver_espera(e: dict, texto: str, channel: str, chat_id: str) -> R
     tipo = e.get("tipo")
     if tipo == "borrar":
         c = confirmacion(texto)
-        if c == "duda":
-            _limpiar_espera(channel, chat_id)
-            return None
         _limpiar_espera(channel, chat_id)
+        if c == "duda":
+            return None
         if c == "no":
             return Respuesta(f"Lo dejo como está, {persona.tratamiento()}.", "recordatorio")
-        r = reminders.set_status(int(e["id"]), "cancelled", chat_id)
-        if not r:
+        r = reminders.get(int(e["id"]))
+        hecho = reminders.cerrar(int(e["id"]), "cancelado", chat_id)
+        if not hecho:
             return Respuesta("Ese recordatorio ya no estaba activo.", "recordatorio")
-        return Respuesta(f"Cancelado, {persona.tratamiento()}: {r['text']}.", "recordatorio")
-    if tipo == "cambiar":
+        return Respuesta(persona.frase("recordatorios.cancelado", tarea=r["text"]), "recordatorio")
+    if tipo == "posponer":
         if confirmacion(texto) == "no":
             _limpiar_espera(channel, chat_id)
             return Respuesta(f"Lo dejo como estaba, {persona.tratamiento()}.", "recordatorio")
-        r = reminders.get(int(e["id"]))
-        if not r or r["status"] not in ("pending", "sent"):
+        r = _activo(int(e["id"]), chat_id)
+        if not r:
             _limpiar_espera(channel, chat_id)
             return Respuesta("Ese recordatorio ya no está activo.", "recordatorio")
-        try:
-            p = await reminders.interpret(f"recuérdame {texto} {r['text']}")
-        except reminders.NotUnderstood as exc:
-            return Respuesta(f"{exc}", "recordatorio")  # se sigue esperando la hora
-        _limpiar_espera(channel, chat_id)
-        due_at = p["due_at"]
-        if not RE_DIA.search(plano(texto)):  # «mejor a las 10»: cambia la hora, no el día
-            antes = datetime.strptime(r["due_local"], "%Y-%m-%d %H:%M")
-            nueva = datetime.strptime(p["due_local"], "%Y-%m-%d %H:%M")
-            mismo_dia = antes.replace(hour=nueva.hour, minute=nueva.minute)
-            if mismo_dia > clock.now_local():
-                due_at = clock.local_to_utc(mismo_dia).isoformat()
-        nuevo = reminders.reschedule(r["id"], due_at, chat_id)
-        if not nuevo:
-            return Respuesta("Ese recordatorio ya no está activo.", "recordatorio")
-        return _listo(nuevo, "lo pasé a ")
+        return await _posponer(r, texto, channel, chat_id)
     if tipo == "aclarar":
         _limpiar_espera(channel, chat_id)
         if confirmacion(texto) == "no":
             return Respuesta(f"De acuerdo, {persona.tratamiento()}, no lo guardo.", "recordatorio")
         return await _recordatorio(aclarar(e["texto"], texto), channel, chat_id)
+    if tipo == "otra_hora":  # pulsó «No, otra hora»: la respuesta es la hora nueva
+        _limpiar_espera(channel, chat_id)
+        return await _recordatorio(aclarar(e["texto"], texto), channel, chat_id)
+    if tipo == "dudosa":  # el «sí/no» por texto lo resuelve _resolver_pendiente
+        return None
     _limpiar_espera(channel, chat_id)
     return None
 
@@ -279,14 +345,17 @@ async def _resolver_pendiente(texto: str, channel: str, chat_id: str) -> Respues
         return None
     c = confirmacion(texto)
     if c == "si":
+        _limpiar_espera(channel, chat_id)
         saved = reminders.confirm(channel, chat_id)
         return _listo(saved) if saved else None
     if c == "no":
         reminders.clear_pending(channel, chat_id)
+        _limpiar_espera(channel, chat_id)
         return Respuesta(f"De acuerdo, {persona.tratamiento()}, no lo guardo.", "recordatorio")
     if len(plano(texto).split()) <= 3 and not RE_RECORDATORIO.match(texto):
         return Respuesta(f"¿Se lo guardo, {persona.tratamiento()}? Dígame sí o no.", "recordatorio")
     reminders.clear_pending(channel, chat_id)  # escribió otra cosa: se sigue con eso
+    _limpiar_espera(channel, chat_id)
     return None
 
 
@@ -313,17 +382,22 @@ async def _reglas(textos: list[str], channel: str, chat_id: str, anterior: str |
     if RE_LISTA.search(p):
         return _lista_recordatorios(chat_id)
     if RE_HECHO.match(p):
-        r = reminders.set_status(None, "done", chat_id)
-        if r:
-            return Respuesta(f"¡Bien hecho, {persona.tratamiento()}! Lo marqué como hecho: {r['text']}.", "recordatorio")
-        return None
+        r = reminders.ultimo_avisado(chat_id)
+        if r and reminders.cerrar(r["id"], "hecho", chat_id, "ya lo hice"):
+            return Respuesta(persona.frase("recordatorios.hecho", tarea=r["text"]), "recordatorio")
+        return Respuesta(f"No tengo ningún recordatorio esperando su respuesta, {persona.tratamiento()}.", "recordatorio")
+    if m := RE_POSPONER.search(p):
+        r = _activo(int(m.group("id")), chat_id)
+        if not r:
+            return Respuesta(f"No encuentro un recordatorio activo con el n.º {m.group('id')}, {persona.tratamiento()}.", "recordatorio")
+        resto = m.group("resto").strip()
+        return await _posponer(r, resto, channel, chat_id) if resto else _pedir_cuando(channel, chat_id, r["id"])
     if m := RE_CANCELAR.search(p):
         if "recordatorio" in p or len(p.split()) <= 4:
-            r = reminders.get(int(m.group(2)))
-            if not r or r["status"] not in ("pending", "sent") or (r["chat_id"] and r["chat_id"] != chat_id):
+            r = _activo(int(m.group(2)), chat_id, sin_confirmar=False)
+            if not r:
                 return Respuesta(f"No encuentro un recordatorio activo con el n.º {m.group(2)}, {persona.tratamiento()}.", "recordatorio")
-            _esperar(channel, chat_id, tipo="borrar", id=r["id"])
-            return Respuesta(f"¿Cancelo el recordatorio n.º {r['id']} ({cuando(r['due_local'])}: {r['text']})?", "recordatorio")
+            return _cancelar(r, channel, chat_id, confirmar=True)
     if m := RE_GUARDAR.match(texto):
         resto = m.group("resto").strip()
         if not resto and anterior:
@@ -569,23 +643,56 @@ async def _turno(textos, channel, chat_id, previos, anterior) -> Respuesta:
     return await _hablar(datos["accion"], texto, chat_id, False)
 
 
+RE_BOTON = re.compile(r"rec:(hecho|posponer|cambiar|cancelar|uno|serie):(\d+)|rec:pos:(\d+):(\w+)|pend:(si|otra)")
+ETIQUETAS = {"hecho": "Ya lo hice", "posponer": "Recuérdame", "cambiar": "Cambiar", "cancelar": "Cancelar",
+             "uno": "Solo este", "serie": "Toda la serie", "si": "Sí", "otra": "No, otra hora"}
+
+
 async def boton(dato: str, channel: str, chat_id: str) -> dict:
-    """Un botón pulsado ("rec:cambiar:12", "rec:cancelar:12")."""
-    m = re.fullmatch(r"rec:(cambiar|cancelar):(\d+)", dato or "")
+    """Un botón pulsado. Se valida todo: que el dato tenga la forma esperada, que el recordatorio
+    siga abierto y que sea de este chat. El botón ya es la confirmación (no se pregunta otra vez)."""
+    m = RE_BOTON.fullmatch(dato or "")
+    etiqueta = "?"
     if not m:
         r = Respuesta("Ese botón ya no sirve.", "boton")
-    else:
-        que, rid = m.group(1), int(m.group(2))
-        actual = reminders.get(rid)
-        if not actual or actual["status"] not in ("pending", "sent") or (actual["chat_id"] and actual["chat_id"] != chat_id):
-            r = Respuesta("Ese recordatorio ya no está activo.", "boton")
-        elif que == "cancelar":  # el botón ya es la confirmación
-            reminders.set_status(rid, "cancelled", chat_id)
-            r = Respuesta(f"Cancelado, {persona.tratamiento()}: {actual['text']}.", "recordatorio")
+    elif m.group(5):  # «Sí» / «No, otra hora» de un recordatorio dudoso
+        etiqueta = ETIQUETAS[m.group(5)]
+        pendiente = reminders.get_pending(channel, chat_id)
+        if not pendiente or pendiente.get("reminder_id"):
+            r = Respuesta("Eso ya no estaba pendiente.", "boton")
+        elif m.group(5) == "si":
+            _limpiar_espera(channel, chat_id)
+            saved = reminders.confirm(channel, chat_id)
+            r = _listo(saved) if saved else Respuesta("Eso ya no estaba pendiente.", "boton")
         else:
-            _esperar(channel, chat_id, tipo="cambiar", id=rid)
-            r = Respuesta(f"¿Para cuándo lo paso, {persona.tratamiento()}?", "recordatorio")
-    charla.agregar("jefe", f"[Pulsó el botón «{dato.split(':')[1] if ':' in dato else dato}»]", chat_id)
+            e = _espera(channel, chat_id) or {}
+            reminders.clear_pending(channel, chat_id)
+            _esperar(channel, chat_id, tipo="otra_hora", texto=e.get("texto") or f"recuérdame {pendiente['tarea']}")
+            r = Respuesta(f"¿A qué hora, {persona.tratamiento()}?", "recordatorio")
+    else:
+        que = m.group(1) or "pos"
+        rid = int(m.group(2) or m.group(3))
+        etiqueta = ETIQUETAS.get(que) or OPCIONES_POSPONER.get(m.group(4) or "", ("?",))[0]
+        actual = _activo(rid, chat_id)
+        if not actual:
+            r = Respuesta("Ese recordatorio ya no está activo.", "boton")
+        elif que == "hecho":
+            reminders.cerrar(rid, "hecho", chat_id, "botón ya lo hice")
+            r = Respuesta(persona.frase("recordatorios.hecho", tarea=actual["text"]), "recordatorio")
+        elif que in ("posponer", "cambiar"):
+            r = _pedir_cuando(channel, chat_id, rid)
+        elif que == "pos":
+            opcion = OPCIONES_POSPONER.get(m.group(4))
+            r = await _posponer(actual, opcion[1], channel, chat_id) if opcion else Respuesta("Ese botón ya no sirve.", "boton")
+        elif que == "cancelar":
+            r = _cancelar(actual, channel, chat_id, confirmar=False)
+        elif que == "uno":
+            reminders.cerrar(rid, "cancelado", chat_id, "solo este")
+            r = Respuesta(persona.frase("recordatorios.cancelado", tarea=actual["text"]), "recordatorio")
+        else:  # serie
+            n = len(reminders.cancelar_serie(rid, chat_id))
+            r = Respuesta(persona.frase("recordatorios.cancelado", tarea=f"{actual['text']} (toda la serie, {n} pendiente(s))"), "recordatorio")
+    charla.agregar("jefe", f"[Pulsó «{etiqueta}»]", chat_id)
     charla.agregar("isabelle", r.texto, chat_id, r.accion)
     return r.dict()
 
