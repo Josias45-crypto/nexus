@@ -295,7 +295,8 @@ async def revisar(ocupado) -> dict:
     global _tarea
     from providers.openrouter import get_client
 
-    if get_client().paused_for():  # OpenRouter falló hace poco: el trabajo de fondo espera
+    cliente = get_client()
+    if cliente.paused_for() or not cliente.sano():  # tras un fallo, primero la digestión o el jefe
         return {}
     if ocupado() or _jefe_escribio_hace_poco() or not pendientes():
         return {}

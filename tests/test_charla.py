@@ -23,6 +23,9 @@ class FakeLLM:
     def paused_for(self):
         return self.pausa
 
+    def sano(self):
+        return not self.pausa
+
     def __init__(self, *respuestas, espera: float = 0):
         self.respuestas = list(respuestas)
         self.prompts: list[str] = []

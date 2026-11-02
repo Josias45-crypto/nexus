@@ -114,6 +114,11 @@ class OpenRouter:
 
     # ---------- estado ----------
 
+    def sano(self) -> bool:
+        """True si la última llamada respondió (o aún no hubo fallos). La memoria de la charla, de
+        prioridad más baja, solo corre si es así: nunca es la que prueba si OpenRouter volvió."""
+        return self._failures == 0
+
     def paused_for(self) -> float:
         """Segundos que el trabajo de fondo debe esperar tras un fallo (0 = puede seguir)."""
         return max(0.0, self._paused_until - time.monotonic())

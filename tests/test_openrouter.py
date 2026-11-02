@@ -162,9 +162,11 @@ class TestOpenRouter(Base):
         with self.assertRaises(ChatUnavailable):
             run(c)
         self.assertGreater(c.paused_for(), first + openrouter.PAUSE_MIN - 2)
+        self.assertFalse(c.sano())
         s.responses = [ok]
         run(c)
         self.assertEqual(c.paused_for(), 0)
+        self.assertTrue(c.sano())
 
     def test_formato_inesperado_es_error_claro(self):
         s = Script(httpx.Response(200, json={"nada": 1}))
