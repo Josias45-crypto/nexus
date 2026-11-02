@@ -33,6 +33,24 @@ AAAA-MM-DD.
 - Lenguaje natural: «pospón el 2 una hora», «¿qué tengo pendiente?»; «en 90 segundos».
 - `NEXUS_REMINDER_MAX_TRIES` se quita; `NEXUS_REMINDER_RETRY_MIN` queda solo para pruebas.
 
+### Ajustes a la Fase 2B
+- Modelo potente `anthropic/claude-sonnet-5.5` con respaldo propio
+  (`NEXUS_OPENROUTER_MODEL_DEEP_RESPALDO=deepseek/deepseek-v4-pro`) solo si está caído, limitado
+  o no existe; nunca por saldo, clave o tope diario. Análisis a fondo en texto plano (~1500
+  caracteres salvo que pida detalle), con supuestos y qué verificar.
+- Personalidad: cariño medio, sección `[capacidades]` (lo que no puede ofrecer: imprimir,
+  alarmas, correos, llamadas), 5 variantes de «no sale de mi memoria».
+- Por código: tratamiento en la mitad de los mensajes como mucho (uno por mensaje, sin repetir
+  el último) y emojis máx. 1 por mensaje y en 1 de cada 3 (`persona.dosificar`).
+- [AHORA] en cada turno: fecha, día, hora en 12 h, momento del día y mañana.
+- Fuentes legibles («De mi memoria: nota del 2 de nov sobre «Rosa Quispe…»») en vez de
+  `Fuentes: nota.txt`; sin «Según la nota» y sin agregar detalles que la nota no dice.
+- Recordatorios: hora sin am/pm se pregunta por texto («¿Las 7 de la mañana o de la noche?»),
+  guardada en la base con caducidad de 30 min; si el siguiente mensaje no responde, se descarta.
+  Una sola vez a menos de 2 h se toma; los repetidos siempre preguntan. Antes, con fecha, de 1 a
+  7 era de la tarde.
+- `tests/e2e.py` acepta `NEXUS_E2E_IMAGE` para probar una imagen construida aparte.
+
 ### Quitado
 - Los comandos de Telegram (`/recordar`, `/hecho`, `/cancelar`...): todo es lenguaje natural.
 - Modos `cloud`/`local`, backends por capacidad, respaldo local del chat, Groq y Gemini para chat,

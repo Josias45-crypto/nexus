@@ -20,7 +20,9 @@ memoria y los originales viven en la máquina.
 
 ## Stack
 FastAPI, SQLite (FTS5 + sqlite-vec, WAL), chat por OpenRouter (providers/openrouter.py, hoy
-deepseek/deepseek-v4-flash, solo proveedores zdr y data_collection=deny), Ollama 0.35.1 solo para
+deepseek/deepseek-v4-flash; potente anthropic/claude-sonnet-5.5 con respaldo
+deepseek/deepseek-v4-pro solo si está caído, 429 o no existe; solo proveedores zdr y
+data_collection=deny), Ollama 0.35.1 solo para
 embeddings (nomic-embed-text), faster-whisper small (CPU), Tesseract OCR, Docker Compose
 (profiles channels y whatsapp). Carpetas: core/, senses/, providers/, channels/, config/, profiles/, tests/, docs/.
 
@@ -75,10 +77,17 @@ núcleo es genérico; lo propio del rubro vive en profiles/*.toml.
   a la hora con «Ya lo hice»/«Recuérdame», 3 insistencias de 20 min, sin_confirmar), repetición
   diaria/semanal/mensual (core/when.py), botones del buzón, sin IA en el programador, textos con
   variantes en [recordatorios] de profiles/isabelle.toml.
+- Ajustes 2B: cariño medio y [capacidades] en isabelle.toml; persona.dosificar() limita por
+  código tratamientos (mitad de los mensajes, uno, sin repetir) y emojis (1, en 1 de cada 3);
+  [AHORA] en cada turno; fuentes legibles (citations.legible); hora sin am/pm se pregunta por
+  texto (pending_confirmations kind hora, 30 min; si no responde, se descarta), salvo una sola
+  vez a menos de 2 h; los repetidos siempre preguntan.
 
 ## Cómo probar
 `python3 tests/e2e.py --audio <wav> --audio-phrase <palabra> --chaos` (20 casos, instancia
-aislada; la memoria real no se toca; usa OpenRouter real y --chaos simula OpenRouter inalcanzable). Unitarias dentro del contenedor (ver tests/test_senses.py).
+aislada; la memoria real no se toca; usa OpenRouter real y --chaos simula OpenRouter inalcanzable).
+Para no tocar la imagen de los contenedores reales: `docker build -t nexus-core:prueba .` y
+`NEXUS_E2E_IMAGE=nexus-core:prueba python3 tests/e2e.py --chaos`. Unitarias dentro del contenedor (ver tests/test_senses.py).
 Antes de probar cambios de código: `docker compose build core`. También: `tests/eval_ventas.py`
 (medir antes y después en /ask), `tests/informe.py` (estado de la instalación real),
 `tests/muestra_conversaciones.py` (15 charlas para juzgar el tono) y `tests/comparar_modelos.py`.

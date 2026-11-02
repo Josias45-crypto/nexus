@@ -25,8 +25,8 @@ audio y el OCR corren en tu máquina, en Docker.
   en ninguna nota, no responde con una nota parecida.
 - **Recuerda por fecha**: "¿qué aprendí ayer?", "resume lo último que te mandé".
 - **Recordatorios** en español ("recuérdame hoy a las 4:17 llamar a Piter", "todos los lunes a las
-  8 …"): con hora clara los guarda sin preguntar y muestra **Cambiar** y **Cancelar**; pregunta
-  con **Sí** / **No, otra hora** si es dudosa. Avisa 30 min antes y a la hora con **Ya lo hice** y
+  8 am …"): con hora clara los guarda sin preguntar y muestra **Cambiar** y **Cancelar**; sin
+  am/pm pregunta por texto «¿de la mañana o de la noche?» (salvo una sola vez a menos de 2 h). Avisa 30 min antes y a la hora con **Ya lo hice** y
   **Recuérdame**, insiste cada 20 min (máx. 3) y luego lo deja «sin confirmar». Sin IA, a prueba
   de reinicios y sin avisos duplicados ([detalles](docs/CANALES.md)).
 - **Memoria de la charla**: historial completo con búsqueda, una ficha del jefe que sale solo de
@@ -80,8 +80,9 @@ Arrastra archivos a la página. El botón **Bandeja** muestra el estado de cada 
 | cualquier cosa, en lenguaje natural | Conversa con su personalidad (`profiles/isabelle.toml`); sin comandos |
 | «recuerda esto: …» (o solo «recuerda esto») | Lo guarda tal cual (o guarda tu mensaje anterior) |
 | un dato suelto («el local cierra a las 8») | Lo guarda y lo comenta; si ve un riesgo, te lo dice |
-| una pregunta | Busca en su memoria y cita las fuentes; si no está, responde con lo que sabe en general y lo avisa |
-| «recuérdame mañana a las 9 …» | Lo guarda sin preguntar, dice lo que entendió y muestra **Cambiar** y **Cancelar**; solo pregunta si la hora es dudosa |
+| una pregunta | Busca en su memoria y dice de dónde lo sacó («De mi memoria: nota del 2 de nov sobre «…»»); si no está, responde con lo que sabe en general y lo avisa |
+| «recuérdame mañana a las 9 am …» | Lo guarda sin preguntar, dice lo que entendió (en 12 h, con a. m./p. m.) y muestra **Cambiar** y **Cancelar** |
+| «recuérdame cada día a las 7 …» (sin am/pm) | Pregunta por texto «¿Las 7 de la mañana o de la noche, jefe?» y entiende «de la noche», «am», «7 pm» |
 | «¿qué tengo pendiente?», «ya lo hice», «cancela el 3», «pospón el 2 una hora» | Lista con estado, marca hecho, cancela (pide confirmación) o pospone |
 | «analiza a fondo…», «piénsalo bien…», «dame tu opinión…» | Usa el modelo potente (`NEXUS_OPENROUTER_MODEL_DEEP`) y avisa que cuesta más |
 | «¿qué puedes hacer?» | La ayuda, en lenguaje natural |

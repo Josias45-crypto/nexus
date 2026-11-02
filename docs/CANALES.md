@@ -29,8 +29,9 @@ Telegram / WhatsApp / simulado          núcleo (core)
 | cualquier cosa, en lenguaje natural | Conversa con su personalidad (`profiles/isabelle.toml`); sin comandos |
 | «recuerda esto: …» (o solo «recuerda esto») | Lo guarda tal cual (o guarda tu mensaje anterior) |
 | un dato suelto («el local cierra a las 8») | Lo guarda y lo comenta; si ve un riesgo, te lo dice |
-| una pregunta | Busca en su memoria y cita las fuentes; si no está, responde con lo que sabe en general y lo avisa |
-| «recuérdame mañana a las 9 …» | Lo guarda sin preguntar, dice lo que entendió y muestra **Cambiar** y **Cancelar**; solo pregunta si la hora es dudosa |
+| una pregunta | Busca en su memoria y dice de dónde lo sacó («De mi memoria: nota del 2 de nov sobre «…»»); si no está, responde con lo que sabe en general y lo avisa |
+| «recuérdame mañana a las 9 am …» | Lo guarda sin preguntar, dice lo que entendió (en 12 h, con a. m./p. m.) y muestra **Cambiar** y **Cancelar** |
+| «recuérdame cada día a las 7 …» (sin am/pm) | Pregunta por texto «¿Las 7 de la mañana o de la noche, jefe?» y entiende «de la noche», «am», «7 pm» |
 | «¿qué recordatorios tengo?», «ya lo hice», «cancela el recordatorio 3» | Lista, marca hecho o cancela (cancelar pide confirmación) |
 | «analiza a fondo…», «piénsalo bien…», «dame tu opinión…» | Usa el modelo potente (`NEXUS_OPENROUTER_MODEL_DEEP`) y avisa que cuesta más |
 | «¿qué puedes hacer?» | La ayuda, en lenguaje natural |
@@ -39,8 +40,17 @@ Telegram / WhatsApp / simulado          núcleo (core)
 
 Horas que entiende: `4:17`, `4 : 17`, `4.17`, `4h17`, `4 y 18`, `4 y cuarto`, `4 y media`,
 `4 menos cuarto`, `16:17`, `4 pm`, `de la mañana/tarde/noche`, `mediodía`, `medianoche`,
-`mañana 9`, `en 20 minutos`, `en 90 segundos`. Sin am/pm ni fecha elige la próxima vez que llega esa hora (a las
-04:15, "a las 4" es 16:00 y "a las 4:17" es 04:17). Con fecha, de 1 a 7 es de la tarde. Si la
+`mañana 9`, `en 20 minutos`, `en 90 segundos`. Las horas siempre se muestran en 12 h con «a. m.» o
+«p. m.».
+
+**Hora sin am/pm.** No se adivina. Si el contexto lo dice (13 a 23 h, «de la mañana/tarde/noche»,
+«esta noche», «por la tarde», «mediodía») la usa; si no, pregunta por texto y sin botones:
+«¿Las 7 de la mañana o de la noche, jefe?». Entiende la respuesta escrita («de la noche», «en la
+mañana», «am», «a las 7 pm», «19:00»). La pregunta queda en la base (`pending_confirmations`,
+tipo `hora`) y caduca a los 30 min; si tu siguiente mensaje no la responde, la descarta y lo
+atiende como un mensaje normal. Excepción: un recordatorio de una sola vez cuya próxima ocurrencia
+cae en menos de 2 horas se toma sin preguntar (a las 10:00, «a las 11» es 11:00 a. m.). Los que
+se repiten siempre preguntan. Si la
 hora no queda clara o sobra un número ("a las 4 17 …"), pregunta "¿A qué hora exactamente?" en
 vez de adivinar (y, cuando aclaras, pone esa hora en el pedido); si pides una hora con am/pm que
 hoy ya pasó, pregunta si es para mañana. Con hora clara lo guarda sin preguntar:
@@ -58,7 +68,7 @@ hora exacta avisa con **Ya lo hice** y **Recuérdame**; si no respondes, insiste
 como máximo 3 veces (cada vez más suave). Tras la tercera queda «sin confirmar» y deja de
 insistir (el saludo de la Fase 2D lo mencionará); «ya lo hice» lo sigue cerrando. «Ya lo hice»,
 cancelar o posponer lo detienen al instante. **Recuérdame** pregunta «¿cuándo, jefe?» y entiende
-«en un día», «mañana a las 9», «el viernes a las 3»; si no entiende, repregunta con botones (En 1
+«en un día», «mañana a las 9 am», «el viernes a las 3 pm»; si no entiende, repregunta con botones (En 1
 hora, Mañana 9:00 a. m., En 1 día). Lo programado suena a su hora aunque sea de noche. Si el
 sistema estuvo caído, lo vencido sale con «(retrasado)», un aviso a la vez.
 
