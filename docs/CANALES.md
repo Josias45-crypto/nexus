@@ -24,39 +24,36 @@ Telegram / WhatsApp / simulado          núcleo (core)
 
 ## Comandos
 
-| Mensaje | Qué hace |
+| Le escribes | Qué hace Isabelle |
 |---|---|
-| texto libre o `/pregunta …` | Pregunta a la memoria y cita las fuentes |
-| `/recordar …` | Guarda una nota |
-| archivo, foto, nota de voz | Va a la bandeja: se guarda el original y se procesa |
-| `recuérdame mañana a las 9 …` | Interpreta la fecha y **pide confirmación** (sí/no) antes de guardar |
-| `/recordatorios` | Lista los pendientes con hora de Perú y estado |
-| `/probar_recordatorio` | Crea un aviso a 60 s para probar el camino entero (cada etapa queda en el registro) |
-| `/hecho [n]` | Marca hecho el recordatorio n (sin número: el último que te avisó) |
-| `/cancelar n` | Cancela el recordatorio n (solo los de tu propio chat) |
-| `/hoy` | Lo que aprendió hoy y los recordatorios del día |
-| `/estado` | Crecimiento: días de vida, elementos y pendientes |
-| `/ayuda` | Ayuda con ejemplos del perfil activo |
+| cualquier cosa, en lenguaje natural | Conversa con su personalidad (`profiles/isabelle.toml`); sin comandos |
+| «recuerda esto: …» (o solo «recuerda esto») | Lo guarda tal cual (o guarda tu mensaje anterior) |
+| un dato suelto («el local cierra a las 8») | Lo guarda y lo comenta; si ve un riesgo, te lo dice |
+| una pregunta | Busca en su memoria y cita las fuentes; si no está, responde con lo que sabe en general y lo avisa |
+| «recuérdame mañana a las 9 …» | Lo guarda sin preguntar, dice lo que entendió y muestra **Cambiar** y **Cancelar**; solo pregunta si la hora es dudosa |
+| «¿qué recordatorios tengo?», «ya lo hice», «cancela el recordatorio 3» | Lista, marca hecho o cancela (cancelar pide confirmación) |
+| «analiza a fondo…», «piénsalo bien…», «dame tu opinión…» | Usa el modelo potente (`NEXUS_OPENROUTER_MODEL_DEEP`) y avisa que cuesta más |
+| «¿qué puedes hacer?» | La ayuda, en lenguaje natural |
+| archivo, foto, nota de voz | Se guarda el original y se procesa; Isabelle acusa recibo |
+| «ok ok», «gracias», «hasta mañana» | Cierra la charla sin otra pregunta |
 
 Horas que entiende: `4:17`, `4 : 17`, `4.17`, `4h17`, `4 y 18`, `4 y cuarto`, `4 y media`,
 `4 menos cuarto`, `16:17`, `4 pm`, `de la mañana/tarde/noche`, `mediodía`, `medianoche`,
 `mañana 9`, `en 20 minutos`. Sin am/pm ni fecha elige la próxima vez que llega esa hora (a las
 04:15, "a las 4" es 16:00 y "a las 4:17" es 04:17). Con fecha, de 1 a 7 es de la tarde. Si la
 hora no queda clara o sobra un número ("a las 4 17 …"), pregunta "¿A qué hora exactamente?" en
-vez de adivinar; si pides una hora con am/pm que hoy ya pasó, pregunta si es para mañana. La
-confirmación se ve así:
+vez de adivinar (y, cuando aclaras, pone esa hora en el pedido); si pides una hora con am/pm que
+hoy ya pasó, pregunta si es para mañana. Con hora clara lo guarda sin preguntar:
 
-    Entendí: hoy 4:17 a. m. (04:17, hora de Perú)
-    Tarea: llamar a Piter
-    ¿Lo guardo? Responde sí o no.
+    Listo, jefe: hoy a las 4:17 a. m.: llamar a Piter.
+    [Cambiar] [Cancelar]
 
-La confirmación queda guardada en NEXUS (tabla `pending_confirmations`), no en la memoria del
-bot: sobrevive a un reinicio y caduca a los `NEXUS_REMINDER_CONFIRM_MIN` minutos (15). Valen
-"sí", "si", "ok", "dale", "confirmo" y frases que empiezan así ("Sí, guárdalo"). Si la respuesta
-no es clara o trae una pregunta ("sí, ¿y a qué hora?"), el bot vuelve a preguntar. Solo dice
-"Guardado" con el número y la hora tras leer la fila escrita, y un "sí" repetido no la duplica.
+«Cambiar» pregunta la nueva hora («mejor a las 10» conserva el día); «Cancelar» lo cancela al
+instante. Lo que espera respuesta (la hora nueva, el «¿Cancelo el recordatorio n.º 3?» o la hora
+dudosa) queda en la base, no en la memoria del bot: sobrevive a un reinicio y caduca a los 15
+minutos. Solo dice «Listo» tras leer la fila escrita, y un «sí» repetido no la duplica.
 
-Si un recordatorio vence y no respondes `/hecho`, NEXUS insiste cada
+Si un recordatorio vence y no le dices «ya lo hice», Isabelle insiste cada
 `NEXUS_REMINDER_RETRY_MIN` minutos hasta `NEXUS_REMINDER_MAX_TRIES` avisos.
 
 El resumen matutino se envía a la hora `resumen_matutino` del perfil (hora local según
@@ -75,7 +72,7 @@ Usa *long polling*: NEXUS consulta a Telegram, así que **no hay que abrir puert
    `docker logs nexus-telegram`.
 4. En `.env`, escribe `TELEGRAM_ALLOWED_IDS=<tu id>` (varios, separados por comas).
 5. Arranca: `docker compose --profile channels up -d`.
-6. Escríbele `/start` a tu bot.
+6. Escríbele «hola» a tu bot.
 
 Cualquier otra persona que le escriba al bot es ignorada: no se le responde y sus archivos no
 se descargan.

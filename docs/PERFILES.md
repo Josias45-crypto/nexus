@@ -45,7 +45,7 @@ Los campos que no pongas toman el valor por defecto. `GET /profile` muestra el p
 2. Escribe la `persona` como si le explicaras el trabajo a un asistente nuevo: a quién ayuda,
    qué debe recordar y qué **no** hace (por ejemplo, "no hablas con los pacientes").
 3. Pon `NEXUS_PROFILE=<rubro>` en `.env`, reinicia con
-   `docker compose up -d --force-recreate core` y prueba con `/ayuda` en Telegram. La carpeta
+   `docker compose up -d --force-recreate core` y prueba escribiendo «¿qué puedes hacer?» en Telegram. La carpeta
    `profiles/` está montada en el contenedor, así que no hace falta reconstruir la imagen.
 
 Ejemplos de `persona`:

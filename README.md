@@ -1,11 +1,13 @@
-# NEXUS
+# Isabelle (NEXUS)
 
-**Versión 0.1.0, uso personal.**
+**Versión 0.1.0, uso personal.** NEXUS e Isabelle son lo mismo: el nombre visible ya es Isabelle;
+la carpeta, el repositorio y los contenedores se renombran al final del proyecto.
 
-Asistente personal para el dueño de un negocio (primer caso: ventas). Le mandas
-notas, archivos, fotos y notas de voz por Telegram o por la web; NEXUS guarda el original, lo
-entiende y después responde tus preguntas **citando de dónde sale cada dato**. También te
-escribe primero: recordatorios y un resumen cada mañana.
+Secretaria personal del dueño de un negocio (primer caso: ventas). Le escribes por Telegram como
+a una persona, **sin comandos**, y le mandas notas, archivos, fotos y notas de voz; Isabelle
+guarda el original, lo entiende, conversa con su personalidad (`profiles/isabelle.toml`) y
+responde tus preguntas **citando de dónde sale cada dato**. También te escribe primero:
+recordatorios y un resumen cada mañana.
 
 Empieza vacío y aprende día a día. La inteligencia vive en lo que acumula, no en el modelo: el
 chat va por OpenRouter (el modelo se cambia con una variable) y la memoria, los embeddings, el
@@ -22,9 +24,11 @@ audio y el OCR corren en tu máquina, en Docker.
   eso en mi memoria."; si la pregunta nombra algo (un cliente, un código, una cifra) que no está
   en ninguna nota, no responde con una nota parecida.
 - **Recuerda por fecha**: "¿qué aprendí ayer?", "resume lo último que te mandé".
-- **Recordatorios** en español ("recuérdame hoy a las 4:17 llamar a Piter"): siempre pide
-  confirmación, sobrevive a reinicios del bot, pregunta si la hora es ambigua e insiste hasta
-  que respondas `/hecho`.
+- **Recordatorios** en español ("recuérdame hoy a las 4:17 llamar a Piter"): con hora clara los
+  guarda sin preguntar y muestra **Cambiar** y **Cancelar**; pregunta solo si la hora es dudosa;
+  sobrevive a reinicios e insiste hasta que le digas «ya lo hice».
+- **Memoria de la charla**: historial completo con búsqueda, una ficha del jefe que sale solo de
+  lo que él dice y un resumen corriente; va aparte del conocimiento con fuentes.
 - **Telegram** como canal principal; interfaz web en `http://localhost:8000`.
 - **Respaldos** automáticos y **perfiles por rubro** sin tocar el código ([perfiles](docs/PERFILES.md)).
 - **Chat por OpenRouter** con reintentos, costo por día (`/usage`), tope diario y solo proveedores
@@ -67,21 +71,20 @@ Arrastra archivos a la página. El botón **Bandeja** muestra el estado de cada 
 2. Pon el token en `.env`: `TELEGRAM_BOT_TOKEN=...` (solo ahí; nunca lo compartas ni lo subas).
 3. Averigua tu id numérico con **@userinfobot** y ponlo en `TELEGRAM_ALLOWED_IDS` (varios,
    separados por comas). El bot ignora a cualquier otra persona.
-4. `docker compose --profile channels up -d --build` y escríbele `/start`.
+4. `docker compose --profile channels up -d --build` y escríbele «hola».
 
-| Mensaje | Qué hace |
+| Le escribes | Qué hace Isabelle |
 |---|---|
-| texto libre o `/pregunta …` | Pregunta a la memoria y cita las fuentes |
-| `/recordar …` | Guarda una nota |
-| archivo, foto, nota de voz | Va a la bandeja: se guarda el original y se procesa |
-| `recuérdame mañana a las 9 …` | Interpreta la fecha y pide confirmación (sí/no) antes de guardar |
-| `/recordatorios` | Pendientes con hora de Perú y estado |
-| `/hecho [n]` | Marca hecho el recordatorio n (sin número: el último que te avisó) |
-| `/cancelar n` | Cancela el recordatorio n (solo los de tu chat) |
-| `/probar_recordatorio` | Aviso de prueba a los 60 s |
-| `/hoy` | Lo que aprendió hoy y los recordatorios del día |
-| `/estado` | Días de vida, elementos y pendientes |
-| `/ayuda` | Ayuda con ejemplos del perfil activo |
+| cualquier cosa, en lenguaje natural | Conversa con su personalidad (`profiles/isabelle.toml`); sin comandos |
+| «recuerda esto: …» (o solo «recuerda esto») | Lo guarda tal cual (o guarda tu mensaje anterior) |
+| un dato suelto («el local cierra a las 8») | Lo guarda y lo comenta; si ve un riesgo, te lo dice |
+| una pregunta | Busca en su memoria y cita las fuentes; si no está, responde con lo que sabe en general y lo avisa |
+| «recuérdame mañana a las 9 …» | Lo guarda sin preguntar, dice lo que entendió y muestra **Cambiar** y **Cancelar**; solo pregunta si la hora es dudosa |
+| «¿qué recordatorios tengo?», «ya lo hice», «cancela el recordatorio 3» | Lista, marca hecho o cancela (cancelar pide confirmación) |
+| «analiza a fondo…», «piénsalo bien…», «dame tu opinión…» | Usa el modelo potente (`NEXUS_OPENROUTER_MODEL_DEEP`) y avisa que cuesta más |
+| «¿qué puedes hacer?» | La ayuda, en lenguaje natural |
+| archivo, foto, nota de voz | Se guarda el original y se procesa; Isabelle acusa recibo |
+| «ok ok», «gracias», «hasta mañana» | Cierra la charla sin otra pregunta |
 
 Más detalles (horas que entiende, WhatsApp): [docs/CANALES.md](docs/CANALES.md).
 

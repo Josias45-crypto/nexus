@@ -65,12 +65,19 @@ núcleo es genérico; lo propio del rubro vive en profiles/*.toml.
 - Fase 1 de Isabelle: chat solo por OpenRouter con reintentos, 402/429 claros, /usage, tope
   diario y aviso de 402 una vez; si falla, todo queda en cola. Sin modos, sin respaldo local,
   sin Groq/Gemini para chat, sin /privado ni racha.
+- Fase 2B: conversación sin comandos (core/conversa.py: reglas baratas -> intérprete JSON
+  validado -> acciones guardar/preguntar/analizar/opinar/charlar), personalidad en
+  profiles/isabelle.toml (core/persona.py), memoria en tres capas (core/charla.py: historial con
+  FTS, ficha del jefe solo de lo que él dice, resumen), filtro de salida (core/filtro.py), cola
+  y botones en el canal, modelo potente por NEXUS_OPENROUTER_MODEL_DEEP, razonamiento apagado
+  salvo en el modelo potente. Nombre visible: Isabelle.
 
 ## Cómo probar
-`python3 tests/e2e.py --audio <wav> --audio-phrase <palabra> --chaos` (18 casos, instancia
+`python3 tests/e2e.py --audio <wav> --audio-phrase <palabra> --chaos` (19 casos, instancia
 aislada; la memoria real no se toca; usa OpenRouter real y --chaos simula OpenRouter inalcanzable). Unitarias dentro del contenedor (ver tests/test_senses.py).
 Antes de probar cambios de código: `docker compose build core`. También: `tests/eval_ventas.py`
-(medir antes y después en /ask) y `tests/informe.py` (estado de la instalación real).
+(medir antes y después en /ask), `tests/informe.py` (estado de la instalación real),
+`tests/muestra_conversaciones.py` (15 charlas para juzgar el tono) y `tests/comparar_modelos.py`.
 
 ## Reglas que no cambian
 - Embeddings, audio, OCR y visión nunca salen de la máquina (hasta sus fases).

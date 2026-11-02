@@ -20,6 +20,11 @@ No hay autenticación: la API escucha solo en `127.0.0.1` y se accede por Tailsc
 
 | Método | Ruta | Qué hace |
 |---|---|---|
+| POST | `/conversar` | `{"mensajes": ["..."], "channel": "telegram", "chat_id": "..."}`: un turno de conversación en lenguaje natural (varios mensajes seguidos van juntos). Devuelve `texto`, `botones` (filas de `{texto, dato}`), `accion`, `nivel` (`memoria`, `general` o null) y `llm` |
+| POST | `/conversar/boton` | `{"dato": "rec:cancelar:12", "channel", "chat_id"}`: un botón pulsado |
+| POST | `/conversar/archivo` | `{"filename", "kind", "duplicate", "chat_id"}`: acuse de recibo de un archivo ya subido |
+| GET | `/charla?q=&desde=AAAA-MM-DD&hasta=AAAA-MM-DD` | Historial de la conversación por palabras y/o días |
+| GET | `/charla/memoria` | Ficha del jefe y resumen corriente (separados del conocimiento con fuentes) |
 | POST | `/inbox/text` | `{"text": "...", "source": "api"}` guarda una nota |
 | POST | `/inbox/file?source=api` | Sube un archivo (multipart, campo `file`). Límite: `NEXUS_MAX_UPLOAD_MB` (413 si lo supera) |
 | GET | `/inbox?limit=20` | Últimos elementos: `status`, `error` (motivo), `attempts`, `digest`, `procesando`, `reintentable` |

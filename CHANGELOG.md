@@ -12,7 +12,20 @@ AAAA-MM-DD.
 - Si OpenRouter falla, la digestión queda en cola sin gastar intentos, con pausa creciente. Sin
   saldo (402), avisa por Telegram una sola vez.
 
+### Agregado (Fase 2B: Isabelle conversa)
+- Conversación en lenguaje natural, sin comandos (`POST /conversar`): reglas baratas primero y
+  un intérprete con JSON validado solo si no alcanzan; acciones guardar, preguntar, analizar,
+  opinar y charlar. Confirma solo al borrar o con una hora dudosa.
+- Personalidad editable en `profiles/isabelle.toml`; nombre visible «Isabelle» en bot, web y textos.
+- Memoria de la charla: historial con búsqueda (`GET /charla`), ficha del jefe y resumen
+  (`GET /charla/memoria`), actualizados en segundo plano cuando nadie espera respuesta.
+- Recordatorios con hora clara sin preguntar, con botones «Cambiar» y «Cancelar».
+- Modelo potente por `NEXUS_OPENROUTER_MODEL_DEEP` («analiza a fondo», «piénsalo bien», «dame tu
+  opinión»), avisando que cuesta más; `tests/comparar_modelos.py` para elegirlo.
+- Canal: cola que junta mensajes seguidos, «escribiendo…», pausa humana y filtro de salida.
+
 ### Quitado
+- Los comandos de Telegram (`/recordar`, `/hecho`, `/cancelar`...): todo es lenguaje natural.
 - Modos `cloud`/`local`, backends por capacidad, respaldo local del chat, Groq y Gemini para chat,
   Ollama remoto, `/privado` y lo "privado solo local", el pie de proveedor y la racha.
 
