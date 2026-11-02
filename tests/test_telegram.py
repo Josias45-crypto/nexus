@@ -78,7 +78,7 @@ class TelegramTest(unittest.TestCase):
             [
                 {"update_id": 1, "message": _msg(OWNER, text="¿Cuándo entrega el proveedor?")},
                 {"update_id": 2, "message": _msg(6666, text="hola")},
-                {"update_id": 3, "message": _msg(OWNER, text="/privado")},
+                {"update_id": 3, "message": _msg(OWNER, text="/ayuda")},
                 {"update_id": 4, "message": _msg(OWNER, voice={"file_id": "v1", "file_size": 900})},
                 {"update_id": 5, "message": _msg(6666, voice={"file_id": "v2", "file_size": 900})},
                 {"update_id": 6, "message": _msg(OWNER, document={"file_id": "d", "file_size": 30_000_000})},
@@ -115,7 +115,8 @@ class TelegramTest(unittest.TestCase):
         self.assertTrue(any("Los martes" in t and "nota.txt" in t for t in to_owner))
         self.assertFalse(any(c == "6666" for c, _ in self.tg.sent), "respondió a un extraño")
         self.assertEqual(self.tg.downloads, 1, "solo descarga archivos del dueño")
-        self.assertEqual(self.nx.uploads[0].get("private"), "true", "/privado no se aplicó a la voz")
+        self.assertEqual(len(self.nx.uploads), 1, "la voz del dueño no llegó a la bandeja")
+        self.assertNotIn("private", self.nx.uploads[0])
         self.assertTrue(any("20 MB" in t for t in to_owner))
         self.assertTrue(any("Recordatorio" in t for t in to_owner), "no repartió el buzón")
         self.assertFalse(any(TOKEN in line for line in logs), "el token apareció en el registro")

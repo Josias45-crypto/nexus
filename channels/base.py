@@ -21,7 +21,6 @@ class Intent(str, Enum):
     VOICE = "voz"
     STATUS = "estado"
     TODAY = "hoy"
-    PRIVATE = "privado"
     REMINDER = "recordatorio"  # "recuérdame ..."
     REMINDERS = "recordatorios"
     DONE = "hecho"
@@ -55,7 +54,6 @@ COMMANDS = {
     "preguntar": Intent.ASK,
     "estado": Intent.STATUS,
     "hoy": Intent.TODAY,
-    "privado": Intent.PRIVATE,
     "recordatorios": Intent.REMINDERS,
     "hecho": Intent.DONE,
     "probar_recordatorio": Intent.TEST_REMINDER,

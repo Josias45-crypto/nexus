@@ -164,11 +164,11 @@ class TelegramChannel(Channel):
 
 
 class TelegramAssistant(Assistant):
-    async def _file(self, msg, state):
+    async def _file(self, msg):
         if (msg.size or 0) > MAX_DOWNLOAD:
             return "⚠️ Telegram solo permite a los bots descargar archivos de hasta 20 MB."
         try:
-            return await super()._file(msg, state)
+            return await super()._file(msg)
         except TelegramError as exc:
             return f"⚠️ No pude descargar el archivo de Telegram ({exc})."
 

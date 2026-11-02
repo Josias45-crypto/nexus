@@ -4,17 +4,13 @@
 - "recuérdame ..." siempre se confirma con el usuario antes de guardar. Lo pendiente de
   confirmar vive en NEXUS (en la base, con caducidad), no en la memoria del canal: sobrevive
   a reinicios del bot. Nunca se dice "guardado" sin haber leído la fila escrita.
-- /privado marca el siguiente envío (texto o archivo) como privado.
 - deliver_outbox() reparte lo que NEXUS quiere decir (avisos, resumen matutino).
 """
 
 import asyncio
 import logging
-from dataclasses import dataclass
-
 from channels.base import Channel, Incoming, Intent, PermanentSendError, detect_intent
 from channels.client import NexusClient, NexusError
-from config import settings
 
 log = logging.getLogger("nexus.channels")
 
@@ -25,17 +21,11 @@ STATUS_ES = {"pending": "pendiente", "sent": "avisado, esperando /hecho"}
 TZ_LABEL = "hora de Perú"
 
 
-@dataclass
-class ChatState:
-    private_next: bool = False
-
-
 class Assistant:
     def __init__(self, channel: Channel, nexus: NexusClient, allowed_ids: set[str]):
         self.channel = channel
         self.nexus = nexus
         self.allowed = allowed_ids
-        self.states: dict[str, ChatState] = {}
         self._profile: dict | None = None
 
     # ---------- entrada ----------
@@ -48,7 +38,6 @@ class Assistant:
         if not self.authorized(msg):
             log.warning("Mensaje ignorado de un usuario no autorizado (id %s)", msg.user_id)
             return []
-        state = self.states.setdefault(msg.chat_id, ChatState())
         intent, arg = detect_intent(msg)
         pending = None
         if intent == Intent.ASK:  # texto libre: ¿es la respuesta a un "¿lo guardo?"?
@@ -69,7 +58,7 @@ class Assistant:
             await self._typing(msg.chat_id)  # de inmediato; luego se repite en segundo plano
             typing = asyncio.create_task(self._keep_typing(msg.chat_id))
         try:
-            replies = await self._dispatch(intent, arg, msg, state, pending)
+            replies = await self._dispatch(intent, arg, msg, pending)
         except NexusError as exc:
             replies = [f"⚠️ {exc}"]
         except Exception:
@@ -98,24 +87,17 @@ class Assistant:
             await self._typing(chat_id)
 
     async def _dispatch(
-        self, intent: Intent, arg: str, msg: Incoming, state: ChatState, pending: dict | None = None
+        self, intent: Intent, arg: str, msg: Incoming, pending: dict | None = None
     ) -> list[str]:
         if intent in (Intent.START, Intent.HELP):
             return [await self._help()]
-        if intent == Intent.PRIVATE:
-            if arg:
-                await self.nexus.remember(arg, self.channel.name, private=True)
-                return ["🔒 Guardado como privado. Nunca saldrá a la nube."]
-            state.private_next = True
-            return ["🔒 Lo siguiente que me envíes (texto con /recordar o archivo) será privado."]
         if intent == Intent.REMEMBER:
             if not arg:
                 return ["Escribe lo que quieres que recuerde: /recordar Pedro paga los viernes."]
-            private = self._take_private(state)
-            await self.nexus.remember(arg, self.channel.name, private=private)
-            return ["✅ Lo recordaré." + (" (privado)" if private else "")]
+            await self.nexus.remember(arg, self.channel.name)
+            return ["✅ Lo recordaré."]
         if intent in (Intent.FILE, Intent.VOICE):
-            return [await self._file(msg, state)]
+            return [await self._file(msg)]
         if intent == Intent.ASK:
             if not arg:
                 return ["¿Qué quieres saber? Escríbeme la pregunta."]
@@ -146,10 +128,6 @@ class Assistant:
             return [await self._cancel(arg, msg)]
         return [await self._help()]
 
-    def _take_private(self, state: ChatState) -> bool:
-        private, state.private_next = state.private_next, False
-        return private
-
     async def _profile_data(self) -> dict:
         if self._profile is None:
             self._profile = await self.nexus.profile()
@@ -166,23 +144,21 @@ class Assistant:
             "• «recuérdame mañana a las 9 …» — te aviso (te pido confirmar).\n"
             "• /recordatorios — pendientes · /hecho [n] — marcar hecho · /cancelar n — cancelar.\n"
             "• /probar_recordatorio — te aviso en 60 s para probar.\n"
-            "• /hoy — lo que aprendí hoy · /estado — cómo voy.\n"
-            "• /privado — lo siguiente que envíes nunca sale a la nube."
+            "• /hoy — lo que aprendí hoy · /estado — cómo voy."
             + (f"\n\nEjemplos:\n{ejemplos}" if ejemplos else "")
         )
 
-    async def _file(self, msg: Incoming, state: ChatState) -> str:
+    async def _file(self, msg: Incoming) -> str:
         data = await msg.download()
-        private = self._take_private(state)
         name = msg.filename or ("nota_de_voz.ogg" if msg.is_voice else "archivo")
         r = await self.nexus.upload(
-            data, name, msg.mime or "application/octet-stream", self.channel.name, private
+            data, name, msg.mime or "application/octet-stream", self.channel.name
         )
         if r.get("duplicate"):
             return "Ya tenía ese archivo en mi memoria."
         what = "la nota de voz" if msg.is_voice else f"«{name}»"
         extra = " Lo transcribo en un momento." if r.get("kind") == "audio" else ""
-        return f"📥 Recibí {what}.{extra}" + (" (privado)" if private else "")
+        return f"📥 Recibí {what}.{extra}"
 
     async def _ask(self, question: str) -> str:
         r = await self.nexus.ask(question)
@@ -190,9 +166,6 @@ class Assistant:
         names = list(dict.fromkeys(s.get("cita") or s["filename"] for s in r.get("sources", []) if s.get("filename")))
         if names and "No tengo información" not in answer:
             answer += "\n\nFuentes: " + ", ".join(names[:MAX_SOURCES])
-        llm = r.get("llm") or {}
-        if llm.get("nube") and settings.SHOW_PROVIDER:
-            answer += f"\n☁️ NUBE: respondió {llm.get('proveedor')} ({llm.get('modelo')})"
         return answer
 
     async def _status(self) -> str:
@@ -209,8 +182,7 @@ class Assistant:
         t = await self.nexus.today()
         lines = [f"📅 Hoy aprendí {t['total']} cosa(s)."]
         for e in t["elementos"][-10:]:
-            # Lo privado no viaja por el canal: solo se menciona que existe
-            detalle = "(privado)" if e["privado"] else (e["resumen"] or e["estado"])
+            detalle = e["resumen"] or e["estado"]
             lines.append(f"• {e['hora']} {e['archivo']}: {detalle}")
         rem = t["recordatorios"]["hoy"]
         if rem:

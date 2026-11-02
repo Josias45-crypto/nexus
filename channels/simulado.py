@@ -93,12 +93,8 @@ async def selftest(url: str, tag: str) -> int:
     r = await say(f"/recordar El proveedor ficticio Tralvex{tag} entrega los martes.")
     check("Lo recordaré" in r, "/recordar guarda una nota", r)
 
-    r = await say("/privado")
-    check("privado" in r, "/privado arma el siguiente envío", r)
-    r = await say(f"/recordar La clave ficticia de Ulmira{tag} es 4417.")
-    check("(privado)" in r, "el siguiente /recordar sale privado", r)
-    r = await say(f"/recordar Nota pública Quenor{tag}.")
-    check("(privado)" not in r, "/privado se consume en un solo envío", r)
+    r = await say(f"/recordar Nota de prueba Quenor{tag}.")
+    check("Lo recordaré" in r, "segunda nota", r)
 
     r = await bot.handle(ch.file(f"archivo sintético Pelvatra{tag}".encode(), f"doc{tag}.txt", "text/plain"))
     check(bool(r) and "Recibí" in r[0], "archivo va a la bandeja", str(r))
@@ -140,7 +136,6 @@ async def selftest(url: str, tag: str) -> int:
     await asyncio.sleep(25)  # deja que el worker procese las notas
     r = await say("/hoy")
     check(f"Quenor{tag}" in r, "/hoy muestra lo aprendido", r)
-    check(f"Ulmira{tag}" not in r and "(privado)" in r, "/hoy no muestra contenido privado", r)
 
     r = await say(f"¿Qué día entrega el proveedor Tralvex{tag}?")
     check("martes" in r.lower(), "texto libre = pregunta a la memoria", r)

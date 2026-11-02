@@ -36,16 +36,16 @@ class NexusClient:
     async def ask(self, question: str) -> dict:
         return await self._req("POST", "/ask", json={"question": question})
 
-    async def remember(self, text: str, source: str, private: bool = False) -> dict:
+    async def remember(self, text: str, source: str) -> dict:
         return await self._req(
-            "POST", "/inbox/text", json={"text": text, "source": source, "private": private}
+            "POST", "/inbox/text", json={"text": text, "source": source}
         )
 
-    async def upload(self, data: bytes, filename: str, mime: str, source: str, private: bool) -> dict:
+    async def upload(self, data: bytes, filename: str, mime: str, source: str) -> dict:
         return await self._req(
             "POST",
             "/inbox/file",
-            params={"source": source, "private": str(private).lower()},
+            params={"source": source},
             files={"file": (filename, data, mime)},
         )
 
