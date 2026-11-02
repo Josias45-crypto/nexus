@@ -3,10 +3,14 @@
 El modelo redacta la respuesta; el código decide qué trozos la respaldan (palabras con
 contenido compartidas entre respuesta y trozo) y arma la referencia legible:
 "informe.pdf, pág. 3", "nota_de_voz.ogg, min 01:23", "manual.md, § Instalación".
+legible() es la referencia para el jefe en la charla: "nota del 2 de nov sobre «Rosa Quispe me
+debe…»", "nota de voz del 30 de oct, min 01:23", "informe.pdf del 1 de nov, pág. 3".
 """
 
 import re
 import unicodedata
+
+from core import clock
 
 STOPWORDS = set(
     "para pero como esta este esto estos estas tiene tienen sobre entre desde hasta donde cuando "
@@ -94,3 +98,35 @@ def supporting(answer: str, hits: list[dict]) -> list[dict]:
             seen.add(h["event_id"])
             result.append(h)
     return result
+
+
+MESES_CORTOS = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "set", "oct", "nov", "dic"]
+PALABRAS_NOTA = 6
+
+
+def _dia(created_at: str | None) -> str:
+    if not created_at:
+        return ""
+    try:
+        d = clock.utc_to_local(created_at)
+    except ValueError:
+        return ""
+    return f" del {d.day} de {MESES_CORTOS[d.month - 1]}"
+
+
+def _inicio(texto: str) -> str:
+    palabras = " ".join((texto or "").split()).strip("«»\"' ").split(" ")
+    inicio = " ".join(palabras[:PALABRAS_NOTA]).rstrip(".,;:!?¡¿-")
+    return inicio + ("…" if len(palabras) > PALABRAS_NOTA else "")
+
+
+def legible(filename: str, created_at: str | None = None, texto: str = "", ubicacion: str | None = None) -> str:
+    """Referencia humana armada por el código (nunca por el modelo)."""
+    fecha = _dia(created_at)
+    nombre = (filename or "").lower()
+    if nombre.startswith("nota") and nombre.endswith(".txt"):
+        inicio = _inicio(texto)
+        return f"nota{fecha} sobre «{inicio}»" if inicio else f"nota{fecha}"
+    if nombre.startswith("nota_de_voz"):
+        return f"nota de voz{fecha}" + (f", {ubicacion}" if ubicacion else "")
+    return f"{filename}{fecha}" + (f", {ubicacion}" if ubicacion and ubicacion != "resumen" else "")

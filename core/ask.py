@@ -16,6 +16,8 @@ RULES = (
     "Si la pregunta nombra a una persona, empresa, producto, código o proyecto, no uses fuentes "
     "que hablen de otro nombre parecido o de otro proyecto (si pregunta por Rosaura, no "
     "respondas con datos de Rosario). "
+    "No agregues detalles que las fuentes no dicen (si dice «tres días», no digas «tres días "
+    "seguidos») y no empieces con «Según la nota» ni «Según las fuentes». "
     f'Si ninguna fuente contiene la respuesta, responde exactamente: "{NO_INFO}"'
 )
 
@@ -72,7 +74,7 @@ def _is_empty_answer(answer: str) -> bool:
     return len(re.sub(r"\[\d+\]", "", answer).strip(" .:-\n")) < 10
 
 
-async def ask(question: str, k: int | None = None) -> dict:
+async def ask(question: str, k: int | None = None, contexto: str = "") -> dict:
     from core import questions
 
     special = await questions.route(question)
@@ -96,7 +98,7 @@ async def ask(question: str, k: int | None = None) -> dict:
         f"Fuente {i} ({citations.cite(h)}):\n{h['content']}" for i, h in enumerate(hits, 1)
     )
     messages = [
-        {"role": "system", "content": f"{profile.system_prompt()} {RULES}"},
+        {"role": "system", "content": f"{profile.system_prompt()} {RULES}" + (f"\n\n{contexto}" if contexto else "")},
         {"role": "user", "content": f"{context}\n\nPregunta: {question}\nRespuesta:"},
     ]
     answer, llm = await get_client().chat_ex(messages)
@@ -159,6 +161,7 @@ def sources_for(hits: list[dict]) -> list[dict]:
             "position": h["position"],
             "distance": h["distance"],
             "snippet": h["content"][:200],
+            "created_at": h.get("created_at"),
         }
         for i, h in enumerate(hits, 1)
     ]

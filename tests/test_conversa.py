@@ -52,6 +52,7 @@ class Base(unittest.TestCase):
                 c.execute(f"DELETE FROM {t}")
             c.execute("DELETE FROM kv")
         persona.get.cache_clear()
+        persona.reiniciar()
         self.llm = FakeLLM()
         for target, value in (("core.conversa.get_client", lambda: self.llm),
                               ("core.conversa.search", self._sin_busqueda)):
@@ -98,7 +99,7 @@ class ReglasTest(Base):
         self.assertEqual(self.llm.calls, [])
 
     def test_pregunta_por_fecha_sin_interprete(self):
-        async def fake_ask(q, k=None):
+        async def fake_ask(q, k=None, **kw):
             return {"answer": "Hoy aprendí 1 cosa(s):\n• 10:00 nota.txt: algo", "sources": [], "llm": None, "tipo": "temporal"}
 
         with mock.patch.object(ask, "ask", fake_ask):
@@ -162,32 +163,32 @@ class NivelesTest(Base):
     def test_memoria_con_fuentes(self):
         self.llm.respuestas = ['{"accion": "preguntar", "consulta": "¿Cuánto debe Rosa?"}']
 
-        async def fake_ask(q, k=None):
+        async def fake_ask(q, k=None, **kw):
             return {"answer": "**Rosa** debe 120 soles.", "sources": [{"filename": "ventas.xlsx", "cita": "ventas.xlsx, fila 3"}],
                     "llm": {}, "tipo": "memoria"}
 
         with mock.patch.object(ask, "ask", fake_ask):
             r = self.turno("¿cuánto me debe Rosa?")
         self.assertEqual(r["nivel"], "memoria")
-        self.assertEqual(r["texto"], "Rosa debe 120 soles.\n\nFuentes: ventas.xlsx, fila 3")
+        self.assertEqual(r["texto"], "Rosa debe 120 soles.\n\nDe mi memoria: ventas.xlsx, fila 3.")
 
     def test_general_avisa_que_no_sale_de_la_memoria(self):
         self.llm.respuestas = ['{"accion": "preguntar", "consulta": "¿Qué es el ROI?"}', "Es el retorno de la inversión."]
 
-        async def no_sabe(q, k=None):
+        async def no_sabe(q, k=None, **kw):
             return {"answer": ask.NO_INFO, "sources": [], "llm": None, "tipo": "memoria"}
 
         with mock.patch.object(ask, "ask", no_sabe):
             r = self.turno("¿qué es el ROI?")
         self.assertEqual(r["nivel"], "general")
-        self.assertIn("no sale de mi memoria", r["texto"])
+        self.assertTrue(conversa.sin_avisos(r["texto"]) != r["texto"], "avisa que no sale de la memoria")
         self.assertTrue(r["texto"].endswith("Es el retorno de la inversión."))
 
     def test_dato_personal_que_no_tiene_no_se_inventa(self):
         self.llm.respuestas = ['{"accion": "preguntar", "consulta": "¿Cuánto me debe Rosa?"}',
                                "NO_ANOTADO No lo tengo anotado, jefe. ¿Me lo cuenta?"]
 
-        async def no_sabe(q, k=None):
+        async def no_sabe(q, k=None, **kw):
             return {"answer": ask.NO_INFO, "sources": [], "llm": None, "tipo": "memoria"}
 
         with mock.patch.object(ask, "ask", no_sabe):
@@ -225,7 +226,7 @@ class ContextoTest(Base):
         self.assertEqual(resto[-1]["content"], "hoy estuve pensando en el negocio nuevo")
         self.assertIn("[LO QUE SÉ DEL JEFE", sistema)
         self.assertIn("Piter: proveedor", sistema)
-        self.assertEqual(sistema.count("De n"), conversa.FRAGMENTOS_MAX, "máx. 4 fragmentos")
+        self.assertEqual(sistema.count("De su n"), conversa.FRAGMENTOS_MAX, "máx. 4 fragmentos")
 
     def test_historial_guardado_y_sin_contenido_en_logs(self):
         self.llm.respuestas = ['{"accion": "charlar", "consulta": ""}', "Qué alegría, jefe."]

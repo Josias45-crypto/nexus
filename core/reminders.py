@@ -419,6 +419,7 @@ def _aviso(r, clave: str, retrasado: bool) -> tuple[str, list | None]:
                           hora=when.ampm(clock.utc_to_local(r["due_at"])))
     if retrasado:
         texto = f"{persona.frase('recordatorios.retrasado', mayuscula=False)} {texto}"
+    texto = persona.dosificar(texto)
     if clave == "previo":
         return texto, None
     return texto, [[{"texto": "Ya lo hice", "dato": f"rec:hecho:{r['id']}"},

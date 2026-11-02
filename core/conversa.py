@@ -38,7 +38,9 @@ ESPERA_MIN = 15  # minutos que vale lo que espera respuesta (confirmar, nueva ho
 FRAGMENTOS_MAX = 4
 MAX_FUENTES = 3
 TOKENS = {"guardado": 300, "charlar": 400, "opinar": 600, "analizar": 700}
-TOKENS_PROFUNDO = 4000
+TOKENS_PROFUNDO = 6000  # incluye el razonamiento del modelo potente
+LARGO_PROFUNDO = 1500  # caracteres del análisis a fondo, salvo que pida más detalle
+RE_DETALLE = re.compile(r"\b(detallad[oa]|con (mas |mucho )?detalle|completo|extens[oa]|paso a paso|todo lo que)\b")
 TEMPERATURA = {"guardado": 0.8, "charlar": 0.8, "opinar": 0.8, "analizar": 0.3}
 
 _en_curso = 0
@@ -470,9 +472,48 @@ async def _guardar(texto: str, channel: str) -> Respuesta:
     return Respuesta(persona.frase("duplicado" if r.get("duplicate") else "guardado"), "guardar")
 
 
+FUENTES = "De mi memoria:"
+
+
 def _fuentes(sources: list[dict]) -> str:
-    nombres = list(dict.fromkeys(s.get("cita") or s["filename"] for s in sources if s.get("filename")))
-    return ("\n\nFuentes: " + ", ".join(nombres[:MAX_FUENTES])) if nombres else ""
+    """Línea de fuentes legible para el jefe ("nota del 2 de nov sobre «Rosa Quispe…»"), armada
+    por el código con la fecha y el comienzo de cada nota; nunca por el modelo."""
+    ids = list(dict.fromkeys(s["event_id"] for s in sources if s.get("event_id")))
+    eventos = {}
+    if ids:
+        with connect() as conn:
+            for e in conn.execute(
+                "SELECT e.id, e.created_at, (SELECT content FROM chunks c WHERE c.event_id = e.id"
+                f" ORDER BY c.position LIMIT 1) AS primero FROM events e WHERE e.id IN ({','.join('?' * len(ids))})",
+                ids,
+            ):
+                eventos[e["id"]] = e
+    refs = []
+    for s_ in sources:
+        if not s_.get("filename"):
+            continue
+        e = eventos.get(s_.get("event_id"))
+        cita, nombre = s_.get("cita") or "", s_["filename"]
+        if not s_.get("ubicacion") and cita.startswith(f"{nombre}, "):
+            s_ = {**s_, "ubicacion": cita[len(nombre) + 2:]}
+        refs.append(citations.legible(
+            s_["filename"], s_.get("created_at") or (e["created_at"] if e else None),
+            (e["primero"] if e else None) or s_.get("content") or s_.get("snippet") or "",
+            s_.get("ubicacion") or citations.location(s_.get("meta") or {}),
+        ))
+    refs = list(dict.fromkeys(refs))[:MAX_FUENTES]
+    return f"\n\n{FUENTES} {'; '.join(refs)}." if refs else ""
+
+
+RE_SEGUN = re.compile(r"^(?:seg[uú]n|de acuerdo con|conforme a)\s+(?:la|su|mi|sus|mis|las)\s+(?:notas?|apuntes?|memoria|fuentes?)\b[^,:]{0,60}[,:]\s*", re.I)
+
+
+def sin_segun(texto: str) -> str:
+    """Quita el «Según la nota del lunes, …» del comienzo: Isabelle lo dice con naturalidad."""
+    nuevo = RE_SEGUN.sub("", texto.lstrip(), count=1)
+    if nuevo != texto.lstrip() and nuevo:
+        nuevo = nuevo[0].upper() + nuevo[1:]
+    return nuevo or texto
 
 
 GENERAL = """[TU TAREA]
@@ -483,11 +524,11 @@ que te lo cuente; no inventes nada. Si es una pregunta general, responde con lo 
 
 
 async def _preguntar(consulta: str) -> Respuesta:
-    r = await ask.ask(consulta)
+    r = await ask.ask(consulta, contexto=_ahora())
     if r.get("answer") != ask.NO_INFO:
         texto = r["answer"]
         if r.get("tipo") in ("memoria", "sobre") or r.get("llm"):
-            texto = filtro.limpiar(texto) or texto
+            texto = sin_segun(filtro.limpiar(texto) or texto)
         return Respuesta(texto + _fuentes(r.get("sources") or []), "preguntar", "memoria", llm=r.get("llm"))
     salida, info = await get_client().chat_ex(
         [{"role": "system", "content": f"[QUIÉN ERES]\n{persona.sistema()}\n\n{_ahora()}\n\n{GENERAL}"},
@@ -503,9 +544,17 @@ async def _preguntar(consulta: str) -> Respuesta:
     return Respuesta(f"{persona.frase('sin_memoria')}\n\n{salida}", "preguntar", "general", llm=info)
 
 
+def _momento(h: int) -> str:
+    return "madrugada" if h < 5 else "mañana" if h < 12 else "tarde" if h < 19 else "noche"
+
+
 def _ahora() -> str:
+    """Fecha, día y hora local de cada turno (NEXUS_TZ_OFFSET), en 12 horas."""
     now = clock.now_local()
-    return f"[AHORA]\nHoy es {when.WEEKDAY_NAMES[now.weekday()]} {now.day} de {when.MONTH_NAMES[now.month - 1]} de {now.year}, {when.ampm(now)} (Perú)."
+    man = now + timedelta(days=1)
+    return (f"[AHORA]\nHoy es {when.WEEKDAY_NAMES[now.weekday()]} {now.day} de {when.MONTH_NAMES[now.month - 1]} de {now.year}, "
+            f"{when.ampm(now)} (hora de Perú, de {_momento(now.hour)}). Mañana es {when.WEEKDAY_NAMES[man.weekday()]} "
+            f"{man.day} de {when.MONTH_NAMES[man.month - 1]}. Escribe las horas en 12 horas con a. m. o p. m.")
 
 
 TAREAS = {
@@ -515,6 +564,9 @@ TAREAS = {
     "opinar": "Da tu opinión sincera con argumentos y al menos una idea concreta. Si ves un riesgo real, dilo con respeto.",
     "analizar": "Analiza lo que pide: revisa los números, pros, contras y riesgos, y termina con una recomendación clara.",
 }
+PROFUNDO = ("Texto plano, sin markdown ni títulos (una lista corta con guiones si hace falta), de unos {largo} caracteres. "
+            "Di en una frase qué supones (los datos que no te dio) y termina con qué debería verificar él antes de decidir. "
+            "No agregues datos que no estén en la conversación o en tu memoria.")
 LARGO = {
     "guardado": "De 1 a 2 frases.",
     "charlar": "De 1 a 3 frases.",
@@ -523,7 +575,7 @@ LARGO = {
 }
 
 
-def _sistema(accion: str, fragmentos: list[dict], profundo: bool) -> str:
+def _sistema(accion: str, fragmentos: list[dict], profundo: bool, detalle: bool = False) -> str:
     bloques = [
         ("QUIÉN ERES", persona.sistema()),
         ("LO QUE SÉ DEL JEFE (lo que él te contó; no es una fuente para citar)",
@@ -533,9 +585,10 @@ def _sistema(accion: str, fragmentos: list[dict], profundo: bool) -> str:
     if fragmentos:
         bloques.append((
             "MI MEMORIA (fragmentos de sus notas y documentos; si usas uno, dilo con naturalidad)",
-            "\n\n".join(f"De {citations.cite(h)}:\n{h['content'][:800]}" for h in fragmentos),
+            "\n\n".join(f"De su {citations.legible(h['filename'], h.get('created_at'), h['content'], citations.location(h.get('meta') or {}))}:\n{h['content'][:800]}"
+                       for h in fragmentos),
         ))
-    largo = "Tómate el espacio que necesites; puedes usar una lista corta." if profundo else LARGO[accion]
+    largo = PROFUNDO.format(largo=LARGO_PROFUNDO * 2 if detalle else LARGO_PROFUNDO) if profundo else LARGO[accion]
     texto = "\n\n".join(f"[{t}]\n{c}" for t, c in bloques)
     return f"{texto}\n\n{_ahora()}\n\n[TU TAREA]\n{TAREAS[accion]} {largo}"
 
@@ -552,16 +605,16 @@ async def _hablar(accion: str, texto: str, chat_id: str, profundo: bool) -> Resp
         mensajes.append({"role": "user", "content": texto})
     modelo = client.deep_model if profundo and client.deep_model else None
     salida, info = await client.chat_ex(
-        [{"role": "system", "content": _sistema(accion, hits, profundo)}, *mensajes],
+        [{"role": "system", "content": _sistema(accion, hits, profundo, bool(RE_DETALLE.search(plano(texto))))}, *mensajes],
         model=modelo, temperature=TEMPERATURA[accion], razonar=bool(modelo),
         max_tokens=TOKENS_PROFUNDO if profundo else TOKENS[accion],
     )
-    salida = sin_avisos(filtro.limpiar(salida)) or persona.frase("no_entendi")
+    salida = sin_segun(sin_avisos(filtro.limpiar(salida))) or persona.frase("no_entendi")
     nivel = None
     if hits and accion not in ("charlar", "guardado"):
         respaldo = citations.supporting(salida, hits)
         if respaldo:
-            salida += _fuentes([{"cita": citations.cite(h), "filename": h["filename"]} for h in respaldo])
+            salida += _fuentes(respaldo)
             nivel = "memoria"
     if modelo and modelo != client.model:
         salida = f"{persona.frase('profundo')}\n\n{salida}"
@@ -572,10 +625,16 @@ async def _hablar(accion: str, texto: str, chat_id: str, profundo: bool) -> Resp
 
 
 def _avisos_del_codigo() -> tuple[str, ...]:
-    """Comienzos de las líneas que arma el código (no la IA): el aviso del modelo potente, el de
-    «no sale de mi memoria» y las fuentes."""
-    frases = persona.get()["frases"]
-    return tuple(frases[k].split("{")[0].strip().lower() for k in ("profundo", "sin_memoria")) + ("fuentes:",)
+    """Comienzos de las líneas que arma el código (no la IA): el aviso del modelo potente, los de
+    «no sale de mi memoria» y las fuentes. Sin el tratamiento ni la puntuación que lo rodea (el
+    tratamiento puede no ir)."""
+    frases, out = persona.get()["frases"], []
+    for k in ("profundo", "sin_memoria"):
+        for v in frases[k] if isinstance(frases[k], list) else [frases[k]]:
+            pref = v.split("{")[0].strip().rstrip(",;:").strip().lower()
+            if len(pref) >= 12:
+                out.append(pref)
+    return tuple(out) + (FUENTES.lower(), "fuentes:")
 
 
 def sin_avisos(texto: str) -> str:
@@ -604,6 +663,8 @@ async def conversar(textos: list[str], channel: str, chat_id: str) -> dict:
         r = Respuesta(str(exc), "aviso")
     finally:
         _en_curso -= 1
+    if r.accion != "aviso":  # los avisos de OpenRouter salen tal cual
+        r.texto = persona.dosificar(r.texto)
     charla.agregar("isabelle", sin_avisos(r.texto) or r.texto, chat_id, r.accion)
     log.info("Turno: %d mensaje(s), acción %s, nivel %s, %d caracteres", len(textos), r.accion, r.nivel, len(r.texto))
     return r.dict()
@@ -692,6 +753,7 @@ async def boton(dato: str, channel: str, chat_id: str) -> dict:
         else:  # serie
             n = len(reminders.cancelar_serie(rid, chat_id))
             r = Respuesta(persona.frase("recordatorios.cancelado", tarea=f"{actual['text']} (toda la serie, {n} pendiente(s))"), "recordatorio")
+    r.texto = persona.dosificar(r.texto)
     charla.agregar("jefe", f"[Pulsó «{etiqueta}»]", chat_id)
     charla.agregar("isabelle", r.texto, chat_id, r.accion)
     return r.dict()
@@ -707,6 +769,7 @@ def archivo(filename: str, kind: str, duplicate: bool, chat_id: str) -> dict:
         texto = persona.frase("audio")
     else:
         texto = persona.frase("archivo", archivo=filename)
+    texto = persona.dosificar(texto)
     charla.agregar("jefe", f"[Envió {'una foto' if kind == 'image' else 'un archivo'}: {filename}]", chat_id)
     charla.agregar("isabelle", texto, chat_id, "archivo")
     return Respuesta(texto, "archivo").dict()
