@@ -16,6 +16,8 @@ log = logging.getLogger("nexus.persona")
 
 ARCHIVO = "isabelle.toml"
 SECCIONES = ("identidad", "trato", "caracter", "especialidades", "estilo", "honestidad", "frases")
+RECORDATORIOS = ("previo", "hora", "insistencia1", "insistencia2", "insistencia3", "retrasado", "creado",
+                 "hecho", "pospuesto", "cancelado", "cuando")
 FRASES = ("guardado", "cierre", "gracias", "despedida", "noche", "no_entendi", "foto", "audio", "archivo", "duplicado",
           "sin_memoria", "profundo", "ayuda")
 
@@ -37,10 +39,11 @@ def _validar(data: dict) -> dict:
         reglas = data[s].get("reglas")
         if not isinstance(reglas, list) or not all(isinstance(r, str) for r in reglas):
             raise PersonaError(f"{ARCHIVO}: {s}.reglas debe ser una lista de textos")
-    for f in FRASES:
-        v = data["frases"].get(f)
-        if not (isinstance(v, str) and v.strip()) and not (isinstance(v, list) and v and all(isinstance(x, str) for x in v)):
-            raise PersonaError(f"{ARCHIVO}: falta la frase '{f}' (texto o lista de textos)")
+    for seccion, claves in (("frases", FRASES), ("recordatorios", RECORDATORIOS)):
+        for f in claves:
+            v = (data.get(seccion) or {}).get(f)
+            if not (isinstance(v, str) and v.strip()) and not (isinstance(v, list) and v and all(isinstance(x, str) for x in v)):
+                raise PersonaError(f"{ARCHIVO}: falta {seccion}.{f} (texto o lista de textos)")
     return data
 
 
@@ -63,12 +66,23 @@ def tratamiento() -> str:
     return random.choice(get()["trato"]["tratamientos"])
 
 
-def frase(clave: str, **datos) -> str:
-    """Una frase fija de la personalidad, con {trato} variando. Empieza en mayúscula."""
-    valor = get()["frases"][clave]
-    texto = random.choice(valor) if isinstance(valor, list) else valor
-    texto = texto.strip().format(trato=tratamiento(), **datos)
-    return texto[:1].upper() + texto[1:]
+_ultima: dict[str, str] = {}  # clave -> última variante usada (no se repite seguida)
+
+
+def frase(clave: str, mayuscula: bool = True, **datos) -> str:
+    """Una frase fija de la personalidad ("cierre" o "recordatorios.hora"), con {trato} variando
+    y sin repetir la variante anterior de esa clave. Empieza en mayúscula."""
+    seccion, _, nombre = clave.rpartition(".")
+    valor = get()[seccion or "frases"][nombre]
+    opciones = valor if isinstance(valor, list) else [valor]
+    candidatas = [o for o in opciones if o != _ultima.get(clave)] or opciones
+    elegida = random.choice(candidatas)
+    _ultima[clave] = elegida
+    texto = elegida.strip().format(trato=tratamiento(), **datos)
+    if not mayuscula:
+        return texto
+    i = next((i for i, c in enumerate(texto) if c.isalpha()), 0)  # «⏰ jefe…» -> «⏰ Jefe…»
+    return texto[:i] + texto[i:i + 1].upper() + texto[i + 1:]
 
 
 def sistema() -> str:

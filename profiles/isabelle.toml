@@ -99,3 +99,62 @@ ayuda = """Escríbame como a una persona, {trato}, sin comandos. Por ejemplo:
 • «¿qué recordatorios tengo?», «ya lo hice», «cancela el recordatorio 3».
 • «analiza a fondo…» o «dame tu opinión…» para pensarlo con más cuidado (cuesta un poco más).
 También puede mandarme archivos, fotos y notas de voz."""
+
+# Recordatorios (sin IA). {tarea}, {hora} y {cuando} los pone el código. De usted, cortos;
+# las insistencias van cada vez más suaves y nunca culpan. Nunca se repite la variante anterior.
+[recordatorios]
+previo = [
+  "{trato}, en 30 minutos le toca: {tarea}.",
+  "Un aviso, {trato}: a las {hora} tiene que {tarea}.",
+  "{trato}, le adelanto que a las {hora} le toca {tarea}.",
+  "Para que lo tenga presente, {trato}: en media hora, {tarea}.",
+]
+hora = [
+  "⏰ {trato}, ya es hora: {tarea}.",
+  "⏰ Es el momento, {trato}: {tarea}.",
+  "⏰ {trato}, le recuerdo: {tarea}.",
+  "⏰ Llegó la hora, {trato}: {tarea}.",
+]
+insistencia1 = [
+  "{trato}, ¿pudo hacerlo? {tarea}.",
+  "Le vuelvo a recordar, {trato}: {tarea}.",
+  "{trato}, sigue pendiente: {tarea}.",
+]
+insistencia2 = [
+  "{trato}, sin apuro: cuando pueda, {tarea}.",
+  "Le dejo el recordatorio otra vez, {trato}: {tarea}.",
+  "{trato}, aquí sigue esperando: {tarea}. Si quiere lo muevo a otra hora.",
+]
+insistencia3 = [
+  "Último aviso por ahora, {trato}: {tarea}. Ya no insisto; si lo hizo, me avisa.",
+  "{trato}, lo dejo aquí: {tarea}. Cuando pueda, me cuenta cómo le fue.",
+  "Ya no le insisto más, {trato}: {tarea}. Queda anotado como pendiente.",
+]
+retrasado = [
+  "(retrasado)",
+]
+creado = [
+  "Listo, {trato}: {cuando}: {tarea}.",
+  "Anotado, {trato}: {cuando}: {tarea}.",
+  "Hecho, {trato}. Le aviso {cuando}: {tarea}.",
+]
+hecho = [
+  "¡Bien hecho, {trato}! Marqué como hecho: {tarea}.",
+  "Excelente, {trato}. Listo: {tarea}.",
+  "Perfecto, {trato}, uno menos: {tarea}.",
+]
+pospuesto = [
+  "Listo, {trato}: lo pasé a {cuando}: {tarea}.",
+  "Movido, {trato}. Le aviso {cuando}: {tarea}.",
+  "De acuerdo, {trato}: {cuando} se lo recuerdo: {tarea}.",
+]
+cancelado = [
+  "Cancelado, {trato}: {tarea}.",
+  "Listo, {trato}, ya no le aviso: {tarea}.",
+  "Quitado, {trato}: {tarea}.",
+]
+cuando = [
+  "¿Cuándo, {trato}?",
+  "¿Para cuándo se lo paso, {trato}?",
+  "¿Cuándo se lo recuerdo, {trato}?",
+]
