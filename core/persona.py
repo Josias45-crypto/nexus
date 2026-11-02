@@ -154,7 +154,10 @@ def _quitar(texto: str, m: re.Match) -> str:
     a, b = m.start(), m.end()
     antes = texto[:a].rstrip()
     if antes.endswith(","):
-        return antes[:-1] + texto[b:]
+        resto = texto[b:]
+        if re.match(r",\s+(?:y|e|o|u|pero|que)\b", resto):  # «tu foto, jefe, y ya» -> «tu foto y ya»
+            resto = resto[1:]
+        return antes[:-1] + resto
     if antes and (antes[-1].isalnum()):  # «Hola jefe.»
         return antes + texto[b:]
     resto = re.sub(r"^\s*,\s*", "", texto[b:])

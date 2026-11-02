@@ -582,6 +582,7 @@ async def _preguntar(consulta: str) -> Respuesta:
         texto = salida.removeprefix("NO_ANOTADO").lstrip(" :.,-\n") or (
             f"No lo tengo anotado, {persona.tratamiento()}. ¿Me lo cuenta?"
         )
+        texto = texto[:1].upper() + texto[1:]
         return Respuesta(texto, "preguntar", None, llm=info)
     return Respuesta(f"{persona.frase('sin_memoria')}\n\n{salida}", "preguntar", "general", llm=info)
 
@@ -632,7 +633,8 @@ def _sistema(accion: str, fragmentos: list[dict], profundo: bool, detalle: bool 
         ))
     largo = PROFUNDO.format(largo=LARGO_PROFUNDO * 2 if detalle else LARGO_PROFUNDO) if profundo else LARGO[accion]
     texto = "\n\n".join(f"[{t}]\n{c}" for t, c in bloques)
-    return f"{texto}\n\n{_ahora()}\n\n[TU TAREA]\n{TAREAS[accion]} {largo}"
+    return (f"{texto}\n\n{_ahora()}\n\n[TU TAREA]\n{TAREAS[accion]} {largo} Responde solo a su último mensaje; "
+            "lo que dijiste antes en la conversación salió de tu memoria: no lo corrijas ni lo pongas en duda salvo que él lo pida.")
 
 
 async def _hablar(accion: str, texto: str, chat_id: str, profundo: bool) -> Respuesta:
@@ -814,6 +816,7 @@ def archivo(filename: str, kind: str, duplicate: bool, chat_id: str) -> dict:
     else:
         texto = persona.frase("archivo", archivo=filename)
     texto = persona.dosificar(texto)
-    charla.agregar("jefe", f"[Envió {'una foto' if kind == 'image' else 'un archivo'}: {filename}]", chat_id)
+    que = "una foto (todavía no puedes verla: no adivines qué tiene)" if kind == "image" else "un archivo"
+    charla.agregar("jefe", f"[Envió {que}: {filename}]", chat_id)
     charla.agregar("isabelle", texto, chat_id, "archivo")
     return Respuesta(texto, "archivo").dict()

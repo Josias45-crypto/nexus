@@ -50,6 +50,7 @@ class DosificarTest(unittest.TestCase):
         casos = {"Jefe, ya es hora: llamar.": "Ya es hora: llamar.",
                  "¡Bien hecho, señor!": "¡Bien hecho!",
                  "Dígame, gerente, ¿qué necesita?": "Dígame, ¿qué necesita?",
+                 "Recibí tu foto, señor, y ya la guardé.": "Recibí tu foto y ya la guardé.",
                  "⏰ Jefe, le recuerdo: pagar.": "Le recuerdo: pagar."}
         for entrada, esperado in casos.items():
             persona.reiniciar()
