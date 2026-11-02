@@ -93,6 +93,7 @@ class TestOpenRouter(Base):
         self.assertEqual(body["provider"], {"zdr": True, "data_collection": "deny"})
         self.assertEqual(body["usage"], {"include": True})
         self.assertEqual(body["temperature"], 0)
+        self.assertEqual(body["reasoning"], {"enabled": False}, "razonamiento apagado por defecto")
 
     def test_reintenta_5xx_y_red_con_espera_creciente(self):
         s = Script(httpx.Response(500), httpx.ConnectError("x"), ok)

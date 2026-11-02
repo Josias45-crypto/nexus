@@ -31,13 +31,13 @@ MAX_INLINE_WAIT = 10  # un Retry-After más largo no se espera aquí: se avisa
 PAUSE_MIN, PAUSE_MAX = 30, 1800  # pausa del trabajo de fondo tras un fallo (crece x2)
 DATA_POLICY = {"zdr": True, "data_collection": "deny"}
 
-SAVED = "Lo que me envíes queda guardado y lo proceso después."
+SAVED = "Lo que me envíe queda guardado y lo proceso después."
 MESSAGES = {
     "sin_saldo": f"⚠ Me quedé sin saldo en OpenRouter. {SAVED}",
     "limite": f"⏳ OpenRouter me está limitando ahora mismo. {SAVED}",
     "clave": f"⚠ OpenRouter rechazó la clave (revisa OPENROUTER_API_KEYS en .env). {SAVED}",
     "caido": f"⚠ No pude conectar con OpenRouter. {SAVED}",
-    "sin_config": f"⚠ Falta la clave de OpenRouter (OPENROUTER_API_KEYS en .env). {SAVED}",
+    "sin_config": f"⚠ Falta configurar OpenRouter (OPENROUTER_API_KEYS y NEXUS_OPENROUTER_MODEL en .env). {SAVED}",
 }
 NO_CREDIT_ALERT = "⚠ OpenRouter se quedó sin saldo. Recarga créditos; mientras tanto todo queda guardado."
 
@@ -99,10 +99,11 @@ def _retry_after(value: str | None) -> float | None:
 class OpenRouter:
     def __init__(
         self, key: str, model: str, budget_usd: float | None, ledger: Ledger | None = None,
-        transport: httpx.AsyncBaseTransport | None = None,
+        transport: httpx.AsyncBaseTransport | None = None, deep_model: str = "",
     ):
         self._key = key
         self.model = model
+        self.deep_model = deep_model
         self.budget = budget_usd
         self.ledger = ledger
         self._transport = transport
@@ -121,7 +122,8 @@ class OpenRouter:
         return {
             "proveedor": "openrouter",
             "modelo": self.model,
-            "configurado": bool(self._key),
+            "modelo_profundo": self.deep_model or None,
+            "configurado": bool(self._key and self.model),
             "politica_datos": DATA_POLICY,
             "presupuesto_diario_usd": self.budget,
             "ultimo": self.last,
@@ -140,16 +142,9 @@ class OpenRouter:
             log.warning("No pude leer el gasto de hoy (%s)", type(exc).__name__)
             return False
 
-    async def _post(self, client: httpx.AsyncClient, messages: list[dict]) -> dict:
+    async def _post(self, client: httpx.AsyncClient, body: dict) -> dict:
         try:
-            r = await client.post(
-                URL,
-                headers={"Authorization": f"Bearer {self._key}"},
-                json={
-                    "model": self.model, "messages": messages, "temperature": 0,
-                    "usage": {"include": True}, "provider": DATA_POLICY,
-                },
-            )
+            r = await client.post(URL, headers={"Authorization": f"Bearer {self._key}"}, json=body)
         except httpx.HTTPError:
             raise _CallError(None) from None
         if r.status_code >= 400:  # sin el cuerpo: podría repetir parte del prompt
@@ -161,12 +156,12 @@ class OpenRouter:
         except (ValueError, KeyError, IndexError, TypeError):
             raise _CallError(502) from None
 
-    async def _post_retrying(self, messages: list[dict]) -> dict:
+    async def _post_retrying(self, body: dict) -> dict:
         async with httpx.AsyncClient(timeout=TIMEOUT, transport=self._transport) as client:
             attempt = 0
             while True:
                 try:
-                    return await self._post(client, messages)
+                    return await self._post(client, body)
                 except _CallError as err:
                     wait = max(BACKOFF * 2**attempt, err.retry_after or 0)
                     if not err.transient or attempt >= RETRIES or wait > MAX_INLINE_WAIT:
@@ -192,24 +187,39 @@ class OpenRouter:
         except Exception as exc:  # registrar o avisar nunca impide responder
             log.warning("Registro de uso no disponible (%s)", type(exc).__name__)
 
-    async def chat_ex(self, messages: list[dict]) -> tuple[str, dict]:
-        """Devuelve (texto, uso). Lanza ChatUnavailable si no se puede responder."""
-        if not self._key:
+    async def chat_ex(
+        self, messages: list[dict], *, model: str | None = None, temperature: float = 0,
+        max_tokens: int | None = None, razonar: bool = False,
+    ) -> tuple[str, dict]:
+        """Devuelve (texto, uso). Sin `model`, el de uso diario. Temperatura 0 para datos y
+        extracción; más alta para charla. Sin `razonar`, el razonamiento interno va apagado: con
+        él, el modelo diario a veces gasta todo el tope de tokens pensando y no responde nada.
+        Lanza ChatUnavailable si no se puede responder."""
+        model = model or self.model
+        if not self._key or not model:
             raise ChatUnavailable("sin_config", MESSAGES["sin_config"])
         if self._over_budget():
             log.warning("Presupuesto diario alcanzado (%s USD): no gasto más hoy", self.budget)
             raise ChatUnavailable(
                 "presupuesto", f"⏸ Llegué al tope de hoy ({self.budget} USD). {SAVED.replace('después', 'mañana')}"
             )
+        body = {
+            "model": model, "messages": messages, "temperature": temperature,
+            "usage": {"include": True}, "provider": DATA_POLICY,
+        }
+        if max_tokens:
+            body["max_tokens"] = max_tokens
+        if not razonar:
+            body["reasoning"] = {"enabled": False}
         try:
-            data = await self._post_retrying(messages)
+            data = await self._post_retrying(body)
         except _CallError as err:
             raise self._fail(err) from None
         u = data.get("usage") or {}
         cost = u.get("cost")
         info = {
             "proveedor": "openrouter",
-            "modelo": data.get("model") or self.model,
+            "modelo": data.get("model") or model,
             "tokens_entrada": int(u.get("prompt_tokens") or 0),
             "tokens_salida": int(u.get("completion_tokens") or 0),
             "costo_usd": float(cost) if isinstance(cost, (int, float)) else None,
@@ -223,8 +233,8 @@ class OpenRouter:
             self._safe(self.ledger.record, info)
         return data["choices"][0]["message"]["content"] or "", info
 
-    async def chat(self, messages: list[dict]) -> str:
-        return (await self.chat_ex(messages))[0]
+    async def chat(self, messages: list[dict], **kw) -> str:
+        return (await self.chat_ex(messages, **kw))[0]
 
 
 _client: OpenRouter | None = None
@@ -236,7 +246,10 @@ def get_client() -> OpenRouter:
     if _client is None:
         from core import usage  # aquí para no crear un ciclo de importación
 
-        _client = OpenRouter(settings.OPENROUTER_API_KEY, settings.OPENROUTER_MODEL, settings.DAILY_BUDGET_USD, usage)
-        if not _client._key:
-            log.warning("Falta OPENROUTER_API_KEYS en .env: el chat no responderá")
+        _client = OpenRouter(
+            settings.OPENROUTER_API_KEY, settings.OPENROUTER_MODEL, settings.DAILY_BUDGET_USD, usage,
+            deep_model=settings.OPENROUTER_MODEL_DEEP,
+        )
+        if not (_client._key and _client.model):
+            log.warning("Falta OPENROUTER_API_KEYS o NEXUS_OPENROUTER_MODEL en .env: el chat no responderá")
     return _client

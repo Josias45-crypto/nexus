@@ -34,3 +34,5 @@ tests/*.out
 *.swp
 .DS_Store
 Thumbs.db
+tests/comparacion_modelos.md
+tests/muestra_conversaciones.md
