@@ -12,28 +12,19 @@ services:
       start_period: 20s
     restart: unless-stopped
 
-  # Descarga solo los modelos de NEXUS_OLLAMA_MODELS que falten (sin internet arranca igual si
-  # ya están). Vacío: en modo cloud solo embeddings; en modo local, también el de chat.
+  # Descarga el modelo de embeddings si falta (Ollama solo se usa para embeddings; el chat va
+  # por OpenRouter). Sin internet arranca igual si ya está.
   ollama-models:
     image: ollama/ollama:0.35.1
     container_name: nexus-ollama-models
     environment:
       OLLAMA_HOST: ollama:11434
-      MODELS: ${NEXUS_OLLAMA_MODELS:-}
-      MODE: ${NEXUS_MODE:-}
-      LEGACY_CLOUD: ${NEXUS_ALLOW_CLOUD:-off}
-      CHAT_MODEL: ${NEXUS_LLM_MODEL:-qwen2.5:1.5b}
       EMBED_MODEL: ${NEXUS_EMBED_MODEL:-nomic-embed-text}
     entrypoint: ["/bin/sh", "-c"]
     command:
       - >-
-        if [ -z "$$MODE" ]; then [ "$$LEGACY_CLOUD" = on ] && MODE=cloud || MODE=local; fi;
-        if [ -z "$$MODELS" ]; then MODELS="$$EMBED_MODEL"; [ "$$MODE" = local ] && MODELS="$$MODELS,$$CHAT_MODEL"; fi;
-        echo "modo $$MODE: modelos $$MODELS";
-        for m in $$(echo "$$MODELS" | tr ',' ' '); do
-        ollama show "$$m" >/dev/null 2>&1 && echo "modelo $$m listo" ||
-        { echo "descargando $$m..."; ollama pull "$$m" || exit 1; };
-        done
+        ollama show "$$EMBED_MODEL" >/dev/null 2>&1 && echo "modelo $$EMBED_MODEL listo" ||
+        { echo "descargando $$EMBED_MODEL..."; ollama pull "$$EMBED_MODEL"; }
     depends_on:
       ollama:
         condition: service_healthy
