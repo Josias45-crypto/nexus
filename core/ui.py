@@ -237,7 +237,7 @@ async function stats() {
       if (d) dig = ' · digiriendo ' + (d.archivo || '') + (d.total ? ' (' + d.hecho + '/' + d.total + ')' : '');
     } catch (e) {}
     document.getElementById('stats').textContent =
-      '· ' + g.aprendido.elementos + ' elementos · racha ' + g.racha_dias + ' · por digerir ' + g.pendientes_de_digerir +
+      '· ' + g.aprendido.elementos + ' elementos · por digerir ' + g.pendientes_de_digerir +
       (g.fallidos > 0 ? ' · fallidos ' + g.fallidos : '') + dig;
   } catch (e) {}
 }

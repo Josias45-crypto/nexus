@@ -172,7 +172,7 @@ class Assistant:
         g = await self.nexus.growth()
         a = g["aprendido"]
         return (
-            f"🧠 {g['dias_de_vida']} días de vida · racha de {g['racha_dias']} días\n"
+            f"🧠 {g['dias_de_vida']} días de vida\n"
             f"• {a['elementos']} elementos, {a['recuerdos']} recuerdos, {a['conceptos']} conceptos\n"
             f"• Hoy: +{g['hoy']} · por procesar: {g['pendientes_de_digerir']}"
             + (f" · con error: {g['fallidos']}" if g.get("fallidos") else "")

@@ -31,13 +31,6 @@ def growth(days: int = 14) -> dict:
 
     first = min(per_day) if per_day else None
 
-    # Racha: días seguidos alimentándolo (no se rompe hasta que pase un día entero sin nada)
-    cursor = today if per_day.get(today) else today - timedelta(days=1)
-    streak = 0
-    while per_day.get(cursor):
-        streak += 1
-        cursor -= timedelta(days=1)
-
     return {
         "dias_de_vida": (today - first).days + 1 if first else 0,
         "nacio": first.isoformat() if first else None,
@@ -49,7 +42,6 @@ def growth(days: int = 14) -> dict:
             "conceptos": len(concepts),
         },
         "hoy": per_day.get(today, 0),
-        "racha_dias": streak,
         "pendientes_de_digerir": pending,
         "fallidos": failed,
         "ultimos_dias": [

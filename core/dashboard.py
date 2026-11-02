@@ -27,7 +27,6 @@ PAGE = Template("""<!doctype html>
   <div class="card"><div class="num">$palabras</div><div class="lbl">palabras aprox.</div></div>
   <div class="card"><div class="num">$conceptos</div><div class="lbl">conceptos distintos</div></div>
   <div class="card"><div class="num">+$hoy</div><div class="lbl">aprendido hoy</div></div>
-  <div class="card"><div class="num">$racha</div><div class="lbl">días de racha</div></div>
   <div class="card"><div class="num">$pendientes</div><div class="lbl">por digerir</div></div>
 </div>
 <h3>Últimos días</h3>
@@ -59,7 +58,6 @@ def render(g: dict, b: dict) -> str:
         palabras=a["palabras_aprox"],
         conceptos=a["conceptos"],
         hoy=g["hoy"],
-        racha=g["racha_dias"],
         pendientes=g["pendientes_de_digerir"],
         bars=bars,
         labels=labels,
