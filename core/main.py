@@ -486,12 +486,15 @@ def reminder_create(req: ReminderIn):
 
 @app.get("/reminders")
 def reminder_list(chat_id: str | None = None, limit: int = Query(50, ge=1, le=500)):
-    """Abiertos (pending o sent); due_local en hora local (NEXUS_TZ_OFFSET)."""
-    return reminders.list_open(chat_id, limit)
+    """Abiertos (y los que quedaron sin confirmar), con estado; due_local en hora de Perú."""
+    return reminders.list_open(chat_id, limit, sin_confirmar=True)
 
 
-def _reminder_status(rid: int | None, status: str, chat_id: str | None):
-    r = reminders.set_status(rid, status, chat_id)
+def _cerrar(rid: int | None, estado: str, chat_id: str | None):
+    if rid is None:
+        ultimo = reminders.ultimo_avisado(chat_id)
+        rid = ultimo["id"] if ultimo else None
+    r = reminders.cerrar(rid, estado, chat_id, "api") if rid is not None else None
     if not r:
         raise HTTPException(404, "No hay un recordatorio abierto con ese número.")
     return r
@@ -499,18 +502,19 @@ def _reminder_status(rid: int | None, status: str, chat_id: str | None):
 
 @app.post("/reminders/done")
 def reminder_done_last(chat_id: str | None = None):
-    return _reminder_status(None, "done", chat_id)
+    """El último que sonó y espera respuesta."""
+    return _cerrar(None, "hecho", chat_id)
 
 
 @app.post("/reminders/{rid}/done")
 def reminder_done(rid: int):
-    return _reminder_status(rid, "done", None)
+    return _cerrar(rid, "hecho", None)
 
 
 @app.post("/reminders/{rid}/cancel")
 def reminder_cancel(rid: int, chat_id: str | None = Query(None, max_length=80)):
     """Con chat_id solo cancela si el recordatorio es de ese chat (404 si no)."""
-    return _reminder_status(rid, "cancelled", chat_id)
+    return _cerrar(rid, "cancelado", chat_id)
 
 
 @app.get("/outbox")

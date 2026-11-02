@@ -1,7 +1,7 @@
 """Intérprete determinista de fechas en español para recordatorios (sin LLM).
 
 Entiende: hoy, mañana, pasado mañana, días de la semana ("el viernes", "el próximo lunes"),
-"en N minutos/horas/días/semanas", fechas "15 de octubre" y "15/10", y horas "a las 9",
+"en N segundos/minutos/horas/días/semanas", fechas "15 de octubre" y "15/10", y horas "a las 9",
 "9:30", "4 : 17", "4.17", "4h17", "4 y 18", "4 y cuarto", "4 y media", "4 menos cuarto",
 "9 am", "a las 7 de la tarde", "mañana 9", "al mediodía", "a medianoche", "por la tarde" (16:00).
 
@@ -48,7 +48,7 @@ RE_TRIGGER = re.compile(
     re.I,
 )
 RE_RELATIVE = re.compile(
-    rf"\b(dentro de|en)\s+(media hora|{_NUM}\s+(minutos?|mins?|horas?|d[ií]as?|semanas?))\b", re.I
+    rf"\b(dentro de|en)\s+(media hora|{_NUM}\s+(segundos?|segs?|minutos?|mins?|horas?|d[ií]as?|semanas?))\b", re.I
 )
 RE_PASADO = re.compile(r"\bpasado\s+ma[nñ]ana\b", re.I)
 # "mañana" como día, no "de la mañana"
@@ -193,7 +193,9 @@ def parse(text: str, now: datetime) -> Parsed | None:
             delta = timedelta(minutes=30)
         else:
             n, unit = _num(m.group(3)), m.group(4).lower()
-            if unit.startswith("min"):
+            if unit.startswith("seg"):
+                delta = timedelta(seconds=n)
+            elif unit.startswith("min"):
                 delta = timedelta(minutes=n)
             elif unit.startswith("hora"):
                 delta = timedelta(hours=n)
@@ -209,7 +211,9 @@ def parse(text: str, now: datetime) -> Parsed | None:
                 hour = c.hour if c.exact or not 1 <= c.hour <= 7 else c.hour + 12
                 target = datetime.combine(target.date(), time(hour, c.minute))
                 return Parsed(target, _task(rest), True)
-        return Parsed(target.replace(second=0, microsecond=0), _task(rest), True)
+        # Al minuto, salvo "en 90 segundos": ahí la hora exacta
+        exacto = target.replace(microsecond=0) if delta.seconds % 60 else target.replace(second=0, microsecond=0)
+        return Parsed(exacto, _task(rest), True)
 
     clock, rest = _parse_time(rest)
     # Mientras se decide el día, una hora sin am/pm cuenta como la de la mañana
@@ -320,3 +324,74 @@ def describe(dt: datetime, now: datetime) -> str:
     month = "" if rel else f" de {MONTH_NAMES[dt.month - 1]}"
     year = "" if dt.year == now.year else f" de {dt.year}"
     return f"{rel}{WEEKDAY_NAMES[dt.weekday()]} {dt.day}{month}{year}, {ampm(dt)}"
+
+
+# ---------- repetición (diaria, semanal, mensual) ----------
+
+RE_REP_DIARIA = re.compile(r"\b(?:todos\s+los\s+d[ií]as|cada\s+d[ií]a|diariamente|a\s+diario)\b", re.I)
+RE_REP_SEMANAL = re.compile(rf"\b(?:todos\s+los|cada)\s+({_DAY})\b", re.I)
+RE_REP_MENSUAL = re.compile(r"\b(?:el|los|todos\s+los|cada)\s+(\d{1,2})\s+de\s+cada\s+mes\b", re.I)
+
+
+@dataclass
+class Repeticion:
+    regla: dict  # {"tipo": "diaria"} | {"tipo": "semanal", "dia": 0..6} | {"tipo": "mensual", "dia": 1..31}
+    texto: str  # el pedido sin la repetición, con la primera fecha explícita
+
+
+def _fecha(d: date) -> str:
+    return f" el {d.day}/{d.month}/{d.year} "
+
+
+def repeticion(text: str, now: datetime) -> Repeticion | None:
+    """'todos los lunes a las 8 sacar la basura' -> regla semanal + 'recuérdame el 2/11/2026 a las
+    8 ...'. La primera fecha es hoy si coincide; si esa hora ya pasó, se corrige con siguiente()."""
+    if m := RE_REP_MENSUAL.search(text):
+        dia = int(m.group(1))
+        if not 1 <= dia <= 31:
+            raise Ambiguous("¿Qué día del mes? Del 1 al 31.")
+        primera = _dia_del_mes(now.year, now.month, dia)
+        if primera < now.date():
+            primera = _dia_del_mes(*_mes_siguiente(now.year, now.month), dia)
+        return Repeticion({"tipo": "mensual", "dia": dia}, text[: m.start()] + _fecha(primera) + text[m.end():])
+    if m := RE_REP_SEMANAL.search(text):
+        wd = WEEKDAYS[m.group(1).lower()]
+        primera = now.date() + timedelta(days=(wd - now.weekday()) % 7)
+        return Repeticion({"tipo": "semanal", "dia": wd}, text[: m.start()] + _fecha(primera) + text[m.end():])
+    if m := RE_REP_DIARIA.search(text):
+        return Repeticion({"tipo": "diaria"}, text[: m.start()] + " " + text[m.end():])
+    return None
+
+
+def _mes_siguiente(y: int, m: int) -> tuple[int, int]:
+    return (y + 1, 1) if m == 12 else (y, m + 1)
+
+
+def _dia_del_mes(y: int, m: int, dia: int) -> date:
+    """El día pedido o el último del mes si no existe (el 31 de febrero -> el 28 o 29)."""
+    while dia > 28 and _safe_date(y, m, dia) is None:
+        dia -= 1
+    return date(y, m, dia)
+
+
+def siguiente(regla: dict, dt: datetime) -> datetime:
+    """La ocurrencia que sigue a dt según la regla (misma hora)."""
+    tipo = regla.get("tipo")
+    if tipo == "diaria":
+        return dt + timedelta(days=1)
+    if tipo == "semanal":
+        return dt + timedelta(days=7)
+    if tipo == "mensual":
+        y, m = _mes_siguiente(dt.year, dt.month)
+        return datetime.combine(_dia_del_mes(y, m, int(regla["dia"])), dt.time())
+    raise ValueError(f"regla desconocida: {regla}")
+
+
+def describir_regla(regla: dict | None) -> str:
+    if not regla:
+        return ""
+    if regla["tipo"] == "diaria":
+        return "todos los días"
+    if regla["tipo"] == "semanal":
+        return f"todos los {WEEKDAY_NAMES[regla['dia']]}"
+    return f"el {regla['dia']} de cada mes"

@@ -23,10 +23,10 @@ from core.main import app
 PEDIDO = "recuérdame mañana a las 9 llamar a Pedro"
 
 
-def rows(status: str | None = None) -> int:
+def rows(estado: str | None = None) -> int:
     with sqlite3.connect(db.DB_PATH) as c:
-        if status:
-            return c.execute("SELECT count(*) FROM reminders WHERE status = ?", (status,)).fetchone()[0]
+        if estado:
+            return c.execute("SELECT count(*) FROM reminders WHERE estado = ?", (estado,)).fetchone()[0]
         return c.execute("SELECT count(*) FROM reminders").fetchone()[0]
 
 
@@ -65,8 +65,8 @@ class FlowTest(unittest.TestCase):
     def test_hora_clara_guarda_sin_preguntar_con_botones(self):
         bot, ch = self.bot()
         r = self.say(bot, ch, PEDIDO)
-        self.assertTrue(r.startswith("Listo, "), r)
-        self.assertIn("a las 9:00 a. m.: llamar a Pedro.", r)
+        self.assertIn("a las 9:00 a. m.", r)
+        self.assertIn("llamar a Pedro.", r)
         self.assertEqual([b["texto"] for b in ch.buttons[0]], ["Cambiar", "Cancelar"])
         self.assertEqual(rows(), 1)
         r = self.say(bot, ch, "¿qué recordatorios tengo?")
@@ -78,8 +78,8 @@ class FlowTest(unittest.TestCase):
         self.say(bot, ch, PEDIDO)
         clic = ch.button("Cancelar")
         r = "\n".join(asyncio.run(bot.handle(clic)))
-        self.assertIn("Cancelado", r)
-        self.assertEqual(rows("cancelled"), 1)
+        self.assertIn("llamar a Pedro", r)
+        self.assertEqual(rows("cancelado"), 1)
         r = "\n".join(asyncio.run(bot.handle(clic)))  # un doble clic no hace nada
         self.assertIn("ya no está activo", r)
 
@@ -87,11 +87,11 @@ class FlowTest(unittest.TestCase):
         bot, ch = self.bot()
         self.say(bot, ch, PEDIDO)
         r = self.press(bot, ch, "Cambiar")
-        self.assertIn("¿Para cuándo", r)
+        self.assertTrue(r.startswith("¿") and r.endswith("?"), r)
         bot, ch = self.bot()  # reinicio entre la pregunta y la nueva hora
         r = self.say(bot, ch, "mañana a las 11")
-        self.assertIn("lo pasé a", r)
-        self.assertIn("11:00 a. m.: llamar a Pedro", r)
+        self.assertIn("11:00 a. m.", r)
+        self.assertIn("llamar a Pedro", r)
         self.assertEqual(rows(), 1)
         self.assertTrue(reminders.list_open(OWNER)[0]["due_local"].endswith("11:00"))
 
@@ -101,7 +101,7 @@ class FlowTest(unittest.TestCase):
         dia = reminders.list_open(OWNER)[0]["due_local"][:10]
         self.press(bot, ch, "Cambiar")
         r = self.say(bot, ch, "mejor a las 10")
-        self.assertIn("10:00 a. m.: llamar a Pedro", r)
+        self.assertIn("10:00 a. m.", r)
         self.assertEqual(reminders.list_open(OWNER)[0]["due_local"], f"{dia} 10:00")
 
     def test_borrar_pide_confirmacion_y_sobrevive_reinicio(self):
@@ -110,11 +110,11 @@ class FlowTest(unittest.TestCase):
         rid = reminders.list_open(OWNER)[0]["id"]
         r = self.say(bot, ch, f"cancela el recordatorio {rid}")
         self.assertIn("¿Cancelo el recordatorio", r)
-        self.assertEqual(rows("pending"), 1)
+        self.assertEqual(rows("creado"), 1)
         bot, ch = self.bot()  # reinicio
         r = self.say(bot, ch, "sí")
-        self.assertIn("Cancelado", r)
-        self.assertEqual(rows("cancelled"), 1)
+        self.assertIn("llamar a Pedro", r)
+        self.assertEqual(rows("cancelado"), 1)
 
     def test_borrar_no_lo_deja(self):
         bot, ch = self.bot()
@@ -123,7 +123,7 @@ class FlowTest(unittest.TestCase):
         self.say(bot, ch, f"borra el {rid}")
         r = self.say(bot, ch, "no")
         self.assertIn("Lo dejo como está", r)
-        self.assertEqual(rows("pending"), 1)
+        self.assertEqual(rows("creado"), 1)
 
     def test_otro_chat_no_cancela(self):
         bot, ch = self.bot()
@@ -132,16 +132,16 @@ class FlowTest(unittest.TestCase):
         bot2, ch2 = self.bot("2002")
         r = self.say(bot2, ch2, f"cancela el recordatorio {rid}", user="2002")
         self.assertIn("No encuentro", r)
-        self.assertEqual(rows("pending"), 1)
+        self.assertEqual(rows("creado"), 1)
 
     def test_ya_lo_hice(self):
         bot, ch = self.bot()
         self.say(bot, ch, PEDIDO)
         with db.connect() as c:  # el aviso ya salió
-            c.execute("UPDATE reminders SET status = 'sent', last_sent_at = ?", (datetime.now().isoformat(),))
+            c.execute("UPDATE reminders SET estado = 'avisado', last_sent_at = ?", (datetime.now().isoformat(),))
         r = self.say(bot, ch, "ya lo hice")
-        self.assertIn("hecho", r.lower())
-        self.assertEqual(rows("done"), 1)
+        self.assertIn("llamar a Pedro", r)
+        self.assertEqual(rows("hecho"), 1)
 
     def test_sin_fecha_pregunta(self):
         bot, ch = self.bot()

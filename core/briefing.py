@@ -71,12 +71,12 @@ def reminders_for(day: date) -> dict:
     start, end = _day_bounds_utc(day)
     with connect() as conn:
         today = conn.execute(
-            "SELECT id, due_at, text FROM reminders WHERE status IN ('pending', 'sent')"
+            "SELECT id, due_at, text FROM reminders WHERE estado IN ('creado', 'avisado_previo', 'avisado', 'esperando', 'pospuesto')"
             " AND due_at >= ? AND due_at < ? ORDER BY due_at",
             (start, end),
         ).fetchall()
         overdue = conn.execute(
-            "SELECT id, due_at, text FROM reminders WHERE status IN ('pending', 'sent')"
+            "SELECT id, due_at, text FROM reminders WHERE estado IN ('creado', 'avisado_previo', 'avisado', 'esperando', 'pospuesto')"
             " AND due_at < ? ORDER BY due_at",
             (start,),
         ).fetchall()

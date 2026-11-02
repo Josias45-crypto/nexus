@@ -172,6 +172,37 @@ def _migrate(conn) -> None:
     chunk_cols = {r["name"] for r in conn.execute("PRAGMA table_info(chunks)")}
     if "meta" not in chunk_cols:
         conn.execute("ALTER TABLE chunks ADD COLUMN meta TEXT")
+    _migrate_reminders(conn)
+    outbox_cols = {r["name"] for r in conn.execute("PRAGMA table_info(outbox)")}
+    if "botones" not in outbox_cols:
+        conn.execute("ALTER TABLE outbox ADD COLUMN botones TEXT")  # JSON: filas de {texto, dato}
+
+
+def _migrate_reminders(conn) -> None:
+    """Fase 2C: máquina de estados (core/reminders.py). Solo agrega columnas y las llena desde
+    status; no borra nada (status queda como columna antigua sin uso)."""
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(reminders)")}
+    nuevas = {
+        "estado": "TEXT", "proximo_envio": "TEXT", "insistencias": "INTEGER NOT NULL DEFAULT 0",
+        "regla": "TEXT", "serie_id": "INTEGER", "anticipacion_min": "INTEGER", "ultima_respuesta": "TEXT",
+    }
+    for col, tipo in nuevas.items():
+        if col not in cols:
+            conn.execute(f"ALTER TABLE reminders ADD COLUMN {col} {tipo}")
+    if "estado" not in cols:
+        retry = f"+{settings.REMINDER_RETRY_MIN} minutes"
+        conn.execute(
+            "UPDATE reminders SET"
+            " estado = CASE status WHEN 'pending' THEN 'creado' WHEN 'sent' THEN"
+            "   CASE WHEN attempts >= 4 THEN 'sin_confirmar' ELSE 'esperando' END"
+            "   WHEN 'done' THEN 'hecho' ELSE 'cancelado' END,"
+            " insistencias = CASE WHEN status = 'sent' THEN MAX(attempts - 1, 0) ELSE 0 END,"
+            " proximo_envio = CASE WHEN status = 'pending' THEN due_at"
+            "   WHEN status = 'sent' AND attempts < 4 THEN strftime('%Y-%m-%dT%H:%M:%S+00:00', last_sent_at, ?)"
+            "   ELSE NULL END",
+            (retry,),
+        )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_reminders_estado ON reminders(estado, proximo_envio)")
 
 
 def init_db() -> None:

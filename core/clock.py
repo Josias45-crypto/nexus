@@ -13,7 +13,7 @@ def now_utc() -> datetime:
 
 def now_local() -> datetime:
     """Hora local sin zona (naive), como la usa el intérprete de fechas."""
-    return datetime.now(LOCAL_TZ).replace(tzinfo=None)
+    return now_utc().astimezone(LOCAL_TZ).replace(tzinfo=None)
 
 
 def local_to_utc(dt: datetime) -> datetime:

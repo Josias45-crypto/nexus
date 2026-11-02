@@ -1,6 +1,7 @@
 """Buzón de salida: mensajes que NEXUS quiere enviar. Cada canal los recoge con
 GET /outbox y confirma con POST /outbox/{id}/delivered (así el núcleo no conoce tokens)."""
 
+import json
 import logging
 from datetime import timedelta
 
@@ -13,12 +14,15 @@ log = logging.getLogger("nexus.outbox")
 STALE = {"briefing": timedelta(hours=12)}
 
 
-def put(conn, channel: str, chat_id: str | None, kind: str, ref_id: str | None, text: str) -> int:
-    """Se llama dentro de la transacción del que genera el mensaje."""
+def put(conn, channel: str, chat_id: str | None, kind: str, ref_id: str | None, text: str,
+        botones: list | None = None) -> int:
+    """Se llama dentro de la transacción del que genera el mensaje. `botones`: filas de
+    {"texto", "dato"} que el canal muestra dentro del chat."""
     return conn.execute(
-        "INSERT INTO outbox (created_at, channel, chat_id, kind, ref_id, text)"
-        " VALUES (?, ?, ?, ?, ?, ?)",
-        (clock.now_utc().isoformat(), channel, chat_id, kind, ref_id, text),
+        "INSERT INTO outbox (created_at, channel, chat_id, kind, ref_id, text, botones)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (clock.now_utc().isoformat(), channel, chat_id, kind, ref_id, text,
+         json.dumps(botones, ensure_ascii=False) if botones else None),
     ).lastrowid
 
 
@@ -32,11 +36,11 @@ def pending(channel: str, limit: int = 20) -> list[dict]:
                 (f"{now.isoformat()} (vencido)", channel, kind, (now - age).isoformat()),
             )
         rows = conn.execute(
-            "SELECT id, created_at, chat_id, kind, ref_id, text FROM outbox"
+            "SELECT id, created_at, chat_id, kind, ref_id, text, botones FROM outbox"
             " WHERE channel = ? AND delivered_at IS NULL ORDER BY id LIMIT ?",
             (channel, limit),
         ).fetchall()
-    return [dict(r) for r in rows]
+    return [{**dict(r), "botones": json.loads(r["botones"]) if r["botones"] else None} for r in rows]
 
 
 def delivered(msg_id: int) -> bool:

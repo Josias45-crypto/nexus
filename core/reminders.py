@@ -1,10 +1,25 @@
-"""Recordatorios: interpretar, confirmar, guardar y avisar con insistencia.
+"""Recordatorios con seguimiento hasta que el jefe confirme. El programador no usa IA.
 
-Flujo: el canal llama a interpret() con su chat; lo entendido queda en pending_confirmations
-(en la base, con caducidad, así sobrevive a reinicios del canal). Solo si el usuario confirma,
-confirm() escribe la fila en reminders y la devuelve leída de la base. El programador (worker) deja los avisos vencidos en el buzón de salida
-(outbox) y los repite cada NEXUS_REMINDER_RETRY_MIN minutos hasta NEXUS_REMINDER_MAX_TRIES
-avisos o hasta que el jefe diga «ya lo hice».
+Estados (columna estado; la columna status quedó de versiones anteriores y ya no se usa):
+  creado         guardado; proximo_envio = aviso previo (30 min antes) o la hora exacta
+  avisado_previo salió el aviso previo; proximo_envio = la hora exacta
+  avisado        salió el aviso a la hora (botones «Ya lo hice» y «Recuérdame»)
+  esperando      salió al menos una insistencia (cada REMINDER_RETRY_MIN, 20 min)
+  pospuesto      el jefe pidió otra hora: vuelve a empezar como creado
+  hecho          «ya lo hice» (cierra solo esta ocurrencia)
+  cancelado      cancelado (esta ocurrencia o toda la serie)
+  sin_confirmar  salió la 3.ª insistencia sin respuesta: se deja de insistir (la Fase 2D lo
+                 menciona en el siguiente saludo); «ya lo hice» aún lo cierra
+El aviso previo solo existe si se creó con más de 30 min de anticipación. Los avisos programados
+suenan a su hora aunque sea de noche (el silencio es solo para saludos e iniciativa propia).
+
+Sin duplicados ni pérdidas: cada aviso y su cambio de estado se escriben en la misma transacción,
+y solo si proximo_envio sigue siendo el leído (otro proceso o un reinicio no lo repiten). Si el
+sistema estuvo caído, lo vencido sale con «(retrasado)» y las insistencias siguen espaciadas.
+
+Repetición (regla JSON: diaria, semanal o mensual): cada ocurrencia es una fila de la misma serie
+(serie_id = id de la primera). Al cerrarse una (hecha, sin confirmar o cancelada «solo este») se
+crea la siguiente.
 """
 
 import json
@@ -13,11 +28,22 @@ import re
 from datetime import datetime, timedelta, timezone
 
 from config import settings
-from core import clock, events, outbox, when
+from core import clock, events, outbox, persona, when
 from core.db import connect
 from providers.openrouter import get_client
 
 log = logging.getLogger("nexus.reminders")
+
+ABIERTOS = ("creado", "avisado_previo", "avisado", "esperando", "pospuesto")
+CERRADOS = ("hecho", "cancelado", "sin_confirmar")
+PREVIO_MIN = 30  # aviso previo: 30 min antes, si se creó con más anticipación
+INSISTENCIAS = 3
+RETRASO_MIN = 5  # más tarde que esto respecto de lo programado: el aviso dice «(retrasado)»
+ESTADO_ES = {
+    "creado": "programado", "pospuesto": "pospuesto", "avisado_previo": "programado (ya le avisé antes)",
+    "avisado": "esperando su confirmación", "esperando": "esperando su confirmación",
+    "sin_confirmar": "sin confirmar", "hecho": "hecho", "cancelado": "cancelado",
+}
 
 LLM_PROMPT = (
     "Hoy es {hoy} y son las {hora}. Del siguiente pedido de recordatorio extrae la fecha, "
@@ -31,15 +57,23 @@ class NotUnderstood(ValueError):
     pass
 
 
+def _utc(iso: str) -> datetime:
+    return datetime.fromisoformat(iso).astimezone(timezone.utc)
+
+
+# ---------- interpretar ----------
+
+
 def _result(
-    dt_local: datetime, task: str, method: str, now: datetime, passed_today: bool = False
+    dt_local: datetime, task: str, method: str, now: datetime, passed_today: bool = False,
+    regla: dict | None = None,
 ) -> dict:
     if dt_local <= now:
         raise NotUnderstood(
-            f"La fecha entendida ({when.describe(dt_local, now)}) ya pasó. Dímela de nuevo."
+            f"La fecha entendida ({when.describe(dt_local, now)}) ya pasó. Dígamela de nuevo."
         )
     if not task:
-        raise NotUnderstood("Entendí la fecha, pero no qué debo recordarte.")
+        raise NotUnderstood("Entendí la fecha, pero no qué debo recordarle.")
     r = {
         "due_at": clock.local_to_utc(dt_local).isoformat(),
         "due_local": dt_local.strftime("%Y-%m-%d %H:%M"),
@@ -47,6 +81,7 @@ def _result(
         "entendido": when.describe(dt_local, now),
         "tarea": task,
         "metodo": method,
+        "regla": regla,
     }
     if passed_today:  # pidió una hora inequívoca que hoy ya pasó: se pregunta por mañana
         r["aviso"] = f"Las {when.ampm(dt_local)} de hoy ya pasaron. ¿Es para mañana?"
@@ -72,40 +107,62 @@ async def _llm_fallback(text: str, now: datetime) -> dict | None:
         return None
 
 
-async def interpret(text: str) -> dict:
-    """No guarda nada: devuelve lo entendido para que el usuario lo confirme."""
+async def interpret(text: str, usar_ia: bool = True) -> dict:
+    """No guarda nada: devuelve lo entendido (con su regla de repetición, si la hay). Con
+    usar_ia=False solo reglas (posponer, cambiar la hora: nunca gasta tokens)."""
     now = clock.now_local()
     try:
-        p = when.parse(text, now)
+        rep = when.repeticion(text, now)
+        p = when.parse(rep.texto if rep else text, now)
     except when.Ambiguous as exc:  # no se adivina la hora (ni con el modelo): se pregunta
         raise NotUnderstood(str(exc)) from exc
+    if p and rep:
+        dt = p.when
+        while dt <= now:  # «todos los lunes a las 8» un lunes a las 10: el próximo lunes
+            dt = when.siguiente(rep.regla, dt)
+        return _result(dt, p.task, "reglas", now, regla=rep.regla)
     if p:
         return _result(p.when, p.task, "reglas", now, p.passed_today)
-    guess = await _llm_fallback(text, now)
-    if guess:
-        return _result(guess["dt"], guess["task"], "llm", now)
+    if usar_ia and not rep:
+        guess = await _llm_fallback(text, now)
+        if guess:
+            return _result(guess["dt"], guess["task"], "llm", now)
     raise NotUnderstood(
-        "No entendí la fecha. Prueba así: «recuérdame mañana a las 9 llamar a Pedro»."
+        "No entendí la fecha. Pruebe así: «recuérdame mañana a las 9 llamar a Pedro»."
     )
 
 
+# ---------- guardar ----------
+
+
+def _primer_envio(created: datetime, due: datetime) -> datetime:
+    """Aviso previo 30 min antes solo si hay más de 30 min de anticipación; si no, a la hora."""
+    if due - created > timedelta(minutes=PREVIO_MIN):
+        return due - timedelta(minutes=PREVIO_MIN)
+    return due
+
+
 def _insert(conn, text: str, due_at: str, channel: str | None, chat_id: str | None,
-            source_event_id: str | None = None) -> int:
+            source_event_id: str | None = None, regla: dict | None = None,
+            serie_id: int | None = None) -> int:
     due = datetime.fromisoformat(due_at)
     if due.tzinfo is None:
         raise ValueError("due_at debe incluir zona horaria (UTC)")
-    return conn.execute(
-        "INSERT INTO reminders (created_at, due_at, text, channel, chat_id, source_event_id)"
-        " VALUES (?, ?, ?, ?, ?, ?)",
+    due = due.astimezone(timezone.utc)
+    now = clock.now_utc()
+    rid = conn.execute(
+        "INSERT INTO reminders (created_at, due_at, text, channel, chat_id, source_event_id,"
+        " estado, proximo_envio, insistencias, regla, serie_id, anticipacion_min)"
+        " VALUES (?, ?, ?, ?, ?, ?, 'creado', ?, 0, ?, ?, ?)",
         (
-            clock.now_utc().isoformat(),
-            due.astimezone(timezone.utc).isoformat(),
-            text,
-            channel or settings.DEFAULT_CHANNEL,
-            chat_id,
-            source_event_id,
+            now.isoformat(), due.isoformat(), text, channel or settings.DEFAULT_CHANNEL, chat_id,
+            source_event_id, _primer_envio(now, due).isoformat(),
+            json.dumps(regla) if regla else None, serie_id, int((due - now).total_seconds() // 60),
         ),
     ).lastrowid
+    if regla and serie_id is None:
+        conn.execute("UPDATE reminders SET serie_id = ? WHERE id = ?", (rid, rid))
+    return rid
 
 
 def _saved(rid: int) -> dict:
@@ -113,7 +170,7 @@ def _saved(rid: int) -> dict:
     r = get(rid)
     if not r:
         raise RuntimeError(f"el recordatorio {rid} no quedó guardado")
-    log.info("Recordatorio %s · etapa 1: guardado para %s (hora local)", rid, r["due_local"])
+    log.info("Recordatorio %s · creado para %s (hora local), primer aviso %s", rid, r["due_local"], r["proximo_local"])
     events.publish("reminder", {"id": rid})
     return r
 
@@ -124,18 +181,22 @@ def create(
     channel: str | None = None,
     chat_id: str | None = None,
     source_event_id: str | None = None,
+    regla: dict | None = None,
 ) -> dict:
     with connect() as conn:
-        rid = _insert(conn, text, due_at, channel, chat_id, source_event_id)
+        rid = _insert(conn, text, due_at, channel, chat_id, source_event_id, regla)
     return _saved(rid)
 
 
 def create_test(channel: str | None, chat_id: str | None, seconds: int = 60) -> dict:
-    """/probar_recordatorio: aviso a los N segundos, sin confirmación, para ver el camino entero."""
+    """Aviso de prueba a los N segundos, para ver el camino entero."""
     due = clock.now_utc() + timedelta(seconds=seconds)
     r = create(f"Prueba de recordatorio ({seconds} s)", due.isoformat(), channel, chat_id)
     log.info("Recordatorio %s · prueba: debe llegar a %s por %s", r["id"], r["due_local"], r["channel"])
     return r
+
+
+# ---------- confirmación de lo dudoso (pending_confirmations) ----------
 
 
 def set_pending(channel: str, chat_id: str, parsed: dict) -> dict:
@@ -179,8 +240,7 @@ def clear_pending(channel: str, chat_id: str) -> bool:
 
 def confirm(channel: str, chat_id: str) -> dict | None:
     """Convierte lo pendiente en recordatorio, una sola vez: leer, insertar y marcar van en la
-    misma transacción, y un "sí" repetido devuelve el ya creado (ya_guardado=True).
-    None si no hay nada pendiente (o caducó)."""
+    misma transacción, y un "sí" repetido devuelve el ya creado (ya_guardado=True)."""
     now = clock.now_utc().isoformat()
     with connect() as conn:
         conn.execute("BEGIN IMMEDIATE")  # dos "sí" a la vez: el segundo espera y ve reminder_id
@@ -196,7 +256,7 @@ def confirm(channel: str, chat_id: str) -> dict | None:
         else:
             again = None
             p = json.loads(r["payload"])
-            rid = _insert(conn, p["tarea"], p["due_at"], channel, chat_id)
+            rid = _insert(conn, p["tarea"], p["due_at"], channel, chat_id, regla=p.get("regla"))
             conn.execute(
                 "UPDATE pending_confirmations SET reminder_id = ? WHERE channel = ? AND chat_id = ?",
                 (rid, channel, chat_id),
@@ -213,11 +273,18 @@ def list_pending() -> list[dict]:
     return [dict(r) for r in rows]
 
 
+# ---------- leer ----------
+
+
 def _row(r) -> dict:
     d = dict(r)
     local = clock.utc_to_local(r["due_at"])
     d["due_local"] = local.strftime("%Y-%m-%d %H:%M")
     d["due_ampm"] = when.ampm(local)
+    d["proximo_local"] = clock.utc_to_local(r["proximo_envio"]).strftime("%Y-%m-%d %H:%M") if r["proximo_envio"] else None
+    d["regla"] = json.loads(r["regla"]) if r["regla"] else None
+    d["estado_es"] = ESTADO_ES.get(r["estado"], r["estado"])
+    d["abierto"] = r["estado"] in ABIERTOS
     return d
 
 
@@ -227,9 +294,12 @@ def get(rid: int) -> dict | None:
     return _row(r) if r else None
 
 
-def list_open(chat_id: str | None = None, limit: int = 50) -> list[dict]:
-    sql = "SELECT * FROM reminders WHERE status IN ('pending', 'sent')"
-    args: list = []
+def list_open(chat_id: str | None = None, limit: int = 50, sin_confirmar: bool = False) -> list[dict]:
+    """Abiertos por fecha; con sin_confirmar=True también los que quedaron sin confirmar."""
+    estados = ABIERTOS + (("sin_confirmar",) if sin_confirmar else ())
+    marks = ",".join("?" * len(estados))
+    sql = f"SELECT * FROM reminders WHERE estado IN ({marks})"
+    args: list = list(estados)
     if chat_id:
         sql += " AND chat_id = ?"
         args.append(chat_id)
@@ -238,68 +308,173 @@ def list_open(chat_id: str | None = None, limit: int = 50) -> list[dict]:
     return [_row(r) for r in rows]
 
 
-def set_status(rid: int | None, status: str, chat_id: str | None = None) -> dict | None:
-    """Marca done/cancelled. Sin id: el último recordatorio ya avisado de ese chat. Con id y
-    chat_id: solo si el recordatorio es de ese chat (nadie cancela los de otro)."""
+def ultimo_avisado(chat_id: str | None) -> dict | None:
+    """El último recordatorio que ya sonó y espera respuesta (o quedó sin confirmar)."""
     with connect() as conn:
-        if rid is None:
-            row = conn.execute(
-                "SELECT id FROM reminders WHERE status = 'sent'"
-                " AND (? IS NULL OR chat_id = ?) ORDER BY last_sent_at DESC LIMIT 1",
-                (chat_id, chat_id),
-            ).fetchone()
-            if not row:
-                return None
-            rid = row["id"]
-        n = conn.execute(
-            "UPDATE reminders SET status = ?, done_at = ? WHERE id = ?"
-            " AND status IN ('pending', 'sent') AND (? IS NULL OR chat_id = ?)",
-            (status, clock.now_utc().isoformat(), rid, chat_id, chat_id),
-        ).rowcount
-    return get(rid) if n else None
+        r = conn.execute(
+            "SELECT * FROM reminders WHERE estado IN ('avisado', 'esperando', 'sin_confirmar')"
+            " AND (? IS NULL OR chat_id = ?) ORDER BY last_sent_at DESC LIMIT 1",
+            (chat_id, chat_id),
+        ).fetchone()
+    return _row(r) if r else None
 
 
-def reschedule(rid: int, due_at: str, chat_id: str | None = None) -> dict | None:
-    """Cambia la hora de un recordatorio abierto (vuelve a pending: avisa de nuevo a la nueva hora).
-    Con chat_id, solo si es de ese chat."""
+# ---------- cambiar de estado ----------
+
+
+def _siguiente_de_serie(conn, r) -> int | None:
+    """Crea la próxima ocurrencia de una serie (si no existe ya una abierta posterior)."""
+    if not r["regla"]:
+        return None
+    ya = conn.execute(
+        f"SELECT 1 FROM reminders WHERE serie_id = ? AND due_at > ? AND estado IN ({','.join('?' * len(ABIERTOS))})",
+        (r["serie_id"], r["due_at"], *ABIERTOS),
+    ).fetchone()
+    if ya:
+        return None
+    regla = json.loads(r["regla"])
+    local = when.siguiente(regla, clock.utc_to_local(r["due_at"]))
+    ahora = clock.now_local()
+    while local <= ahora:  # estuvo caído varios días: la próxima a futuro
+        local = when.siguiente(regla, local)
+    nid = _insert(conn, r["text"], clock.local_to_utc(local).isoformat(), r["channel"], r["chat_id"],
+                  r["source_event_id"], regla, r["serie_id"])
+    log.info("Recordatorio %s · serie %s: siguiente ocurrencia %s", nid, r["serie_id"], local.strftime("%Y-%m-%d %H:%M"))
+    return nid
+
+
+def cerrar(rid: int, estado: str, chat_id: str | None = None, respuesta: str | None = None) -> dict | None:
+    """Pasa a hecho, cancelado o sin_confirmar (desde abierto; hecho también desde sin_confirmar).
+    Con chat_id, solo si es de ese chat. Si es de una serie, crea la siguiente ocurrencia."""
+    if estado not in CERRADOS:
+        raise ValueError(f"estado de cierre inválido: {estado}")
+    desde = ABIERTOS + (("sin_confirmar",) if estado == "hecho" else ())
+    now = clock.now_utc().isoformat()
+    with connect() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        r = conn.execute(
+            f"SELECT * FROM reminders WHERE id = ? AND estado IN ({','.join('?' * len(desde))})"
+            " AND (? IS NULL OR chat_id = ?)",
+            (rid, *desde, chat_id, chat_id),
+        ).fetchone()
+        if not r:
+            return None
+        conn.execute(
+            "UPDATE reminders SET estado = ?, proximo_envio = NULL, done_at = ?, ultima_respuesta = ? WHERE id = ?",
+            (estado, now, respuesta or estado, rid),
+        )
+        if r["estado"] != "sin_confirmar":  # la siguiente ya se creó al quedar sin confirmar
+            _siguiente_de_serie(conn, r)
+    log.info("Recordatorio %s · %s (%s)", rid, estado, respuesta or "-")
+    events.publish("reminder", {"id": rid})
+    return get(rid)
+
+
+def cancelar_serie(rid: int, chat_id: str | None = None) -> list[dict]:
+    """Cancela todas las ocurrencias abiertas de la serie de rid (sin crear la siguiente)."""
+    r = get(rid)
+    if not r or (chat_id and r["chat_id"] != chat_id):
+        return []
+    marks = ",".join("?" * len(ABIERTOS))
+    with connect() as conn:
+        ids = [x["id"] for x in conn.execute(
+            f"SELECT id FROM reminders WHERE serie_id = ? AND estado IN ({marks})", (r["serie_id"] or rid, *ABIERTOS)
+        )]
+        conn.execute(
+            f"UPDATE reminders SET estado = 'cancelado', proximo_envio = NULL, done_at = ?,"
+            f" ultima_respuesta = 'serie cancelada' WHERE id IN ({','.join('?' * len(ids)) or 'NULL'})",
+            (clock.now_utc().isoformat(), *ids),
+        )
+    log.info("Recordatorio %s · serie cancelada (%d ocurrencias)", rid, len(ids))
+    return [get(i) for i in ids]
+
+
+def posponer(rid: int, due_at: str, chat_id: str | None = None) -> dict | None:
+    """Nueva hora para una ocurrencia abierta o sin confirmar: vuelve a empezar (pospuesto)."""
     due = datetime.fromisoformat(due_at)
     if due.tzinfo is None:
         raise ValueError("due_at debe incluir zona horaria (UTC)")
+    due = due.astimezone(timezone.utc)
+    now = clock.now_utc()
+    estados = ABIERTOS + ("sin_confirmar",)
     with connect() as conn:
         n = conn.execute(
-            "UPDATE reminders SET due_at = ?, status = 'pending', attempts = 0, last_sent_at = NULL"
-            " WHERE id = ? AND status IN ('pending', 'sent') AND (? IS NULL OR chat_id = ?)",
-            (due.astimezone(timezone.utc).isoformat(), rid, chat_id, chat_id),
+            "UPDATE reminders SET due_at = ?, estado = 'pospuesto', proximo_envio = ?, insistencias = 0,"
+            " attempts = 0, last_sent_at = NULL, anticipacion_min = ?, ultima_respuesta = 'pospuesto'"
+            f" WHERE id = ? AND estado IN ({','.join('?' * len(estados))}) AND (? IS NULL OR chat_id = ?)",
+            (due.isoformat(), _primer_envio(now, due).isoformat(), int((due - now).total_seconds() // 60),
+             rid, *estados, chat_id, chat_id),
         ).rowcount
     if n:
-        log.info("Recordatorio %s · nueva hora", rid)
+        log.info("Recordatorio %s · pospuesto", rid)
     return get(rid) if n else None
 
 
+# ---------- programador (sin IA) ----------
+
+
+def _aviso(r, clave: str, retrasado: bool) -> tuple[str, list | None]:
+    """Texto (de profiles/isabelle.toml) y botones de cada aviso."""
+    texto = persona.frase(f"recordatorios.{clave}", tarea=r["text"],
+                          hora=when.ampm(clock.utc_to_local(r["due_at"])))
+    if retrasado:
+        texto = f"{persona.frase('recordatorios.retrasado', mayuscula=False)} {texto}"
+    if clave == "previo":
+        return texto, None
+    return texto, [[{"texto": "Ya lo hice", "dato": f"rec:hecho:{r['id']}"},
+                    {"texto": "Recuérdame", "dato": f"rec:posponer:{r['id']}"}]]
+
+
+def _paso(conn, r, now: datetime) -> str | None:
+    """Decide y escribe el siguiente paso de un recordatorio vencido. Devuelve la etapa o None."""
+    due, programado = _utc(r["due_at"]), _utc(r["proximo_envio"])
+    cada = timedelta(minutes=settings.REMINDER_RETRY_MIN)
+    estado, n = r["estado"], r["insistencias"]
+    if estado in ("creado", "pospuesto") and programado < due and now < due:
+        clave, nuevo, proximo, n_nuevo = "previo", "avisado_previo", due, 0
+    elif estado in ("creado", "pospuesto", "avisado_previo"):
+        clave, nuevo, proximo, n_nuevo = "hora", "avisado", now + cada, 0
+    elif estado in ("avisado", "esperando") and n < INSISTENCIAS:
+        n_nuevo = n + 1
+        clave = f"insistencia{n_nuevo}"
+        nuevo, proximo = ("sin_confirmar", None) if n_nuevo >= INSISTENCIAS else ("esperando", now + cada)
+    else:
+        return None
+    # Retraso respecto de la hora de ESTE aviso (si se saltó el previo, la referencia es la hora)
+    referencia = due if clave == "hora" else programado
+    retrasado = now - referencia > timedelta(minutes=RETRASO_MIN)
+    texto, botones = _aviso(r, clave, retrasado)
+    ok = conn.execute(
+        "UPDATE reminders SET estado = ?, proximo_envio = ?, insistencias = ?, attempts = attempts + 1,"
+        " last_sent_at = ? WHERE id = ? AND estado = ? AND proximo_envio = ?",
+        (nuevo, proximo.isoformat() if proximo else None, n_nuevo, now.isoformat(), r["id"], estado, r["proximo_envio"]),
+    ).rowcount
+    if not ok:  # otro proceso ya lo envió: nada que hacer
+        return None
+    outbox.put(conn, r["channel"], r["chat_id"], "reminder", str(r["id"]), texto, botones)
+    if nuevo == "sin_confirmar":
+        _siguiente_de_serie(conn, r)
+    return clave + (" (retrasado)" if retrasado else "")
+
+
 def due_step() -> dict:
-    """Programador: pasa al buzón los avisos vencidos y las insistencias."""
+    """Programador: pasa al buzón los avisos que tocan (previo, a la hora, insistencias)."""
     now = clock.now_utc()
-    retry_before = (now - timedelta(minutes=settings.REMINDER_RETRY_MIN)).isoformat()
-    sent = 0
+    marks = ",".join("?" * len(ABIERTOS))
     with connect() as conn:
-        rows = conn.execute(
-            "SELECT * FROM reminders WHERE status IN ('pending', 'sent') AND due_at <= ?"
-            " AND attempts < ? AND (last_sent_at IS NULL OR last_sent_at <= ?)"
-            " ORDER BY due_at",
-            (now.isoformat(), settings.REMINDER_MAX_TRIES, retry_before),
-        ).fetchall()
-        for r in rows:
-            n = r["attempts"] + 1
-            extra = f" (aviso {n} de {settings.REMINDER_MAX_TRIES})" if n > 1 else ""
-            text = (
-                f"⏰ Recordatorio{extra}: {r['text']}\n"
-                "Cuando lo haga, dígame «ya lo hice»."
-            )
-            outbox.put(conn, r["channel"], r["chat_id"], "reminder", str(r["id"]), text)
-            conn.execute(
-                "UPDATE reminders SET status = 'sent', attempts = ?, last_sent_at = ? WHERE id = ?",
-                (n, now.isoformat(), r["id"]),
-            )
-            log.info("Recordatorio %s · etapa 2: al buzón de %s (aviso %d)", r["id"], r["channel"], n)
+        ids = [r["id"] for r in conn.execute(
+            f"SELECT id FROM reminders WHERE estado IN ({marks}) AND proximo_envio <= ? ORDER BY proximo_envio",
+            (*ABIERTOS, now.isoformat()),
+        )]
+    sent = 0
+    for rid in ids:
+        with connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            r = conn.execute("SELECT * FROM reminders WHERE id = ?", (rid,)).fetchone()
+            if not r or r["estado"] not in ABIERTOS or not r["proximo_envio"] or _utc(r["proximo_envio"]) > now:
+                continue
+            etapa = _paso(conn, r, now)
+        if etapa:
             sent += 1
+            log.info("Recordatorio %s · aviso «%s» al buzón de %s", rid, etapa, r["channel"])
     return {"avisos": sent}
