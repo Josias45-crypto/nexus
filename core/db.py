@@ -109,6 +109,27 @@ CREATE TABLE IF NOT EXISTS llm_usage (
 );
 CREATE INDEX IF NOT EXISTS idx_llm_usage_day ON llm_usage(day);
 
+-- Conversación con el jefe (core/charla.py): historial completo; rol jefe o isabelle
+CREATE TABLE IF NOT EXISTS charla (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at TEXT NOT NULL,
+    chat_id TEXT,
+    rol TEXT NOT NULL,
+    texto TEXT NOT NULL,
+    accion TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_charla_fecha ON charla(created_at);
+CREATE VIRTUAL TABLE IF NOT EXISTS charla_fts USING fts5(
+    texto, content='charla', content_rowid='id',
+    tokenize='unicode61 remove_diacritics 2'
+);
+CREATE TRIGGER IF NOT EXISTS charla_ai AFTER INSERT ON charla BEGIN
+    INSERT INTO charla_fts(rowid, texto) VALUES (new.id, new.texto);
+END;
+CREATE TRIGGER IF NOT EXISTS charla_ad AFTER DELETE ON charla BEGIN
+    INSERT INTO charla_fts(charla_fts, rowid, texto) VALUES ('delete', old.id, old.texto);
+END;
+
 CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
     content, content='chunks', content_rowid='id',
     tokenize='unicode61 remove_diacritics 2'
