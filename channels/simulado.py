@@ -160,7 +160,7 @@ async def selftest(url: str, tag: str) -> int:
     r = await say("¿qué aprendí hoy?")
     check(f"Quenor{tag}" in r, "pregunta por fecha", r)
     r = await say(f"¿Qué día entrega el proveedor Tralvex{tag}?")
-    check("martes" in r.lower() and "Fuentes:" in r, "pregunta a la memoria con fuentes", r)
+    check("martes" in r.lower() and "De mi memoria:" in r, "pregunta a la memoria con fuentes legibles", r)
 
     r = await say("ok ok")
     check(bool(r) and "?" not in r, "«ok ok» cierra sin otra pregunta", r)

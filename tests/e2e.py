@@ -7,6 +7,7 @@ Uso:
 Sin --url levanta una instancia temporal aislada (contenedor nexus-e2e, puerto 8001) con la
 misma imagen y el mismo Ollama, pero con datos y respaldos en una carpeta temporal que se
 borra al terminar: la memoria real no se toca. Requiere `docker compose up -d` previo.
+Con NEXUS_E2E_IMAGE=<imagen> usa esa imagen (p. ej. `docker build -t nexus-core:prueba .`).
 Con --url prueba contra esa instancia (y deja en ella los datos sintéticos).
 
 Usa solo datos sintéticos marcados con un id de corrida único. El chat usa OpenRouter de verdad
@@ -17,6 +18,7 @@ inválida para simular OpenRouter inalcanzable.
 import argparse
 import base64
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -194,13 +196,19 @@ def _docker(*args: str) -> str:
     return r.stdout.strip()
 
 
+def _imagen() -> str:
+    """La imagen de nexus-core, o NEXUS_E2E_IMAGE para probar una construida aparte (así no se
+    reconstruye la imagen de los contenedores reales)."""
+    return os.environ.get("NEXUS_E2E_IMAGE") or _docker("inspect", "nexus-core", "-f", "{{.Config.Image}}")
+
+
 @contextmanager
 def isolated_instance(extra_env: dict | None = None, image: str | None = None,
                       name: str | None = None, port: int | None = None):
     """Contenedor temporal con datos propios; usa la red, la imagen (o la indicada) y el caché
     de Whisper de la instalación en marcha (nexus-core y nexus-ollama deben estar arriba)."""
     try:
-        image = image or _docker("inspect", "nexus-core", "-f", "{{.Config.Image}}")
+        image = image or _imagen()
         network = _docker(
             "inspect", "nexus-ollama", "-f",
             "{{range $k, $v := .NetworkSettings.Networks}}{{$k}}{{end}}",
@@ -551,7 +559,7 @@ class Suite:
         )
         if local.returncode != 0:
             raise Fail("test_when: " + local.stderr[-300:])
-        image = _docker("inspect", "nexus-core", "-f", "{{.Config.Image}}")
+        image = _imagen()
         r = subprocess.run(
             ["docker", "run", "--rm", "-e", "NEXUS_DATA_DIR=/tmp",
              "-v", f"{REPO / 'tests'}:/app/tests:ro", image,
@@ -654,7 +662,7 @@ class Suite:
             f"{tag}.json": (json.dumps({"cliente": f"Lumbrac{r}"}).encode(), "application/json", f"Lumbrac{r}", None),
         }
         # Imagen, PDF escaneado y video: se generan en el contenedor (Pillow y PyAV)
-        image = _docker("inspect", "nexus-core", "-f", "{{.Config.Image}}")
+        image = _imagen()
         mounts = ["-v", f"{REPO / 'tests'}:/app/tests:ro"]
         audio = Path(self.args.audio) if self.args.audio else None
         if audio:
