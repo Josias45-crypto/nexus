@@ -5,10 +5,13 @@ Entiende: hoy, mañana, pasado mañana, días de la semana ("el viernes", "el pr
 "9:30", "4 : 17", "4.17", "4h17", "4 y 18", "4 y cuarto", "4 y media", "4 menos cuarto",
 "9 am", "a las 7 de la tarde", "mañana 9", "al mediodía", "a medianoche", "por la tarde" (16:00).
 
-Reglas (siempre se confirman al usuario antes de guardar):
+Reglas:
 - Sin hora: 09:00.
-- Hora de 1 a 12 sin am/pm, sin fecha o con "hoy": la PRÓXIMA ocurrencia entre h y h+12
-  (a las 4 estando 04:15 -> 16:00; a las 4:17 -> 04:17). Con fecha: de 1 a 7 es de la tarde.
+- Hora de 1 a 12 sin am/pm: si el contexto lo dice ("esta noche", "por la mañana", "en la
+  tarde") se usa eso; si no, es AMBIGUA (Parsed.ambigua) y quien llama decide: preguntar o, si es
+  de una sola vez y la próxima ocurrencia cae en menos de 2 horas, tomarla. Parsed.when trae esa
+  próxima ocurrencia (a las 4 estando 04:15 -> 16:00); con fecha, la primera de ese día.
+  respuesta_ampm() entiende la respuesta a "¿de la mañana o de la noche?".
 - Hora inequívoca (am/pm, "de la tarde", 16:17) que hoy ya pasó y sin fecha: se propone mañana
   y passed_today avisa para preguntarlo.
 - Si la hora no se entiende o sobra un número suelto ("a las 4 : 17" mal escrito, "y 18"),
@@ -16,6 +19,7 @@ Reglas (siempre se confirman al usuario antes de guardar):
 """
 
 import re
+import unicodedata
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 
@@ -52,7 +56,7 @@ RE_RELATIVE = re.compile(
 )
 RE_PASADO = re.compile(r"\bpasado\s+ma[nñ]ana\b", re.I)
 # "mañana" como día, no "de la mañana"
-RE_MANANA = re.compile(r"(?<!de la )(?<!por la )\bma[nñ]ana\b", re.I)
+RE_MANANA = re.compile(r"(?<!de la )(?<!por la )(?<!en la )(?<!a la )(?<!esta )\bma[nñ]ana\b", re.I)
 RE_HOY = re.compile(r"\b(hoy|esta (tarde|noche))\b", re.I)
 RE_WEEKDAY = re.compile(rf"\b(?:(?:el|este|esta|pr[oó]ximo|el pr[oó]ximo)\s+)?({_DAY})\b", re.I)
 RE_DATE_NAME = re.compile(rf"\b(?:el\s+)?(\d{{1,2}})\s+de\s+({_MONTH})\b", re.I)
@@ -96,6 +100,8 @@ ASK_TIME = "¿A qué hora exactamente? Ejemplo: 4:17 pm o 16:17."
 class Ambiguous(ValueError):
     """La hora no se entendió con certeza: hay que preguntarla."""
 RE_PART = re.compile(r"\b(?:por|en|a) la (ma[nñ]ana|tarde|noche)\b", re.I)
+# Parte del día en el pedido que resuelve una hora sin am/pm («esta noche a las 8»)
+RE_HINT = re.compile(r"\b(?:(?:por|en|de|a)\s+la|esta)\s+(ma[nñ]ana|madrugada|tarde|noche)\b", re.I)
 PART_TIMES = {"m": time(9, 0), "t": time(16, 0), "n": time(20, 0)}
 
 
@@ -105,6 +111,8 @@ class Parsed:
     task: str
     explicit_time: bool
     passed_today: bool = False  # hora inequívoca que hoy ya pasó: se propone mañana y se pregunta
+    # Hora de 1 a 12 sin am/pm ni contexto: {"fecha": "AAAA-MM-DD", "h": 7, "m": 0, "con_dia": bool}
+    ambigua: dict | None = None
 
 
 @dataclass
@@ -180,6 +188,22 @@ def _clean_task(text: str) -> str:
     return text
 
 
+def _con_contexto(c: _Clock | None, text: str) -> _Clock | None:
+    """Una hora sin am/pm se vuelve exacta si el pedido dice la parte del día."""
+    if not c or c.exact or not (h := RE_HINT.search(text)):
+        return c
+    parte = h.group(1).lower()
+    if parte in ("tarde", "noche"):
+        if c.hour == 12:
+            return _Clock(0, c.minute, True, midnight=True) if parte == "noche" else _Clock(12, c.minute, True)
+        return _Clock(c.hour + 12, c.minute, True)
+    return _Clock(c.hour % 12, c.minute, True)
+
+
+def _ambigua(c: _Clock, fecha: date, con_dia: bool) -> dict:
+    return {"fecha": fecha.isoformat(), "h": c.hour, "m": c.minute, "con_dia": con_dia}
+
+
 def parse(text: str, now: datetime) -> Parsed | None:
     """Devuelve la fecha local entendida y la tarea, o None si no hay fecha reconocible.
     `now` es la hora local actual (naive)."""
@@ -207,15 +231,18 @@ def parse(text: str, now: datetime) -> Parsed | None:
         target = now + delta
         if delta >= timedelta(days=1):  # "en 3 días a las 10"
             c, rest = _parse_time(rest)
+            c = _con_contexto(c, text)
             if c:
-                hour = c.hour if c.exact or not 1 <= c.hour <= 7 else c.hour + 12
-                target = datetime.combine(target.date(), time(hour, c.minute))
-                return Parsed(target, _task(rest), True)
+                if c.exact:
+                    return Parsed(datetime.combine(target.date(), time(c.hour, c.minute)), _task(rest), True)
+                return Parsed(datetime.combine(target.date(), time(c.hour % 12, c.minute)), _task(rest), True,
+                              ambigua=_ambigua(c, target.date(), True))
         # Al minuto, salvo "en 90 segundos": ahí la hora exacta
         exacto = target.replace(microsecond=0) if delta.seconds % 60 else target.replace(second=0, microsecond=0)
         return Parsed(exacto, _task(rest), True)
 
     clock, rest = _parse_time(rest)
+    clock = _con_contexto(clock, text)
     # Mientras se decide el día, una hora sin am/pm cuenta como la de la mañana
     tod = time(clock.hour % 24, clock.minute) if clock else None
     dated = False  # el usuario dio un día distinto de "hoy"
@@ -264,9 +291,12 @@ def parse(text: str, now: datetime) -> Parsed | None:
     base = day or now.date()
     if clock.midnight:  # "a medianoche": al terminar ese día
         return Parsed(datetime.combine(base + timedelta(days=1), time(0, clock.minute)), task, True)
-    if dated:  # con fecha: de 1 a 7 sin am/pm es de la tarde (como siempre)
-        hour = clock.hour if clock.exact or not 1 <= clock.hour <= 7 else clock.hour + 12
-        return Parsed(datetime.combine(day, time(hour, clock.minute)), task, True)
+    if dated and clock.exact:
+        return Parsed(datetime.combine(day, time(clock.hour, clock.minute)), task, True)
+    if dated:  # con fecha y sin am/pm: la primera de ese día que aún no pasó; se decide arriba
+        opciones = [datetime.combine(day, time(clock.hour % 12 + d, clock.minute)) for d in (0, 12)]
+        dt = next((o for o in opciones if o > now), opciones[0])
+        return Parsed(dt, task, True, ambigua=_ambigua(clock, day, True))
     if not clock.exact:
         # Próxima ocurrencia entre h y h+12 (12 = mediodía o medianoche)
         options = [
@@ -275,12 +305,13 @@ def parse(text: str, now: datetime) -> Parsed | None:
         ]
         if clock.hour == 12:
             options = [options[1], options[0] + timedelta(days=1)]
+        ambigua = _ambigua(clock, base, day is not None)
         for dt in sorted(options):
             if dt > now:
-                return Parsed(dt, task, True)
+                return Parsed(dt, task, True, ambigua=ambigua)
         if day is not None:  # "hoy a las 3" estando 23:00: no hay a qué hora de hoy
             raise Ambiguous(ASK_TIME)
-        return Parsed(min(options) + timedelta(days=1), task, True)
+        return Parsed(min(options) + timedelta(days=1), task, True, ambigua=ambigua)
     dt = datetime.combine(base, time(clock.hour, clock.minute))
     if dt <= now:  # hora inequívoca que hoy ya pasó: se propone mañana, preguntando
         return Parsed(dt + timedelta(days=1), task, True, passed_today=True)
@@ -307,6 +338,74 @@ def _future_date(today: date, month: int, d: int) -> date | None:
         if candidate and candidate >= today:
             return candidate
     return None
+
+
+def _partes(h: int) -> tuple[str, str]:
+    """Cómo se dice la hora h (1-12) de mañana y de tarde: 7 -> ('de la mañana', 'de la noche')."""
+    if h == 12:
+        return "del mediodía", "de la medianoche"
+    return ("de la madrugada" if h <= 4 else "de la mañana"), ("de la tarde" if h <= 6 else "de la noche")
+
+
+def pregunta_ampm(h: int, m: int) -> str:
+    """'Las 7 de la mañana o de la noche' (sin signos, para armar la pregunta)."""
+    hora = f"{h}:{m:02d}" if m else str(h)
+    art = "La" if h == 1 else "Las"
+    am, pm = _partes(h)
+    return f"{art} {hora} {am} o {pm}"
+
+
+RE_RESP_PALABRA = re.compile(
+    r"^(?:(?:es|son|seria|sera|si|mejor|en|a|por|pues|no)\s+)*(?:las?\s+)?(?:(?P<h>\d{1,2})(?:\s+(?P<m>\d{2}))?\s+)?"
+    r"(?:(?:de|en|por|a)\s+(?:la|el)\s+|del\s+|la\s+|el\s+)?(?P<p>manana|madrugada|tarde|noche|mediodia|medianoche)$"
+)
+RE_RESP_AMPM = re.compile(
+    r"^(?:(?:es|son|seria|sera|si|mejor|a|en|pues|no)\s+)*(?:las?\s+)?(?:(?P<h>\d{1,2})(?:\s+(?P<m>\d{2}))?\s*)?(?P<p>am|pm)$"
+)
+RE_RESP_24 = re.compile(r"^(?:(?:a\s+)?las?\s+)?(?P<h>\d{1,2})(?:\s+(?P<m>\d{2}))?(?:\s+(?:horas|hrs|h))?$")
+RELLENO = re.compile(r"(?:\s+(?:por favor|porfa|isabelle|jefe|pues|nomas|gracias|ok|ya))+$")
+
+
+def _normal(texto: str) -> str:
+    t = unicodedata.normalize("NFD", texto.lower())
+    t = "".join(c for c in t if unicodedata.category(c) != "Mn")
+    t = re.sub(r"(\d)([a-z])", r"\1 \2", t)
+    t = " ".join(re.findall(r"[a-z0-9ñ]+", t))
+    t = re.sub(r"\ba m\b", "am", re.sub(r"\bp m\b", "pm", t))
+    return RELLENO.sub("", t).strip()
+
+
+def respuesta_ampm(texto: str, h: int, m: int) -> time | None:
+    """La hora que el jefe eligió al preguntarle «¿de la mañana o de la noche?», o None si su
+    mensaje no responde eso (entonces se trata como un mensaje normal). Entiende «de la noche»,
+    «en la mañana», «am», «7 pm», «a las 7:30 pm» y «19:00»."""
+    t = _normal(texto)
+    if not t:
+        return None
+    if mt := RE_RESP_24.match(t):
+        hh, mm = int(mt["h"]), int(mt["m"] or 0)
+        if (hh == 0 or 13 <= hh <= 23) and mm < 60:
+            return time(hh, mm)
+        return None
+    mt = RE_RESP_PALABRA.match(t) or RE_RESP_AMPM.match(t)
+    if not mt:
+        return None
+    if mt["h"]:
+        h, m = int(mt["h"]), int(mt["m"] or 0)
+        if h > 23 or m > 59:
+            return None
+        if h > 12:
+            return time(h, m)
+    parte = mt["p"]
+    if parte == "mediodia":
+        return time(12, m)
+    if parte == "medianoche":
+        return time(0, m)
+    if h == 12:  # a las 12: de noche, am o madrugada es la medianoche; si no, el mediodía
+        return time(0, m) if parte in ("noche", "am", "madrugada") else time(12, m)
+    if parte in ("pm", "tarde", "noche"):
+        return time(h % 12 + 12, m)
+    return time(h % 12, m)
 
 
 def ampm(dt: datetime | time) -> str:

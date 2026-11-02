@@ -17,6 +17,11 @@ Sin duplicados ni pérdidas: cada aviso y su cambio de estado se escriben en la 
 y solo si proximo_envio sigue siendo el leído (otro proceso o un reinicio no lo repiten). Si el
 sistema estuvo caído, lo vencido sale con «(retrasado)» y las insistencias siguen espaciadas.
 
+Hora ambigua (de 1 a 12 sin am/pm ni contexto): no se adivina. interpret() lanza HoraAmbigua y
+la conversación pregunta por texto («¿Las 7 de la mañana o de la noche?»); la pregunta queda en
+pending_confirmations (kind 'hora', caduca en PREGUNTA_HORA_MIN). Excepción: si es de una sola
+vez y la próxima ocurrencia cae en menos de 2 horas, se toma. Los que se repiten siempre preguntan.
+
 Repetición (regla JSON: diaria, semanal o mensual): cada ocurrencia es una fila de la misma serie
 (serie_id = id de la primera). Al cerrarse una (hecha, sin confirmar o cancelada «solo este») se
 crea la siguiente.
@@ -25,7 +30,7 @@ crea la siguiente.
 import json
 import logging
 import re
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from config import settings
 from core import clock, events, outbox, persona, when
@@ -39,6 +44,8 @@ CERRADOS = ("hecho", "cancelado", "sin_confirmar")
 PREVIO_MIN = 30  # aviso previo: 30 min antes, si se creó con más anticipación
 INSISTENCIAS = 3
 RETRASO_MIN = 5  # más tarde que esto respecto de lo programado: el aviso dice «(retrasado)»
+AMBIGUA_TOMA_H = 2  # hora sin am/pm de una sola vez: si la próxima cae antes de esto, se toma
+PREGUNTA_HORA_MIN = 30  # vida de la pregunta «¿de la mañana o de la noche?»
 ESTADO_ES = {
     "creado": "programado", "pospuesto": "pospuesto", "avisado_previo": "programado (ya le avisé antes)",
     "avisado": "esperando su confirmación", "esperando": "esperando su confirmación",
@@ -55,6 +62,15 @@ LLM_PROMPT = (
 
 class NotUnderstood(ValueError):
     pass
+
+
+class HoraAmbigua(NotUnderstood):
+    """Hora sin am/pm que no se puede deducir: hay que preguntarla. `datos` es lo que se guarda
+    para resolverla después: fecha, h, m, con_dia, tarea y regla."""
+
+    def __init__(self, datos: dict):
+        super().__init__(f"¿{when.pregunta_ampm(datos['h'], datos['m'])}?")
+        self.datos = datos
 
 
 def _utc(iso: str) -> datetime:
@@ -116,6 +132,11 @@ async def interpret(text: str, usar_ia: bool = True) -> dict:
         p = when.parse(rep.texto if rep else text, now)
     except when.Ambiguous as exc:  # no se adivina la hora (ni con el modelo): se pregunta
         raise NotUnderstood(str(exc)) from exc
+    if p and p.ambigua:
+        if not p.task:
+            raise NotUnderstood("Entendí la fecha, pero no qué debo recordarle.")
+        if rep or p.when - now >= timedelta(hours=AMBIGUA_TOMA_H):
+            raise HoraAmbigua({**p.ambigua, "tarea": p.task, "regla": rep.regla if rep else None})
     if p and rep:
         dt = p.when
         while dt <= now:  # «todos los lunes a las 8» un lunes a las 10: el próximo lunes
@@ -220,7 +241,7 @@ def get_pending(channel: str, chat_id: str) -> dict | None:
         conn.execute("DELETE FROM pending_confirmations WHERE expires_at <= ?", (now,))
         r = conn.execute(
             "SELECT payload, expires_at, reminder_id FROM pending_confirmations"
-            " WHERE channel = ? AND chat_id = ?",
+            " WHERE channel = ? AND chat_id = ? AND kind = 'reminder'",
             (channel, chat_id),
         ).fetchone()
     if not r:
@@ -233,7 +254,7 @@ def clear_pending(channel: str, chat_id: str) -> bool:
     with connect() as conn:
         return conn.execute(
             "DELETE FROM pending_confirmations WHERE channel = ? AND chat_id = ?"
-            " AND reminder_id IS NULL",
+            " AND reminder_id IS NULL AND kind = 'reminder'",
             (channel, chat_id),
         ).rowcount > 0
 
@@ -246,7 +267,7 @@ def confirm(channel: str, chat_id: str) -> dict | None:
         conn.execute("BEGIN IMMEDIATE")  # dos "sí" a la vez: el segundo espera y ve reminder_id
         r = conn.execute(
             "SELECT payload, reminder_id FROM pending_confirmations"
-            " WHERE channel = ? AND chat_id = ? AND expires_at > ?",
+            " WHERE channel = ? AND chat_id = ? AND expires_at > ? AND kind = 'reminder'",
             (channel, chat_id, now),
         ).fetchone()
         if not r:
@@ -265,6 +286,59 @@ def confirm(channel: str, chat_id: str) -> dict | None:
         saved = get(again)
         return {**saved, "ya_guardado": True} if saved else None
     return {**_saved(rid), "ya_guardado": False}
+
+
+# ---------- pregunta de hora ambigua (pending_confirmations, kind 'hora') ----------
+
+
+def preguntar_hora(channel: str, chat_id: str, datos: dict) -> None:
+    """Guarda la pregunta «¿de la mañana o de la noche?» (reemplaza lo pendiente del chat)."""
+    now = clock.now_utc()
+    expires = now + timedelta(minutes=PREGUNTA_HORA_MIN)
+    with connect() as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO pending_confirmations (channel, chat_id, kind, payload,"
+            " created_at, expires_at, reminder_id) VALUES (?, ?, 'hora', ?, ?, ?, NULL)",
+            (channel, chat_id, json.dumps(datos, ensure_ascii=False), now.isoformat(), expires.isoformat()),
+        )
+    log.info("Pregunta de hora pendiente en %s (caduca %s)", channel, expires.isoformat(timespec="seconds"))
+
+
+def pregunta_hora(channel: str, chat_id: str) -> dict | None:
+    """La pregunta de hora pendiente del chat (borra lo caducado)."""
+    now = clock.now_utc().isoformat()
+    with connect() as conn:
+        conn.execute("DELETE FROM pending_confirmations WHERE expires_at <= ?", (now,))
+        r = conn.execute(
+            "SELECT payload FROM pending_confirmations WHERE channel = ? AND chat_id = ? AND kind = 'hora'",
+            (channel, chat_id),
+        ).fetchone()
+    return json.loads(r["payload"]) if r else None
+
+
+def olvidar_pregunta_hora(channel: str, chat_id: str) -> None:
+    with connect() as conn:
+        conn.execute("DELETE FROM pending_confirmations WHERE channel = ? AND chat_id = ? AND kind = 'hora'",
+                     (channel, chat_id))
+
+
+def resolver_hora(datos: dict, respuesta: str) -> dict | None:
+    """Lo entendido (como interpret) con la hora que eligió, o None si la respuesta no dice am/pm
+    ni la hora. Lanza NotUnderstood si esa hora ya pasó."""
+    t = when.respuesta_ampm(respuesta, int(datos["h"]), int(datos["m"]))
+    if t is None:
+        return None
+    now = clock.now_local()
+    dt = datetime.combine(date.fromisoformat(datos["fecha"]), t)
+    if t.hour == 0 and int(datos["h"]) == 12:  # medianoche: al terminar ese día
+        dt += timedelta(days=1)
+    regla = datos.get("regla")
+    if regla:
+        while dt <= now:
+            dt = when.siguiente(regla, dt)
+    elif dt <= now and not datos.get("con_dia"):
+        dt += timedelta(days=1)
+    return _result(dt, datos["tarea"], "reglas", now, regla=regla)
 
 
 def list_pending() -> list[dict]:

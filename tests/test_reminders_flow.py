@@ -20,7 +20,7 @@ from channels.simulado import OWNER, SimChannel
 from core import conversa, db, reminders
 from core.main import app
 
-PEDIDO = "recuérdame mañana a las 9 llamar a Pedro"
+PEDIDO = "recuérdame mañana a las 9 am llamar a Pedro"
 
 
 def rows(estado: str | None = None) -> int:
@@ -89,7 +89,7 @@ class FlowTest(unittest.TestCase):
         r = self.press(bot, ch, "Cambiar")
         self.assertTrue(r.startswith("¿") and r.endswith("?"), r)
         bot, ch = self.bot()  # reinicio entre la pregunta y la nueva hora
-        r = self.say(bot, ch, "mañana a las 11")
+        r = self.say(bot, ch, "mañana a las 11 am")
         self.assertIn("11:00 a. m.", r)
         self.assertIn("llamar a Pedro", r)
         self.assertEqual(rows(), 1)
@@ -100,7 +100,7 @@ class FlowTest(unittest.TestCase):
         self.say(bot, ch, PEDIDO)  # mañana a las 9
         dia = reminders.list_open(OWNER)[0]["due_local"][:10]
         self.press(bot, ch, "Cambiar")
-        r = self.say(bot, ch, "mejor a las 10")
+        r = self.say(bot, ch, "mejor a las 10 am")
         self.assertIn("10:00 a. m.", r)
         self.assertEqual(reminders.list_open(OWNER)[0]["due_local"], f"{dia} 10:00")
 

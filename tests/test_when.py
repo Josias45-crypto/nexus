@@ -63,7 +63,7 @@ CASES_415 = [
     ("recuérdame en 20 minutos sacar el pan", "2026-10-12 04:35", "sacar el pan"),
     ("recuérdame mañana 9 llamar al banco", "2026-10-13 09:00", "llamar al banco"),
     ("recuérdame mañana 16:30 recoger el pedido", "2026-10-13 16:30", "recoger el pedido"),
-    ("recuérdame mañana a las 4 visitar a Rosa", "2026-10-13 16:00", "visitar a Rosa"),
+    ("recuérdame mañana a las 4 pm visitar a Rosa", "2026-10-13 16:00", "visitar a Rosa"),
     ("recuérdame el viernes a las 3 de la tarde reunión con Ana", "2026-10-16 15:00", "reunión con Ana"),
     ("recuérdame el 15 de octubre a las 10:30 pagar el alquiler", "2026-10-15 10:30", "pagar el alquiler"),
 ]
@@ -86,6 +86,20 @@ class WhenTest(unittest.TestCase):
                 self.assertEqual(p.when.strftime("%Y-%m-%d %H:%M"), expected)
                 self.assertEqual(p.task, task)
                 self.assertFalse(p.passed_today)
+
+    def test_sin_ampm_queda_marcada_como_ambigua(self):
+        ambiguas = {"recuérdame a las 7 llamar": {"fecha": "2026-10-12", "h": 7, "m": 0, "con_dia": False},
+                    "recuérdame mañana a las 8:30 pagar": {"fecha": "2026-10-13", "h": 8, "m": 30, "con_dia": True},
+                    "recuérdame cada día a las 7 tomar agua": None}
+        for text, esperado in ambiguas.items():
+            p = parse(text.replace("cada día ", ""), NOW_415)
+            self.assertEqual(p.ambigua, esperado or {"fecha": "2026-10-12", "h": 7, "m": 0, "con_dia": False}, text)
+        for text in ("recuérdame a las 7 pm llamar", "recuérdame esta noche a las 8 cerrar", "recuérdame a las 19 x",
+                     "recuérdame mañana por la mañana a las 7 correr", "recuérdame al mediodía comer",
+                     "recuérdame a las 6 de la mañana correr"):
+            self.assertIsNone(parse(text, NOW_415).ambigua, text)
+        self.assertEqual(parse("recuérdame esta noche a las 8 cerrar", NOW_415).when.strftime("%H:%M"), "20:00")
+        self.assertEqual(parse("recuérdame mañana por la mañana a las 7 correr", NOW_415).when.strftime("%d %H:%M"), "13 07:00")
 
     def test_ambiguous_asks(self):
         for now, text in AMBIGUOUS:

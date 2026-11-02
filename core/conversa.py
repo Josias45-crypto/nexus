@@ -2,8 +2,10 @@
 
 Cada turno (uno o varios mensajes seguidos del jefe, que el canal junta):
 1. Se guardan en el historial (core/charla.py) y se pausa la actualización de la memoria.
-2. Primero lo que espera respuesta en ese chat: confirmar un borrado, la nueva hora de un
-   recordatorio, aclarar una hora dudosa o el "¿lo guardo?" de un recordatorio dudoso.
+2. Primero lo que espera respuesta en ese chat: «¿de la mañana o de la noche?» de una hora sin
+   am/pm (si el mensaje no la responde, se descarta y el mensaje sigue como uno normal), confirmar
+   un borrado, la nueva hora de un recordatorio, aclarar una hora dudosa o el "¿lo guardo?" de un
+   recordatorio dudoso.
 3. Reglas baratas: despedidas, saludos, "recuerda esto", recordatorios, "ya lo hice",
    "cancela el 3", "¿qué recordatorios tengo?", ayuda y "analiza a fondo".
 4. Si no alcanzan, la IA clasifica el mensaje en JSON {"accion", "consulta"}. Se valida contra
@@ -222,9 +224,43 @@ def _activo(rid: int, chat_id: str, sin_confirmar: bool = True) -> dict | None:
     return r
 
 
+def _preguntar_ampm(channel: str, chat_id: str, datos: dict) -> Respuesta:
+    """«¿Las 7 de la mañana o de la noche, jefe?», por texto y sin botones; la respuesta escrita
+    la entiende _resolver_hora."""
+    _limpiar_espera(channel, chat_id)
+    reminders.preguntar_hora(channel, chat_id, datos)
+    return Respuesta(f"¿{when.pregunta_ampm(datos['h'], datos['m'])}, {persona.tratamiento()}?", "recordatorio")
+
+
+async def _resolver_hora(texto: str, channel: str, chat_id: str) -> Respuesta | None:
+    """Respuesta a «¿de la mañana o de la noche?». Si el mensaje no la responde, la pregunta se
+    descarta y devuelve None: el mensaje se atiende como uno normal (nunca se lo traga)."""
+    datos = reminders.pregunta_hora(channel, chat_id)
+    if not datos:
+        return None
+    reminders.olvidar_pregunta_hora(channel, chat_id)
+    try:
+        p = reminders.resolver_hora(datos, texto)
+    except reminders.NotUnderstood as exc:
+        return Respuesta(str(exc), "recordatorio")
+    if p is None:
+        log.info("La respuesta no era la hora pendiente: se descarta la pregunta")
+        return None
+    if datos.get("tipo") == "posponer":
+        r = _activo(int(datos["id"]), chat_id)
+        nuevo = reminders.posponer(r["id"], p["due_at"], chat_id) if r else None
+        if not nuevo:
+            return Respuesta("Ese recordatorio ya no está activo.", "recordatorio")
+        texto = persona.frase("recordatorios.pospuesto", cuando=cuando(nuevo["due_local"]), tarea=nuevo["text"])
+        return Respuesta(texto, "recordatorio", botones=_botones(nuevo["id"]))
+    return _listo(reminders.create(p["tarea"], p["due_at"], channel, chat_id, regla=p.get("regla")))
+
+
 async def _recordatorio(texto: str, channel: str, chat_id: str) -> Respuesta:
     try:
         p = await reminders.interpret(texto)
+    except reminders.HoraAmbigua as exc:
+        return _preguntar_ampm(channel, chat_id, {**exc.datos, "tipo": "nuevo"})
     except reminders.NotUnderstood as exc:
         if isinstance(exc.__cause__, when.Ambiguous):  # hora dudosa: se pregunta y se espera la aclaración
             _esperar(channel, chat_id, tipo="aclarar", texto=texto)
@@ -283,18 +319,24 @@ async def _posponer(r: dict, texto: str, channel: str, chat_id: str) -> Respuest
     resto = texto.strip()
     if RE_SIN_EN.match(plano(resto)):  # «pospón el 2 una hora» -> «en una hora»
         resto = f"en {resto}"
+    mismo_dia = not RE_DIA.search(plano(resto)) and r["estado"] in ("creado", "avisado_previo", "pospuesto")
+    antes = datetime.strptime(r["due_local"], "%Y-%m-%d %H:%M")
     try:
         p = await reminders.interpret(f"recuérdame {resto} {r['text']}", usar_ia=False)
+    except reminders.HoraAmbigua as exc:
+        datos = {**exc.datos, "tipo": "posponer", "id": r["id"]}
+        if mismo_dia:  # «mejor a las 10»: ese mismo día (o el siguiente, si ya pasó)
+            datos.update(fecha=antes.date().isoformat(), con_dia=False)
+        return _preguntar_ampm(channel, chat_id, datos)
     except reminders.NotUnderstood:
         return _pedir_cuando(channel, chat_id, r["id"], otra_vez=True)
     _limpiar_espera(channel, chat_id)
     due_at = p["due_at"]
-    if not RE_DIA.search(plano(resto)) and r["estado"] in ("creado", "avisado_previo", "pospuesto"):
-        antes = datetime.strptime(r["due_local"], "%Y-%m-%d %H:%M")
+    if mismo_dia:
         nueva = datetime.strptime(p["due_local"], "%Y-%m-%d %H:%M")
-        mismo_dia = antes.replace(hour=nueva.hour, minute=nueva.minute)
-        if mismo_dia > clock.now_local():
-            due_at = clock.local_to_utc(mismo_dia).isoformat()
+        dia = antes.replace(hour=nueva.hour, minute=nueva.minute)
+        if dia > clock.now_local():
+            due_at = clock.local_to_utc(dia).isoformat()
     nuevo = reminders.posponer(r["id"], due_at, chat_id)
     if not nuevo:
         return Respuesta("Ese recordatorio ya no está activo.", "recordatorio")
@@ -677,6 +719,8 @@ def _temporal(texto: str) -> bool:
 
 async def _turno(textos, channel, chat_id, previos, anterior) -> Respuesta:
     texto = "\n".join(textos)
+    if r := await _resolver_hora(texto, channel, chat_id):
+        return r
     if e := _espera(channel, chat_id):
         if r := await _resolver_espera(e, texto, channel, chat_id):
             return r

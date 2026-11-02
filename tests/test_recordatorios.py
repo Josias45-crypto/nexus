@@ -30,6 +30,7 @@ class Reloj(unittest.TestCase):
         p = mock.patch.object(clock, "now_utc", lambda: self.ahora)
         p.start()
         self.addCleanup(p.stop)
+        persona.reiniciar()
         no_ia = mock.patch("core.conversa.get_client", side_effect=AssertionError("no debe usar IA"))
         no_ia.start()
         self.addCleanup(no_ia.stop)
@@ -133,7 +134,7 @@ class PosponerTest(Reloj):
         self.avanza(10)
         respuesta = self.pulsar(f"rec:posponer:{r['id']}")
         self.assertIn("?", respuesta["texto"])
-        respuesta = self.decir("mañana a las 9")
+        respuesta = self.decir("mañana a las 9 de la mañana")
         self.assertIn("9:00 a. m.", respuesta["texto"])
         nuevo = reminders.get(r["id"])
         self.assertEqual((nuevo["estado"], nuevo["due_local"]), ("pospuesto", "2026-11-03 09:00"))
@@ -144,7 +145,7 @@ class PosponerTest(Reloj):
         self.assertEqual(self.estado(r["id"]), "avisado_previo")
 
     def test_en_un_dia_y_el_viernes(self):
-        for frase, esperado in (("en un día", "2026-11-03 10:"), ("el viernes a las 3", "2026-11-06 15:00")):
+        for frase, esperado in (("en un día", "2026-11-03 10:"), ("el viernes a las 3 pm", "2026-11-06 15:00")):
             with self.subTest(frase):
                 self.setUp()
                 r = self.crear(10)
@@ -249,7 +250,7 @@ class FiabilidadTest(Reloj):
 
 class CrearTest(Reloj):
     def test_hora_clara_sin_preguntar_con_botones(self):
-        respuesta = self.decir("recuérdame mañana a las 9 llamar a Pedro")
+        respuesta = self.decir("recuérdame mañana a las 9 am llamar a Pedro")
         self.assertIn("9:00 a. m.: llamar a Pedro", respuesta["texto"])
         self.assertEqual([b["texto"] for b in respuesta["botones"][0]], ["Cambiar", "Cancelar"])
 
@@ -308,6 +309,126 @@ class MigracionTest(unittest.TestCase):
         self.assertEqual(rows["b"]["proximo_envio"], "2026-10-02T14:50:00+00:00")
         self.assertEqual(rows["b"]["insistencias"], 1)
         self.assertEqual(rows["b"]["status"], "sent", "lo viejo no se borra")
+
+
+class HoraAmbiguaTest(Reloj):
+    """Hora sin am/pm: se pregunta por texto (sin botones), salvo una sola vez en menos de 2 h."""
+
+    def abiertos(self):
+        return reminders.list_open(CHAT)
+
+    def pregunta(self, texto: str) -> dict:
+        r = self.decir(texto)
+        self.assertIsNone(r["botones"], "la pregunta de am/pm va sin botones")
+        self.assertTrue(r["texto"].startswith("¿") and r["texto"].endswith("?"), r["texto"])
+        self.assertIsNotNone(reminders.pregunta_hora(CANAL, CHAT), "queda en la base")
+        self.assertEqual(self.abiertos(), [])
+        return r
+
+    def test_cada_dia_a_las_7_pregunta_y_de_la_noche(self):
+        r = self.pregunta("recuérdame cada día a las 7 tomar la pastilla")
+        self.assertIn("Las 7 de la mañana o de la noche", r["texto"])
+        r = self.decir("de la noche")
+        [rec] = self.abiertos()
+        self.assertEqual(rec["regla"], {"tipo": "diaria"})
+        self.assertEqual(rec["due_local"], "2026-11-02 19:00")
+        self.assertIn("7:00 p. m.", r["texto"])
+        self.assertIn("todos los días", r["texto"])
+        self.assertIsNone(reminders.pregunta_hora(CANAL, CHAT))
+
+    def test_respuestas_escritas(self):
+        casos = {"de la mañana": "08:00", "am": "08:00", "en la mañana": "08:00", "a las 8 pm": "20:00",
+                 "8:30 p. m.": "20:30", "20:00": "20:00", "8pm por favor": "20:00", "de la noche": "20:00"}
+        for respuesta, hora in casos.items():
+            with self.subTest(respuesta=respuesta):
+                with db.connect() as c:
+                    c.execute("DELETE FROM reminders")
+                self.pregunta("recuérdame mañana a las 8 pagar la luz")
+                r = self.decir(respuesta)
+                [rec] = self.abiertos()
+                self.assertEqual(rec["due_local"], f"2026-11-03 {hora}", respuesta)
+                self.assertTrue(" a. m." in r["texto"] or " p. m." in r["texto"], r["texto"])
+
+    def test_repetidos_siempre_preguntan_aunque_falte_poco(self):
+        self.ahora = INICIO + timedelta(minutes=50)  # 10:50: «a las 11» cae en 10 min
+        self.pregunta("recuérdame todos los lunes a las 11 revisar caja")
+        self.decir("am")
+        [rec] = self.abiertos()
+        self.assertEqual((rec["due_local"], rec["regla"]), ("2026-11-02 11:00", {"tipo": "semanal", "dia": 0}))
+
+    def test_una_vez_en_menos_de_2_horas_se_toma(self):
+        r = self.decir("recuérdame a las 11 llamar a Piter")  # son las 10:00
+        self.assertIn("11:00 a. m.", r["texto"])
+        [rec] = self.abiertos()
+        self.assertEqual(rec["due_local"], "2026-11-02 11:00")
+        self.assertIsNone(reminders.pregunta_hora(CANAL, CHAT))
+
+    def test_una_vez_a_mas_de_2_horas_pregunta(self):
+        r = self.pregunta("recuérdame a las 7 llamar a Piter")  # 7 p. m. queda a 9 h
+        self.assertIn("Las 7 de la mañana o de la noche", r["texto"])
+        self.decir("de la noche")
+        self.assertEqual(self.abiertos()[0]["due_local"], "2026-11-02 19:00")
+
+    def test_de_la_manana_que_ya_paso_es_manana(self):
+        self.pregunta("recuérdame a las 7 llamar a Piter")
+        self.decir("de la mañana")
+        self.assertEqual(self.abiertos()[0]["due_local"], "2026-11-03 07:00")
+
+    def test_contexto_resuelve_sin_preguntar(self):
+        for texto, hora in (("recuérdame esta noche a las 8 cerrar caja", "2026-11-02 20:00"),
+                            ("recuérdame mañana por la tarde a las 4 ir al banco", "2026-11-03 16:00"),
+                            ("recuérdame mañana a las 9 de la mañana llamar", "2026-11-03 09:00"),
+                            ("recuérdame a las 18 pagar", "2026-11-02 18:00"),
+                            ("recuérdame mañana al mediodía almorzar con Ana", "2026-11-03 12:00")):
+            with self.subTest(texto=texto):
+                with db.connect() as c:
+                    c.execute("DELETE FROM reminders")
+                r = self.decir(texto)
+                self.assertIsNone(reminders.pregunta_hora(CANAL, CHAT), texto)
+                self.assertEqual(self.abiertos()[0]["due_local"], hora, r["texto"])
+
+    def test_si_no_responde_se_descarta_y_sigue_normal(self):
+        self.pregunta("recuérdame a las 7 llamar a Piter")
+        r = self.decir("¿qué recordatorios tengo?")  # otra cosa: no se la traga
+        self.assertEqual(r["accion"], "recordatorios")
+        self.assertIsNone(reminders.pregunta_hora(CANAL, CHAT), "pregunta descartada")
+        self.assertEqual(self.abiertos(), [])
+
+    def test_otro_recordatorio_en_vez_de_responder(self):
+        self.pregunta("recuérdame a las 7 llamar a Piter")
+        r = self.decir("recuérdame mañana a las 9 am pagar la luz")
+        self.assertEqual([x["text"] for x in self.abiertos()], ["pagar la luz"], r["texto"])
+
+    def test_la_pregunta_caduca(self):
+        self.pregunta("recuérdame a las 7 llamar a Piter")
+        self.ahora += timedelta(minutes=reminders.PREGUNTA_HORA_MIN + 1)
+        self.assertIsNone(reminders.pregunta_hora(CANAL, CHAT))
+
+    def test_sobrevive_reinicio(self):
+        self.pregunta("recuérdame a las 7 llamar a Piter")
+        persona.get.cache_clear()  # el estado vive en la base, no en memoria
+        self.decir("pm")
+        self.assertEqual(self.abiertos()[0]["due_local"], "2026-11-02 19:00")
+
+    def test_cambiar_hora_ambigua_pregunta_y_conserva_el_dia(self):
+        rec = self.crear(60 * 24)  # mañana 10:00
+        self.pulsar(f"rec:cambiar:{rec['id']}")
+        r = self.decir("mejor a las 9")
+        self.assertIsNone(r["botones"])
+        self.assertIn("Las 9 de la mañana o de la noche", r["texto"])
+        self.decir("de la mañana")
+        self.assertEqual(reminders.get(rec["id"])["due_local"], "2026-11-03 09:00")
+
+    def test_respuesta_ampm_unitaria(self):
+        from core import when
+        from datetime import time
+        self.assertEqual(when.respuesta_ampm("de la noche", 7, 0), time(19, 0))
+        self.assertEqual(when.respuesta_ampm("De la mañana, Isabelle", 7, 0), time(7, 0))
+        self.assertEqual(when.respuesta_ampm("a las 7:30 pm", 7, 0), time(19, 30))
+        self.assertEqual(when.respuesta_ampm("medianoche", 12, 0), time(0, 0))
+        self.assertEqual(when.respuesta_ampm("del mediodía", 12, 0), time(12, 0))
+        for otra in ("esta noche voy al cine con Ana", "¿qué tengo mañana?", "llama a Rosa", "sí", "7"):
+            self.assertIsNone(when.respuesta_ampm(otra, 7, 0), otra)
 
 
 if __name__ == "__main__":
