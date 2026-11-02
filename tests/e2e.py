@@ -479,7 +479,7 @@ class Suite:
         if r.returncode != 0:
             raise Fail("; ".join(fails)[:300] or (r.stderr or r.stdout)[-300:])
         oks = sum(1 for l in r.stdout.splitlines() if l.startswith("ok "))
-        return f"{oks} comprobaciones: comandos, recordatorio con confirmación e insistencia"
+        return f"{oks} comprobaciones: charla sin comandos, guardar, botones, recordatorio e insistencia"
 
     def _sim_step(self, name: str) -> str:
         r = subprocess.run(
@@ -513,7 +513,28 @@ class Suite:
         if len(mine) != 1:
             raise Fail(f"se esperaba 1 fila y hay {len(mine)}")
         self._sim_step("entregar")
-        return f"pedir → reinicio → confirmar (fila {mine[0]['id']}) → aviso por /outbox → /hecho"
+        return f"guardar → «cancela el n.º {mine[0]['id']}» → reinicio → «no» → aviso por /outbox → «ya lo hice»"
+
+    def t19_memoria(self):
+        """Conversación sintética por /conversar: el historial se busca y la ficha del jefe aprende
+        solo de lo que dice él (el worker la actualiza cuando nadie espera respuesta)."""
+        chat = f"e2e{self.rid}"
+        for texto in (f"Te cuento: mi proveedor de laptops es Zarvel{self.rid}, me trae 10 cada lunes",
+                      "y mi meta este año es abrir un segundo local"):
+            r = self.api.ok("POST", "/conversar", {"mensajes": [texto], "channel": "e2e", "chat_id": chat})
+            if not r.get("texto") or r["texto"].startswith("/"):
+                raise Fail(f"respuesta vacía o con comando: {r}")
+        hits = self.api.ok("GET", "/charla?" + urllib.parse.urlencode({"q": f"Zarvel{self.rid}"}))
+        if not any(f"Zarvel{self.rid}" in h["texto"] for h in hits):
+            raise Fail("el historial no encuentra el mensaje por texto")
+        deadline = time.monotonic() + 240
+        while time.monotonic() < deadline:
+            mem = self.api.ok("GET", "/charla/memoria")
+            # El modelo a veces anota el nombre sin el sufijo de la corrida: basta «Zarvel»
+            if "zarvel" in json.dumps(mem["ficha"], ensure_ascii=False).lower() and mem["resumen"]:
+                return f"historial con búsqueda; ficha: {mem['ficha']['personas'][:1]}; resumen {len(mem['resumen'].split())} palabras"
+            time.sleep(5)
+        raise Fail(f"la ficha no aprendió el dato en 4 min: {mem}")
 
     def t12_unit(self):
         local = subprocess.run(
@@ -528,12 +549,13 @@ class Suite:
              "-v", f"{REPO / 'tests'}:/app/tests:ro", image,
              "python", "-m", "unittest", "-q", "tests.test_telegram", "tests.test_whatsapp",
              "tests.test_openrouter", "tests.test_questions", "tests.test_chunker", "tests.test_senses",
-             "tests.test_verify", "tests.test_reminders_flow"],
+             "tests.test_verify", "tests.test_reminders_flow", "tests.test_conversa", "tests.test_charla",
+             "tests.test_filtro"],
             capture_output=True, text=True, timeout=120,
         )
         if r.returncode != 0:
             raise Fail("canales: " + r.stderr[-300:])
-        return "fechas, troceado, citas, preguntas, formatos, Telegram, WhatsApp y OpenRouter"
+        return "fechas, troceado, citas, preguntas, formatos, Telegram, WhatsApp, OpenRouter, conversación, memoria y filtro"
 
     def t13_profile(self):
         if not self.isolated:
@@ -552,9 +574,10 @@ class Suite:
             if r.returncode != 0:
                 raise Fail(f"perfil {name}: {r.stderr[-200:]}")
             outs[name] = r.stdout
-        if "NEXUS Ventas" not in outs["ventas"] or "ventas" in outs["general"].split("\n")[1].lower():
-            raise Fail("el perfil no cambió la persona")
-        return "general y ventas cambian persona y resumen sin tocar el código"
+        if "Isabelle" not in outs["ventas"] or "negocio de ventas" not in outs["ventas"] \
+                or "negocio de ventas" in outs["general"]:
+            raise Fail("el perfil no cambió el rubro de Isabelle")
+        return "general y ventas cambian el rubro de Isabelle y el resumen sin tocar el código"
 
     def t14_openrouter(self):
         h = self.api.ok("GET", "/health")["llm"]
@@ -733,6 +756,7 @@ TESTS = [
     ("16 formatos", "t16_formats"),
     ("17 interfaz y reintento", "t17_ui_retry"),
     ("18 recordatorio tras reinicio", "t18_reminder_restart"),
+    ("19 memoria de la charla", "t19_memoria"),
 ]
 
 # Programador acelerado en la instancia aislada: avisos e insistencias en segundos
