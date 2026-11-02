@@ -6,7 +6,7 @@ Autoprueba (la usa tests/e2e.py contra la instancia aislada):
 Conversación natural, sin comandos (Isabelle responde por POST /conversar).
 
 Pasos sueltos, cada uno en un proceso nuevo (e2e reinicia el contenedor entre pedir y confirmar):
-    python -m channels.simulado --step pedir|confirmar|entregar|caos --tag X
+    python -m channels.simulado --step pedir|confirmar|entregar|caos|boton90 --tag X
 """
 
 import argparse
@@ -30,6 +30,7 @@ class SimChannel(Channel):
         self._owners = owner_ids
         self.sent: list[tuple[str, str]] = []
         self.buttons: Buttons | None = None  # los del último mensaje enviado
+        self.botones_de: list[Buttons | None] = []  # los de cada mensaje de `sent`, en orden
         self.queue: asyncio.Queue[Incoming] = asyncio.Queue()
 
     async def receive(self):
@@ -39,10 +40,19 @@ class SimChannel(Channel):
     async def send(self, chat_id: str, text: str, buttons: Buttons | None = None) -> None:
         self.sent.append((chat_id, text))
         self.buttons = buttons
+        self.botones_de.append(buttons)
 
-    def button(self, label: str, user: str = OWNER) -> Incoming:
-        """Pulsa el botón `label` del último mensaje."""
-        dato = next(b["dato"] for fila in self.buttons or [] for b in fila if b["texto"] == label)
+    def buttons_for(self, contains: str) -> Buttons | None:
+        """Los botones del último mensaje enviado que contiene `contains`."""
+        for (_, text), b in zip(reversed(self.sent), reversed(self.botones_de)):
+            if contains in text:
+                return b
+        return None
+
+    def button(self, label: str, user: str = OWNER, of: str | None = None) -> Incoming:
+        """Pulsa el botón `label` del último mensaje (o del último que contiene `of`)."""
+        botones = self.buttons_for(of) if of else self.buttons
+        dato = next(b["dato"] for fila in botones or [] for b in fila if b["texto"] == label)
         return Incoming(self.name, chat_id=user, user_id=user, button=dato)
 
     def owners(self) -> list[str]:
@@ -114,26 +124,30 @@ async def selftest(url: str, tag: str) -> int:
     check("No entendí la fecha" in r, "recordatorio sin fecha pide aclarar", r)
 
     r = await say(f"recuérdame en 1 minuto llamar a Tralvex{tag}")
-    check(r.startswith("Listo") and f"llamar a Tralvex{tag}" in r and ch.buttons, "hora clara: guarda y muestra botones", r)
+    check(f"llamar a Tralvex{tag}" in r and [b["texto"] for b in ch.buttons[0]] == ["Cambiar", "Cancelar"],
+          "hora clara: guarda y muestra Cambiar y Cancelar", r)
     r = await press("Cancelar")
-    check("Cancelado" in r, "botón Cancelar", r)
+    check(f"Tralvex{tag}" in r and not ch.buttons, "botón Cancelar", r)
     pend = await nexus.reminders(OWNER)
     check(not any(tag in p["text"] for p in pend), "cancelado no queda pendiente", str(pend))
 
     r = await say(f"recuérdame en 1 minuto llamar a Tralvex{tag}")
     r = await press("Cambiar")
-    check("¿Para cuándo" in r, "botón Cambiar pregunta la hora", r)
+    check(r.startswith("¿") and r.endswith("?"), "botón Cambiar pregunta cuándo", r)
     r = await say("en 2 minutos")
-    check("lo pasé a" in r and ch.buttons, "cambia la hora", r)
+    check(f"Tralvex{tag}" in r and ch.buttons, "cambia la hora", r)
     r = await say("¿qué recordatorios tengo?")
     check(tag in r and "n.º" in r, "lista los recordatorios en lenguaje natural", r)
 
     first = await _wait_outbox(bot, ch, f"Tralvex{tag}", timeout=200)
-    check(first is not None and "/" not in first, "el aviso llega por el canal, sin comandos", str(ch.sent[-3:]))
-    second = await _wait_outbox(bot, ch, "aviso 2 de", timeout=90)
-    check(second is not None, "insiste si no hay respuesta", str(ch.sent[-3:]))
+    botones = ch.buttons_for(f"Tralvex{tag}")
+    check(first is not None and "/" not in first and botones
+          and [b["texto"] for b in botones[0]] == ["Ya lo hice", "Recuérdame"],
+          "el aviso llega con «Ya lo hice» y «Recuérdame», sin comandos", str(ch.sent[-3:]))
+    second = await _wait_outbox(bot, ch, f"Tralvex{tag}", timeout=90)
+    check(second is not None and second != first, "insiste si no hay respuesta", str(ch.sent[-3:]))
     r = await say("ya lo hice")
-    check("hecho" in r.lower(), "«ya lo hice» cierra el último aviso", r)
+    check(f"Tralvex{tag}" in r, "«ya lo hice» cierra el último aviso", r)
     pend = await nexus.reminders(OWNER)
     check(not any(tag in p["text"] for p in pend), "ya no está pendiente", str(pend))
 
@@ -164,7 +178,7 @@ async def step(url: str, tag: str, name: str) -> int:
     check = Check()
     if name == "pedir":  # guarda sin preguntar y pide confirmar el borrado
         r = "\n".join(await bot.handle(ch.text(f"recuérdame en 1 minuto revisar Brontal{tag}")))
-        check(r.startswith("Listo") and ch.buttons, "guarda con hora clara y botones", r)
+        check(f"Brontal{tag}" in r and ch.buttons, "guarda con hora clara y botones", r)
         rid = next(p["id"] for p in await nexus.reminders(OWNER) if f"Brontal{tag}" in p["text"])
         r = "\n".join(await bot.handle(ch.text(f"cancela el recordatorio {rid}")))
         check("¿Cancelo" in r, "borrar pide confirmación", r)
@@ -177,7 +191,18 @@ async def step(url: str, tag: str, name: str) -> int:
         got = await _wait_outbox(bot, ch, f"Brontal{tag}", timeout=150)
         check(got is not None, "el aviso sale por /outbox", str(ch.sent[-3:]))
         r = "\n".join(await bot.handle(ch.text("ya lo hice")))
-        check("hecho" in r.lower(), "«ya lo hice» lo cierra", r)
+        check(f"Brontal{tag}" in r, "«ya lo hice» lo cierra", r)
+    elif name == "boton90":  # el camino del bot real: crear a 90 s, aviso en /outbox, botón «Ya lo hice»
+        r = "\n".join(await bot.handle(ch.text(f"recuérdame en 90 segundos revisar la caja Corvel{tag}")))
+        check(f"Corvel{tag}" in r and ch.buttons, "creado con hora clara", r)
+        got = await _wait_outbox(bot, ch, f"Corvel{tag}", timeout=150)
+        botones = ch.buttons_for(f"Corvel{tag}")
+        check(got is not None and botones and botones[0][0]["texto"] == "Ya lo hice",
+              "el aviso llega con «Ya lo hice»", str(ch.sent[-2:]))
+        r = "\n".join(await bot.handle(ch.button("Ya lo hice", of=f"Corvel{tag}")))
+        check(f"Corvel{tag}" in r, "«Ya lo hice» lo cierra", r)
+        rows = [p for p in await nexus.reminders(OWNER) if f"Corvel{tag}" in p["text"]]
+        check(rows == [], "ya no está pendiente ni sin confirmar", str(rows))
     elif name == "caos":  # OpenRouter inalcanzable: una nota se guarda y una pregunta avisa en una línea
         r = "\n".join(await bot.handle(ch.text(f"recuerda esto: nota durante el caos Vendral{tag}")))
         check(any(w in r.lower() for w in ("guardado", "anotado")), "guarda la nota sin OpenRouter", r)
@@ -192,7 +217,7 @@ def main() -> int:
     p = argparse.ArgumentParser()
     p.add_argument("--url", default="http://localhost:8000")
     p.add_argument("--tag", default=str(int(time.time())))
-    p.add_argument("--step", choices=["pedir", "confirmar", "entregar", "caos"])
+    p.add_argument("--step", choices=["pedir", "confirmar", "entregar", "caos", "boton90"])
     args = p.parse_args()
     logging.basicConfig(level=logging.WARNING)
     if args.step:

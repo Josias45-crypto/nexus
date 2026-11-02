@@ -536,6 +536,14 @@ class Suite:
             time.sleep(5)
         raise Fail(f"la ficha no aprendió el dato en 4 min: {mem}")
 
+    def t20_recordatorio_90s(self):
+        """El camino del bot real: «recuérdame en 90 segundos…» por el canal simulado, el aviso
+        aparece en /outbox con «Ya lo hice» y el botón lo cierra."""
+        if not self.isolated:
+            raise Skip("solo en instancia aislada")
+        out = self._sim_step("boton90")
+        return f"{out.count('ok ')} comprobaciones: creado → aviso con botones en /outbox → «Ya lo hice»"
+
     def t12_unit(self):
         local = subprocess.run(
             [sys.executable, "-m", "unittest", "-q", "tests.test_when"],
@@ -550,7 +558,7 @@ class Suite:
              "python", "-m", "unittest", "-q", "tests.test_telegram", "tests.test_whatsapp",
              "tests.test_openrouter", "tests.test_questions", "tests.test_chunker", "tests.test_senses",
              "tests.test_verify", "tests.test_reminders_flow", "tests.test_conversa", "tests.test_charla",
-             "tests.test_filtro"],
+             "tests.test_filtro", "tests.test_recordatorios"],
             capture_output=True, text=True, timeout=120,
         )
         if r.returncode != 0:
@@ -757,6 +765,7 @@ TESTS = [
     ("17 interfaz y reintento", "t17_ui_retry"),
     ("18 recordatorio tras reinicio", "t18_reminder_restart"),
     ("19 memoria de la charla", "t19_memoria"),
+    ("20 recordatorio a 90 s con botón", "t20_recordatorio_90s"),
 ]
 
 # Programador acelerado en la instancia aislada: avisos e insistencias en segundos

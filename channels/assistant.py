@@ -134,7 +134,7 @@ class Assistant:
             targets = [m["chat_id"]] if m["chat_id"] else self.channel.owners()
             try:
                 for chat in targets:
-                    await self.channel.send(chat, m["text"])
+                    await self.channel.send(chat, m["text"], m.get("botones"))
             except PermanentSendError as exc:
                 log.warning("Aviso %s descartado: %s", m["id"], exc)
             except Exception as exc:
