@@ -22,7 +22,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import PlainTextResponse, Response
 
 from channels.assistant import Assistant
-from channels.base import Channel, Incoming, PermanentSendError
+from channels.base import Buttons, Channel, Incoming, PermanentSendError
 from channels.client import NexusClient
 
 log = logging.getLogger("nexus.whatsapp")
@@ -64,7 +64,8 @@ class WhatsAppChannel(Channel):
         while True:
             yield await self.queue.get()
 
-    async def send(self, chat_id: str, text: str) -> None:
+    async def send(self, chat_id: str, text: str, buttons: Buttons | None = None) -> None:
+        # WhatsApp (apagado) aún no muestra botones: el jefe puede escribir «cancela el n.º X»
         try:
             r = await self._http.post(
                 f"{self._base}/{self._phone_id}/messages",
@@ -129,7 +130,7 @@ class WhatsAppChannel(Channel):
 
 
 def build_app(channel: WhatsAppChannel, verify_token: str, app_secret: str) -> FastAPI:
-    app = FastAPI(title="NEXUS WhatsApp", docs_url=None, redoc_url=None, openapi_url=None)
+    app = FastAPI(title="Isabelle WhatsApp", docs_url=None, redoc_url=None, openapi_url=None)
 
     @app.get("/webhook")
     def verify(request: Request):

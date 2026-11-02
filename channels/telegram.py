@@ -17,7 +17,7 @@ import sys
 import httpx
 
 from channels.assistant import Assistant
-from channels.base import Channel, Incoming
+from channels.base import Buttons, Channel, Incoming
 from channels.client import NexusClient
 
 log = logging.getLogger("nexus.telegram")
@@ -82,9 +82,23 @@ class TelegramChannel(Channel):
     def owners(self) -> list[str]:
         return self._owners
 
-    async def send(self, chat_id: str, text: str) -> None:
-        for i in range(0, max(len(text), 1), MAX_TEXT):
-            await self._call("sendMessage", chat_id=chat_id, text=text[i : i + MAX_TEXT])
+    async def send(self, chat_id: str, text: str, buttons: Buttons | None = None) -> None:
+        partes = [text[i : i + MAX_TEXT] for i in range(0, max(len(text), 1), MAX_TEXT)]
+        for n, parte in enumerate(partes, 1):
+            extra = {}
+            if buttons and n == len(partes):  # los botones van en el último trozo
+                extra["reply_markup"] = {"inline_keyboard": [
+                    [{"text": b["texto"], "callback_data": b["dato"][:64]} for b in fila] for fila in buttons
+                ]}
+            await self._call("sendMessage", chat_id=chat_id, text=parte, **extra)
+
+    async def button_done(self, msg: Incoming) -> None:
+        """Confirma el clic (quita el relojito) y borra los botones: no se pueden pulsar dos veces."""
+        if msg.callback_id:
+            await self._call("answerCallbackQuery", callback_query_id=msg.callback_id)
+        if msg.message_id:
+            await self._call("editMessageReplyMarkup", chat_id=msg.chat_id, message_id=int(msg.message_id),
+                             reply_markup={"inline_keyboard": []})
 
     async def typing(self, chat_id: str) -> None:
         await self._call("sendChatAction", chat_id=chat_id, action="typing")
@@ -94,7 +108,8 @@ class TelegramChannel(Channel):
         while True:
             try:
                 updates = await self._call(
-                    "getUpdates", offset=self._offset, timeout=POLL_TIMEOUT, allowed_updates=["message"]
+                    "getUpdates", offset=self._offset, timeout=POLL_TIMEOUT,
+                    allowed_updates=["message", "callback_query"],
                 )
                 backoff = 1
             except TelegramError as exc:
@@ -109,11 +124,23 @@ class TelegramChannel(Channel):
                 continue
             for upd in updates:
                 self._offset = upd["update_id"] + 1
-                msg = self.to_incoming(upd.get("message") or {})
+                if "callback_query" in upd:
+                    msg = self.button_incoming(upd["callback_query"])
+                else:
+                    msg = self.to_incoming(upd.get("message") or {})
                 if msg:
                     yield msg
 
     # ---------- conversión ----------
+
+    def button_incoming(self, q: dict) -> Incoming | None:
+        m = q.get("message") or {}
+        if "from" not in q or not m.get("chat") or not q.get("data"):
+            return None
+        return Incoming(
+            channel=self.name, chat_id=str(m["chat"]["id"]), user_id=str(q["from"]["id"]),
+            button=q["data"], message_id=str(m.get("message_id") or ""), callback_id=q.get("id"),
+        )
 
     def to_incoming(self, m: dict) -> Incoming | None:
         if not m or "from" not in m:
@@ -164,13 +191,13 @@ class TelegramChannel(Channel):
 
 
 class TelegramAssistant(Assistant):
-    async def _file(self, msg):
+    async def _archivo(self, msg):
         if (msg.size or 0) > MAX_DOWNLOAD:
-            return "⚠️ Telegram solo permite a los bots descargar archivos de hasta 20 MB."
+            return {"texto": "⚠️ Telegram solo me deja descargar archivos de hasta 20 MB."}
         try:
-            return await super()._file(msg)
+            return await super()._archivo(msg)
         except TelegramError as exc:
-            return f"⚠️ No pude descargar el archivo de Telegram ({exc})."
+            return {"texto": f"⚠️ No pude descargar el archivo de Telegram ({exc})."}
 
 
 def _ids(raw: str) -> list[str]:
@@ -183,7 +210,7 @@ async def _wait_nexus(nexus: NexusClient) -> None:
             await nexus.profile()
             return
         except Exception:
-            log.info("Esperando a NEXUS en %s ...", nexus.base_url)
+            log.info("Esperando al núcleo en %s ...", nexus.base_url)
             await asyncio.sleep(5)
 
 

@@ -21,7 +21,7 @@ class NexusClient:
         try:
             r = await self._http.request(method, path, **kw)
         except httpx.TransportError as exc:
-            raise NexusError(f"NEXUS no responde ({type(exc).__name__}).") from exc
+            raise NexusError(f"Isabelle no responde ({type(exc).__name__}).") from exc
         if r.status_code >= 400:
             try:
                 detail = r.json().get("detail")
@@ -32,6 +32,23 @@ class NexusClient:
 
     async def profile(self) -> dict:
         return await self._req("GET", "/profile")
+
+    async def conversar(self, mensajes: list[str], channel: str, chat_id: str) -> dict:
+        """Un turno de conversación: {"texto", "botones", "accion", "nivel", "llm"}."""
+        return await self._req(
+            "POST", "/conversar", json={"mensajes": mensajes, "channel": channel, "chat_id": chat_id}
+        )
+
+    async def boton(self, dato: str, channel: str, chat_id: str) -> dict:
+        return await self._req(
+            "POST", "/conversar/boton", json={"dato": dato, "channel": channel, "chat_id": chat_id}
+        )
+
+    async def archivo(self, filename: str, kind: str, duplicate: bool, chat_id: str) -> dict:
+        return await self._req(
+            "POST", "/conversar/archivo",
+            json={"filename": filename, "kind": kind, "duplicate": duplicate, "chat_id": chat_id},
+        )
 
     async def ask(self, question: str) -> dict:
         return await self._req("POST", "/ask", json={"question": question})
