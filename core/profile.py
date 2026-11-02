@@ -18,7 +18,7 @@ PROFILES_DIR = Path(settings.PROFILES_DIR)
 
 DEFAULTS = {
     "asistente": {
-        "nombre": "NEXUS",
+        "nombre": "Isabelle",
         "idioma": "es",
         "tono": "claro y breve",
         "persona": "Eres la memoria personal de tu dueño.",
@@ -52,7 +52,7 @@ def get() -> dict:
         raise ProfileError(f"NEXUS_PROFILE inválido: '{name}' (solo minúsculas, números, - y _)")
     path = PROFILES_DIR / f"{name}.toml"
     if not path.is_file():
-        disponibles = sorted(p.stem for p in PROFILES_DIR.glob("*.toml"))
+        disponibles = sorted(p.stem for p in PROFILES_DIR.glob("*.toml") if p.stem != "isabelle")
         raise ProfileError(f"No existe el perfil '{name}'. Disponibles: {', '.join(disponibles)}")
     with path.open("rb") as f:
         profile = _validate(tomllib.load(f), name)
@@ -61,10 +61,12 @@ def get() -> dict:
 
 
 def system_prompt() -> str:
-    """Encabezado de sistema común: quién es el asistente y para qué negocio."""
+    """Encabezado de sistema común: quién es Isabelle (core/persona.py) y el rubro del perfil."""
+    from core import persona
+
     p = get()
     a, negocio = p["asistente"], p["negocio"]["descripcion"]
-    parts = [f"Te llamas {a['nombre']}. {a['persona'].strip()}"]
+    parts = [persona.breve(), f"En este trabajo: {a['persona'].strip()}"]
     if negocio:
         parts.append(f"Contexto del negocio: {negocio}")
     parts.append(f"Tono: {a['tono']}.")

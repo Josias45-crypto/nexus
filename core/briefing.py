@@ -98,10 +98,10 @@ def _facts_text(rem: dict, items: list[dict]) -> str:
     lines: list[str] = []
     if rem["hoy"]:
         lines.append("Recordatorios de hoy:")
-        lines += [f"• {r['cuando']} — {r['texto']} (/hecho {r['id']})" for r in rem["hoy"]]
+        lines += [f"• {r['cuando']} — {r['texto']} (n.º {r['id']})" for r in rem["hoy"]]
     if rem["atrasados"]:
         lines.append("Pendientes atrasados:")
-        lines += [f"• {r['cuando']} — {r['texto']} (/hecho {r['id']})" for r in rem["atrasados"]]
+        lines += [f"• {r['cuando']} — {r['texto']} (n.º {r['id']})" for r in rem["atrasados"]]
     if items:
         lines.append("Lo último que aprendí:")
         for it in items[-8:]:
@@ -132,7 +132,7 @@ def _valid_greeting(reply: str, compact: str) -> str | None:
 async def _greeting(rem: dict, items: list[dict]) -> str:
     """Saludo de una frase redactado por el LLM y validado; si no sirve, uno fijo."""
     p = profile.get()
-    fallback = f"Buenos días. Soy {p['asistente']['nombre']}; esto es lo que tienes hoy."
+    fallback = f"Buenos días, jefe. Soy {p['asistente']['nombre']}; esto es lo que tiene hoy."
     compact = _compact(rem, items)
     try:
         reply = await get_client().chat(
@@ -140,7 +140,7 @@ async def _greeting(rem: dict, items: list[dict]) -> str:
                 {"role": "system", "content": profile.system_prompt()},
                 {
                     "role": "user",
-                    "content": "Escribe UNA sola frase de buenos días para tu dueño que diga lo "
+                    "content": "Escribe UNA sola frase de buenos días para tu jefe que diga lo "
                     "más importante de estos datos. No inventes nada, no uses listas ni "
                     f"exclamaciones.\n\n{compact}",
                 },
@@ -159,7 +159,7 @@ async def build(day: date | None = None) -> dict:
     items = learned(since_utc=since)
     facts = _facts_text(rem, items)
     if not facts:
-        text = "Buenos días. Hoy no tienes recordatorios y en las últimas 24 h no entró nada nuevo."
+        text = "Buenos días, jefe. Hoy no tiene recordatorios y en las últimas 24 h no entró nada nuevo."
     else:
         text = f"{await _greeting(rem, items)}\n\n{facts}"
     return {"dia": day.isoformat(), "texto": text, "recordatorios": rem, "nuevos": len(items)}

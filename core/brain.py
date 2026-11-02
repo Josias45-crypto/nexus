@@ -94,7 +94,7 @@ def graph() -> dict:
 PAGE = r"""<!doctype html>
 <html lang="es"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>NEXUS · cerebro</title>
+<title>Isabelle · cerebro</title>
 <style>
   :root{--bg:#0f1220;--card:#181c33;--txt:#e8eaf6;--mut:#8f96b8;--acc:#6c7bff}
   *{box-sizing:border-box}
@@ -118,7 +118,7 @@ PAGE = r"""<!doctype html>
   #empty{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;color:var(--mut);pointer-events:none}
 </style></head><body>
 <header>
-  <div><b>NEXUS</b> · cerebro en vivo <span id="status" class="off">conectando…</span></div>
+  <div><b>Isabelle</b> · cerebro en vivo <span id="status" class="off">conectando…</span></div>
   <div><button id="pause">⏸ Pausa</button> &nbsp; <a href="/">Inicio</a> · <a href="/dashboard">Panel</a></div>
 </header>
 <canvas id="c"></canvas>

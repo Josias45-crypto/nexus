@@ -4,7 +4,7 @@ PAGE = Template("""<!doctype html>
 <html lang="es"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta http-equiv="refresh" content="30">
-<title>NEXUS</title>
+<title>Isabelle</title>
 <style>
   body{margin:0;background:#0f1220;color:#e8eaf6;font-family:system-ui,sans-serif;padding:24px}
   h1{margin:0 0 4px;font-size:28px}
@@ -18,7 +18,7 @@ PAGE = Template("""<!doctype html>
   .days{display:flex;gap:6px;padding:4px 16px;color:#8f96b8;font-size:11px}
   .days span{flex:1;text-align:center}
 </style></head><body>
-<h1>NEXUS</h1>
+<h1>Isabelle</h1>
 <p><a href="/">Inicio</a> · <a href="/brain">Cerebro en vivo</a></p>
 <div class="sub">$dias días de vida · nació el $nacio</div>
 <div class="grid">

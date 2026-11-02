@@ -1,7 +1,7 @@
 PAGE = r"""<!doctype html>
 <html lang="es"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>NEXUS</title>
+<title>Isabelle</title>
 <style>
   :root{--bg:#0f1220;--card:#181c33;--txt:#e8eaf6;--mut:#8f96b8;--acc:#6c7bff}
   *{box-sizing:border-box}
@@ -34,7 +34,7 @@ PAGE = r"""<!doctype html>
   .st-processed{background:#1b5e20}.st-pending{background:#455a64}.st-procesando{background:#1565c0}
   .st-failed{background:#b71c1c}.st-unsupported{background:#6d4c41}.st-empty{background:#5d4037}
 </style></head><body>
-<header><div><b>NEXUS</b> <span id="stats"></span></div><nav><button type="button" id="inboxBtn" title="Lo que entró y su estado">Bandeja</button><a href="/brain">Cerebro</a> · <a href="/dashboard">Panel</a></nav></header>
+<header><div><b>Isabelle</b> <span id="stats"></span></div><nav><button type="button" id="inboxBtn" title="Lo que entró y su estado">Bandeja</button><a href="/brain">Cerebro</a> · <a href="/dashboard">Panel</a></nav></header>
 <aside id="panel" hidden><h3>Bandeja <button type="button" id="closePanel" title="Cerrar">✕</button></h3><div id="items" class="m">Cargando…</div></aside>
 <div id="log"><div class="msg sys">Pregúntame algo, o usa «Recordar» para enseñarme. También puedes arrastrar archivos aquí.</div></div>
 <form id="f">
