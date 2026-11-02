@@ -2,13 +2,11 @@
 
 Uso:
     python3 tests/eval_ventas.py [--url http://localhost:8000] [--label nombre]
-                                 [--nube] [--orden openrouter] [--respaldo on|off]
                                  [--candidatos N] [--image nexus-core:otra]
 
 Sin --url usa una instancia temporal aislada (como tests/e2e.py): solo estarán las 20 notas
-de la corrida. La nube queda APAGADA salvo con --nube (usa las keys de .env; datos sintéticos).
---orden elige los proveedores de nube (NEXUS_CLOUD_ORDER) y --respaldo el NEXUS_LOCAL_FALLBACK
-(por defecto off: así se mide solo el proveedor elegido). El costo sale de GET /usage.
+de la corrida. Responde OpenRouter con la clave y el modelo de .env (datos sintéticos). El costo
+sale de GET /usage.
 Con --url las notas quedan guardadas en esa instancia y se usa su configuración.
 
 21 notas inventadas, con distractores y nombres parecidos entre clientes. 17 preguntas con otras
@@ -185,7 +183,7 @@ def evaluate(api: Api, url: str, label: str, isolated: bool, extra: dict) -> int
             "respuesta": answer[:400],
             "segundos": round(seconds, 2),
             "proveedor": (resp.get("llm") or {}).get("proveedor"),
-            "aviso": resp.get("tipo") == "aviso",  # la nube falló y el respaldo estaba apagado
+            "aviso": resp.get("tipo") == "aviso",  # OpenRouter no respondió (sin saldo, caído...)
             "costo_usd": round(cost, 8),
             "dijo_no_se": no,
             # Nombres o cifras que no están en ninguna nota y que NEXUS no marcó con ⚠
@@ -255,7 +253,7 @@ def evaluate(api: Api, url: str, label: str, isolated: bool, extra: dict) -> int
           f" · regeneradas: {totals['regeneradas']} · regresión Gil Maruri: {totals['regresion_gil_maruri']}")
     print(f"/ask: promedio {totals['ask_promedio_s']} s, máximo {totals['ask_max_s']} s")
     print(f"Costo: {totals['costo_total_usd']} USD en total, {totals['costo_por_pregunta_usd']} USD por pregunta"
-          f" · avisos sin respuesta (nube caída y respaldo apagado): {totals['avisos']}")
+          f" · avisos sin respuesta (OpenRouter no respondió): {totals['avisos']}")
     if totals["rango_sugerido_max_distance"]:
         print(f"NEXUS_MAX_DISTANCE sugerido: entre {low:.3f} y {high:.3f}")
     else:
@@ -274,7 +272,6 @@ def evaluate(api: Api, url: str, label: str, isolated: bool, extra: dict) -> int
         "aislada": isolated,
         "opciones": extra,
         "modelo": health.get("llm_model"),
-        "modelo_nube": {k: v["modelo"] for k, v in health["llm"]["nube"]["proveedores"].items()},
         "corrida": rid,
         "notas": len(NOTES),
         "segundos_procesando": round(secs),
@@ -294,26 +291,15 @@ def main() -> int:
     p = argparse.ArgumentParser(description="Evaluación de recuperación para ventas")
     p.add_argument("--url", help="instancia existente (sin esto, se usa una aislada temporal)")
     p.add_argument("--label", default="sin-etiqueta", help="nombre para comparar corridas")
-    p.add_argument("--nube", action="store_true", help="instancia aislada con el modo nube de .env")
-    p.add_argument("--orden", help="NEXUS_CLOUD_ORDER de la instancia aislada (p. ej. groq u openrouter)")
-    p.add_argument("--respaldo", choices=("on", "off"), default="off", help="NEXUS_LOCAL_FALLBACK con --nube")
     p.add_argument("--candidatos", type=int, help="NEXUS_ASK_CANDIDATES (y _LIST) de la instancia aislada")
     p.add_argument("--image", help="imagen de la instancia aislada (p. ej. una versión anterior)")
     args = p.parse_args()
     if args.url:
         return evaluate(Api(args.url), args.url, args.label, isolated=False, extra={})
-    env = {
-        "NEXUS_WORKER_INTERVAL": "3", "NEXUS_MODE": "cloud" if args.nube else "local",
-        "NEXUS_CHAT_BACKEND": "openrouter" if args.nube else "ollama",
-        "NEXUS_LOCAL_FALLBACK": args.respaldo if args.nube else "on",
-        "NEXUS_DAILY_BUDGET_USD": "",
-    }
-    if args.orden:
-        env["NEXUS_CLOUD_ORDER"] = args.orden
+    env = {"NEXUS_WORKER_INTERVAL": "3", "NEXUS_DAILY_BUDGET_USD": ""}
     if args.candidatos:
         env["NEXUS_ASK_CANDIDATES"] = env["NEXUS_ASK_CANDIDATES_LIST"] = str(args.candidatos)
     extra = {k: v for k, v in (
-        ("nube", args.nube), ("orden", args.orden), ("respaldo", args.nube and args.respaldo),
         ("candidatos", args.candidatos), ("imagen", args.image),
     ) if v}
     with isolated_instance(env, image=args.image) as url:

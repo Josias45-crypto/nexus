@@ -9,8 +9,9 @@ misma imagen y el mismo Ollama, pero con datos y respaldos en una carpeta tempor
 borra al terminar: la memoria real no se toca. Requiere `docker compose up -d` previo.
 Con --url prueba contra esa instancia (y deja en ella los datos sintéticos).
 
-Usa solo datos sintéticos marcados con un id de corrida único. --chaos detiene y vuelve a
-arrancar el contenedor de Ollama (docker compose stop/start; nunca down).
+Usa solo datos sintéticos marcados con un id de corrida único. El chat usa OpenRouter de verdad
+(la clave de .env; cuesta centavos). --chaos levanta una segunda instancia aislada con una clave
+inválida para simular OpenRouter inalcanzable.
 """
 
 import argparse
@@ -38,7 +39,6 @@ GROWTH_FIELDS = [
     "nacio",
     "aprendido",
     "hoy",
-    "racha_dias",
     "pendientes_de_digerir",
     "fallidos",
     "ultimos_dias",
@@ -183,10 +183,6 @@ def make_pdf(text: str) -> bytes:
     return bytes(out)
 
 
-def compose(*args: str) -> None:
-    subprocess.run(["docker", "compose", *args], cwd=REPO, check=True, capture_output=True)
-
-
 E2E_NAME = "nexus-e2e"
 E2E_PORT = 8001
 
@@ -199,7 +195,8 @@ def _docker(*args: str) -> str:
 
 
 @contextmanager
-def isolated_instance(extra_env: dict | None = None, image: str | None = None):
+def isolated_instance(extra_env: dict | None = None, image: str | None = None,
+                      name: str | None = None, port: int | None = None):
     """Contenedor temporal con datos propios; usa la red, la imagen (o la indicada) y el caché
     de Whisper de la instalación en marcha (nexus-core y nexus-ollama deben estar arriba)."""
     try:
@@ -214,14 +211,15 @@ def isolated_instance(extra_env: dict | None = None, image: str | None = None):
         )
     except RuntimeError as e:
         raise SystemExit(f"Levanta NEXUS antes (docker compose up -d): {e}")
+    name, port = name or E2E_NAME, port or E2E_PORT
 
-    subprocess.run(["docker", "rm", "-f", E2E_NAME], capture_output=True)
+    subprocess.run(["docker", "rm", "-f", name], capture_output=True)
     work = Path(tempfile.mkdtemp(prefix="nexus-e2e-"))
     (work / "data").mkdir()
     (work / "backups").mkdir()
     cmd = [
-        "run", "-d", "--rm", "--name", E2E_NAME, "--network", network,
-        "-p", f"127.0.0.1:{E2E_PORT}:8000",
+        "run", "-d", "--rm", "--name", name, "--network", network,
+        "-p", f"127.0.0.1:{port}:8000",
     ]
     # Primero el .env y después los -e: las variables de la prueba mandan
     if (REPO / ".env").exists():
@@ -237,7 +235,7 @@ def isolated_instance(extra_env: dict | None = None, image: str | None = None):
         cmd += ["-v", f"{whisper}:/models"]
     try:
         _docker(*cmd, image)
-        url = f"http://127.0.0.1:{E2E_PORT}"
+        url = f"http://127.0.0.1:{port}"
         deadline = time.monotonic() + 90
         while True:
             try:
@@ -245,12 +243,12 @@ def isolated_instance(extra_env: dict | None = None, image: str | None = None):
                     break
             except (urllib.error.URLError, ConnectionError, OSError):
                 if time.monotonic() > deadline:
-                    logs = subprocess.run(["docker", "logs", E2E_NAME], capture_output=True, text=True)
+                    logs = subprocess.run(["docker", "logs", name], capture_output=True, text=True)
                     raise SystemExit("La instancia de prueba no arrancó:\n" + logs.stderr[-1500:])
                 time.sleep(2)
         yield url
     finally:
-        subprocess.run(["docker", "stop", "-t", "15", E2E_NAME], capture_output=True)
+        subprocess.run(["docker", "stop", "-t", "15", name], capture_output=True)
         shutil.rmtree(work, ignore_errors=True)
         if work.exists():
             print(f"Aviso: no se pudo borrar {work} (permisos); bórralo a mano.")
@@ -274,7 +272,7 @@ class Suite:
         d = self.api.ok("GET", "/health")
         if d.get("status") != "ok":
             raise Fail(f"status={d.get('status')}")
-        return f"modelo {d.get('llm_model')}, llm_activo {d.get('llm_activo', '?')}"
+        return f"modelo {d.get('llm_model')}, embeddings {d['ollama']['ok']}"
 
     def t2_text(self):
         resp = self.api.ok("POST", "/inbox/text", {"text": self.short_text, "source": "e2e"})
@@ -413,19 +411,61 @@ class Suite:
         return f"copia con {b['eventos_en_la_copia']} de {current} eventos; requeue ok"
 
     def t10_chaos(self):
+        """OpenRouter inalcanzable (clave inválida) en una segunda instancia aislada: el original
+        se guarda, la digestión queda en cola con reintentos y el bot responde una línea clara."""
         if not self.args.chaos:
             raise Skip("sin --chaos")
-        text = f"Dato sintético de caos {self.tag}: el río ficticio Ondarel{self.rid} fluye hacia el norte."
-        compose("stop", "ollama")
-        try:
-            eid = event_id(self.api.ok("POST", "/inbox/text", {"text": text, "source": "e2e"}))
-            # Menos que los reintentos del worker (3 x 20 s): debe sobrevivir sin quedar 'failed'
-            time.sleep(25)
-        finally:
-            compose("start", "ollama")
-        ev = wait_status(self.api, eid, PROCESS_TIMEOUT + 120)
-        return f"processed tras reiniciar Ollama (intentos {ev.get('attempts')})"
+        text = (f"Dato sintético de caos {self.tag}: el río ficticio Ondarel{self.rid} fluye hacia el norte. "
+                + " ".join(f"En el tramo {i} la corriente arrastra piedras y hojas secas." for i in range(40)))
+        with isolated_instance(CHAOS_ENV, name=CHAOS_NAME, port=CHAOS_PORT) as url:
+            api = Api(url)
+            eid = event_id(api.ok("POST", "/inbox/text", {"text": text, "source": "e2e"}))
+            wait_status(api, eid, PROCESS_TIMEOUT)  # trocear y embeddings son locales: no esperan
+            raw = _docker("exec", CHAOS_NAME, "python", "-c", (
+                "import hashlib, sqlite3; c = sqlite3.connect('/data/nexus.db');"
+                f"p, h = c.execute(\"SELECT raw_path, sha256 FROM events WHERE id = '{eid}'\").fetchone();"
+                "print(hashlib.sha256(open(p, 'rb').read()).hexdigest() == h)"
+            ))
+            if raw != "True":
+                raise Fail("el original no quedó guardado intacto")
+            first = self._chaos_digest(eid, 1)
+            r = api.ok("POST", "/ask", {"question": f"¿Hacia dónde fluye el río Ondarel{self.rid}?"})
+            if r.get("tipo") != "aviso" or "\n" in r["answer"].strip() or "OpenRouter" not in r["answer"]:
+                raise Fail(f"/ask no dio un aviso de una línea: {r.get('answer')!r}")
+            bot = subprocess.run(
+                ["docker", "exec", CHAOS_NAME, "python", "-m", "channels.simulado",
+                 "--url", "http://localhost:8000", "--tag", self.rid, "--step", "caos"],
+                capture_output=True, text=True, timeout=300,
+            )
+            if bot.returncode != 0:
+                raise Fail("bot: " + bot.stdout[-300:])
+            second = self._chaos_digest(eid, 2)  # tras la pausa vuelve a intentar
+            logs = subprocess.run(["docker", "logs", CHAOS_NAME], capture_output=True, text=True)
+            if CHAOS_KEY in logs.stdout + logs.stderr:
+                raise Fail("la clave apareció en los registros")
+        return (f"original intacto; digestión en cola {second['veces']} veces sin gastar intentos "
+                f"{second['fila']}; pausa {first['pausa']} s -> {second['pausa']} s; "
+                f"/ask y bot: {r['answer'][:50]!r}")
 
+    def _chaos_digest(self, eid: str, times: int) -> dict:
+        """Espera a que la digestión de eid se haya puesto en cola `times` veces (cada vuelta es
+        un reintento tras la pausa) sin gastar intentos ni quedar 'failed'."""
+        deadline = time.monotonic() + 300
+        mark = f"Digestión en cola (clave): {eid}"
+        while time.monotonic() < deadline:
+            logs = subprocess.run(["docker", "logs", CHAOS_NAME], capture_output=True, text=True)
+            n = (logs.stdout + logs.stderr).count(mark)
+            row = _docker("exec", CHAOS_NAME, "python", "-c", (
+                "import sqlite3; c = sqlite3.connect('/data/nexus.db');"
+                f"print(c.execute(\"SELECT status, attempts, error FROM digests WHERE event_id = '{eid}'\").fetchone())"
+            ))
+            if row.startswith("('failed'") or row.startswith("('done'"):
+                raise Fail(f"la digestión no quedó en cola: {row}")
+            if n >= times and row.startswith("('retry', 0,"):
+                w = Api(f"http://127.0.0.1:{CHAOS_PORT}").ok("GET", "/worker")["llm"]
+                return {"veces": n, "pausa": w["pausa_s"], "fila": row}
+            time.sleep(3)
+        raise Fail(f"la digestión no se reintentó (en cola {n} vez/veces, fila {row})")
 
     def t11_channel(self):
         if not self.isolated:
@@ -439,7 +479,7 @@ class Suite:
         if r.returncode != 0:
             raise Fail("; ".join(fails)[:300] or (r.stderr or r.stdout)[-300:])
         oks = sum(1 for l in r.stdout.splitlines() if l.startswith("ok "))
-        return f"{oks} comprobaciones: comandos, /privado, recordatorio con confirmación e insistencia"
+        return f"{oks} comprobaciones: comandos, recordatorio con confirmación e insistencia"
 
     def _sim_step(self, name: str) -> str:
         r = subprocess.run(
@@ -487,13 +527,13 @@ class Suite:
             ["docker", "run", "--rm", "-e", "NEXUS_DATA_DIR=/tmp",
              "-v", f"{REPO / 'tests'}:/app/tests:ro", image,
              "python", "-m", "unittest", "-q", "tests.test_telegram", "tests.test_whatsapp",
-             "tests.test_cloud", "tests.test_questions", "tests.test_chunker", "tests.test_senses",
+             "tests.test_openrouter", "tests.test_questions", "tests.test_chunker", "tests.test_senses",
              "tests.test_verify", "tests.test_reminders_flow"],
             capture_output=True, text=True, timeout=120,
         )
         if r.returncode != 0:
             raise Fail("canales: " + r.stderr[-300:])
-        return "fechas, troceado, citas, preguntas, formatos, Telegram, WhatsApp y nube"
+        return "fechas, troceado, citas, preguntas, formatos, Telegram, WhatsApp y OpenRouter"
 
     def t13_profile(self):
         if not self.isolated:
@@ -516,34 +556,20 @@ class Suite:
             raise Fail("el perfil no cambió la persona")
         return "general y ventas cambian persona y resumen sin tocar el código"
 
-    def t14_cloud(self):
-        if not self.isolated:
-            raise Skip("solo en instancia aislada (keys falsas)")
-        h = self.api.ok("GET", "/health")
-        nube = h.get("llm", {}).get("nube", {})
-        keys = nube.get("proveedores", {}).get("groq", {}).get("keys", [])
-        if not nube.get("activa") or len(keys) != 2:
-            raise Fail(f"pool de nube no configurado: {nube}")
-        if not any(k["fallos"] for k in keys):
-            raise Fail(f"las keys falsas no se intentaron: {keys}")
-        if h["llm"]["ultimo"]["nube"]:
-            raise Fail("con keys falsas no debería haber respondido la nube")
-        secret = f"Dato privado {self.tag}: la caja fuerte ficticia Orvane{self.rid} se abre con la palabra lumbre."
-        eid = event_id(self.api.ok("POST", "/inbox/text", {"text": secret, "source": "e2e", "private": True}))
-        wait_status(self.api, eid, PROCESS_TIMEOUT)
-        r = self.api.ok("POST", "/ask", {"question": f"¿Con qué palabra se abre la caja fuerte Orvane{self.rid}?"})
-        llm = r.get("llm") or {}
-        if llm.get("nube") or llm.get("motivo_local") != "contenido privado":
-            raise Fail(f"un documento privado no se respondió solo en local: {llm}")
-        logs = subprocess.run(["docker", "logs", E2E_NAME], capture_output=True, text=True)
-        if any(k in logs.stdout + logs.stderr for k in FAKE_KEYS.split(",")):
-            raise Fail("una key apareció en los registros")
-        hoy = (self.api.ok("GET", "/usage?days=1").get("dias") or [{}])[0]
-        if not hoy.get("peticiones"):
-            raise Fail(f"/usage no registró las respuestas: {hoy}")
-        estados = ", ".join(f"{k['key']} {k['estado']}" for k in keys)
-        return (f"cae al local sin romperse ({estados}); privado -> solo local; sin keys en logs;"
-                f" /usage {hoy['peticiones']} peticiones hoy")
+    def t14_openrouter(self):
+        h = self.api.ok("GET", "/health")["llm"]
+        if not h["configurado"]:
+            raise Fail("OpenRouter sin clave (OPENROUTER_API_KEYS)")
+        if h["politica_datos"] != {"zdr": True, "data_collection": "deny"}:
+            raise Fail(f"política de datos inesperada: {h['politica_datos']}")
+        if h["ultimo"].get("ok") is not True:
+            raise Fail(f"la última llamada no respondió: {h['ultimo']}")
+        u = self.api.ok("GET", "/usage?days=1")
+        hoy = (u.get("dias") or [{}])[0]
+        if not hoy.get("peticiones") or not hoy.get("costo_usd"):
+            raise Fail(f"/usage no registró peticiones con costo: {hoy}")
+        return (f"{h['modelo']} con zdr y data_collection=deny; /usage {hoy['peticiones']} peticiones,"
+                f" {hoy['tokens_entrada']}+{hoy['tokens_salida']} tokens, {hoy['costo_usd']:.6f} USD")
 
     def t15_knowledge(self):
         md = (
@@ -698,11 +724,11 @@ TESTS = [
     ("7 pregunta sin relación", "t7_unrelated"),
     ("8 growth y páginas", "t8_pages"),
     ("9 backup + requeue", "t9_backup"),
-    ("10 caos (Ollama caído)", "t10_chaos"),
+    ("10 caos (OpenRouter inalcanzable)", "t10_chaos"),
     ("11 canal simulado", "t11_channel"),
     ("12 pruebas unitarias", "t12_unit"),
     ("13 perfiles", "t13_profile"),
-    ("14 cascada de nube", "t14_cloud"),
+    ("14 OpenRouter real", "t14_openrouter"),
     ("15 conocimiento", "t15_knowledge"),
     ("16 formatos", "t16_formats"),
     ("17 interfaz y reintento", "t17_ui_retry"),
@@ -711,23 +737,12 @@ TESTS = [
 
 # Programador acelerado en la instancia aislada: avisos e insistencias en segundos
 ISOLATED_ENV = {"NEXUS_SCHEDULER_INTERVAL": "2", "NEXUS_REMINDER_RETRY_MIN": "0.1"}
-# Modo cloud con keys falsas, una URL local que rechaza la conexión y respaldo local encendido:
-# toda la corrida pasa por la cascada nube -> Ollama local sin enviar nada a Internet.
-FAKE_KEYS = "falsa-key-e2e-uno,falsa-key-e2e-dos"
-ISOLATED_ENV |= {
-    "NEXUS_MODE": "cloud",
-    "NEXUS_CHAT_BACKEND": "openrouter",
-    "NEXUS_LOCAL_FALLBACK": "on",
-    "NEXUS_OLLAMA_MODELS": "nomic-embed-text,qwen2.5:1.5b",
-    "NEXUS_DAILY_BUDGET_USD": "",
-    "NEXUS_CLOUD_BACKOFF": "0.2",
-    "NEXUS_CLOUD_ORDER": "groq",
-    "GROQ_API_KEYS": FAKE_KEYS,
-    "NEXUS_GROQ_MODEL": "modelo-falso",
-    "NEXUS_GROQ_URL": "http://127.0.0.1:9/v1",
-    "GEMINI_API_KEYS": "",
-    "OPENROUTER_API_KEYS": "",
-}
+# Sin tope de gasto en la prueba (la instancia aislada empieza con su propio registro de uso)
+ISOLATED_ENV["NEXUS_DAILY_BUDGET_USD"] = ""
+# Caso 10: segunda instancia con una clave inválida (OpenRouter responde 401) y worker rápido
+CHAOS_NAME, CHAOS_PORT = "nexus-e2e-caos", 8002
+CHAOS_KEY = "clave-invalida-e2e-caos"
+CHAOS_ENV = ISOLATED_ENV | {"OPENROUTER_API_KEYS": CHAOS_KEY, "NEXUS_WORKER_INTERVAL": "3"}
 
 
 def main() -> int:
@@ -735,7 +750,7 @@ def main() -> int:
     p.add_argument("--url", help="instancia existente (sin esto, se usa una aislada temporal)")
     p.add_argument("--audio", help="archivo de audio a transcribir")
     p.add_argument("--audio-phrase", help="frase que debe aparecer en la transcripción")
-    p.add_argument("--chaos", action="store_true", help="detiene Ollama un momento (docker compose)")
+    p.add_argument("--chaos", action="store_true", help="simula OpenRouter inalcanzable (clave inválida)")
     args = p.parse_args()
 
     if args.url:

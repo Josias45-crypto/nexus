@@ -71,7 +71,7 @@ def real_notes(base: str, days: int) -> list[dict]:
         day = (today - timedelta(days=i)).isoformat()
         for e in get(f"{base}/today?dia={day}")["elementos"]:
             text = f"{e['archivo']} {e['resumen']}"
-            if e["estado"] == "processed" and not e["privado"] and not TEST_MARKERS.search(text):
+            if e["estado"] == "processed" and not TEST_MARKERS.search(text):
                 notes.append(e)
     return notes
 

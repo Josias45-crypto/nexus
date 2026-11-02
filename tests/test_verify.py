@@ -46,13 +46,13 @@ class AskRegenerationTest(unittest.TestCase):
         from core import ask
 
         hit = {"event_id": "e1", "filename": "nota.txt", "position": 0, "content": FUENTES[0],
-               "meta": {}, "distance": 0.5, "private": 0, "termino_raro": False, "coincide_texto": True}
+               "meta": {}, "distance": 0.5, "termino_raro": False, "coincide_texto": True}
         calls = []
 
         class FakeLLM:
             async def chat_ex(self, messages, **kw):
                 calls.append(messages)
-                return replies[len(calls) - 1], {"proveedor": "falso", "modelo": "x", "nube": False}
+                return replies[len(calls) - 1], {"proveedor": "falso", "modelo": "x"}
 
         async def no_route(q):
             return None
@@ -62,7 +62,7 @@ class AskRegenerationTest(unittest.TestCase):
 
         with mock.patch("core.questions.route", no_route), \
                 mock.patch.object(ask, "search", fake_search), \
-                mock.patch.object(ask, "get_provider", lambda: FakeLLM()), \
+                mock.patch.object(ask, "get_client", lambda: FakeLLM()), \
                 mock.patch.object(ask, "publish_recall", lambda *a: None):
             return asyncio.run(ask.ask("¿Quién debe dinero?")), calls
 

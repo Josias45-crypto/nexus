@@ -4,7 +4,7 @@ Autoprueba (la usa tests/e2e.py contra la instancia aislada):
     python -m channels.simulado --url http://localhost:8000
 
 Pasos sueltos, cada uno en un proceso nuevo (e2e reinicia el contenedor entre pedir y confirmar):
-    python -m channels.simulado --step pedir|confirmar|entregar --tag X
+    python -m channels.simulado --step pedir|confirmar|entregar|caos --tag X
 """
 
 import argparse
@@ -164,6 +164,12 @@ async def step(url: str, tag: str, name: str) -> int:
         check(got is not None, "el aviso sale por /outbox", str(ch.sent[-3:]))
         r = "\n".join(await bot.handle(ch.text("/hecho")))
         check("Hecho" in r, "/hecho lo cierra", r)
+    elif name == "caos":  # OpenRouter inalcanzable: una nota se guarda y una pregunta avisa en una línea
+        r = "\n".join(await bot.handle(ch.text(f"/recordar Nota durante el caos Vendral{tag}.")))
+        check("Lo recordaré" in r, "guarda la nota sin OpenRouter", r)
+        r = "\n".join(await bot.handle(ch.text(f"¿Hacia dónde fluye el río Ondarel{tag}?")))
+        check("\n" not in r.strip() and "OpenRouter" in r and "guardado" in r,
+              "responde una sola línea clara", r)
     await nexus.close()
     return 1 if check.failures else 0
 
@@ -172,7 +178,7 @@ def main() -> int:
     p = argparse.ArgumentParser()
     p.add_argument("--url", default="http://localhost:8000")
     p.add_argument("--tag", default=str(int(time.time())))
-    p.add_argument("--step", choices=["pedir", "confirmar", "entregar"])
+    p.add_argument("--step", choices=["pedir", "confirmar", "entregar", "caos"])
     args = p.parse_args()
     logging.basicConfig(level=logging.WARNING)
     if args.step:

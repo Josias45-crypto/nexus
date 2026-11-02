@@ -36,7 +36,8 @@ def limpio(s):
 
 def t_salud():
     h = call("/health")
-    return "OK", f"modelo={h.get('llm_activo')}, nube={h.get('nube')}"
+    llm = h.get("llm") or {}
+    return "OK", f"modelo={h.get('llm_model')}, ultimo={llm.get('ultimo')}"
 
 
 def t_guardar_y_preguntar():
@@ -238,7 +239,7 @@ LO QUE NO PUEDE HOY:
  - Llamarte por teléfono (Telegram no lo permite).
  - WhatsApp: está preparado pero apagado, exige cuenta de Meta Business.
  - Juntar varias notas con fiabilidad (listas de clientes, totales): acierta unas 2 de 4.
- - Usar Gemini: su clave daba error 401.
- - Garantía de privacidad con la nube encendida: lo que preguntes viaja a Groq.
- - Groq gratis se agota tras unas 11 preguntas seguidas y cae al modelo local, más lento.
+ - Privacidad total del chat: preguntas y textos a resumir viajan a OpenRouter (solo a
+   proveedores sin retención). Embeddings, audio y OCR siguen en la máquina.
+ - Sin saldo en OpenRouter no responde: avisa y guarda todo para después.
 """)
