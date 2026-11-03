@@ -150,6 +150,23 @@ CREATE TABLE IF NOT EXISTS iniciativa (
     UNIQUE (dia, tipo)
 );
 
+-- Búsquedas en internet (core/internet.py): para el tope diario y el costo; nunca la consulta
+CREATE TABLE IF NOT EXISTS busquedas (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at TEXT NOT NULL,
+    dia TEXT NOT NULL,              -- día local
+    fuentes INTEGER NOT NULL DEFAULT 0,
+    costo_usd REAL
+);
+CREATE INDEX IF NOT EXISTS idx_busquedas_dia ON busquedas(dia);
+
+-- «Olvida eso» (core/olvido.py): qué se borró y cuándo, SIN contenido
+CREATE TABLE IF NOT EXISTS olvidos (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at TEXT NOT NULL,
+    tipo TEXT NOT NULL              -- nota | archivo | ficha | charla | recordatorio | resumen
+);
+
 CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
     content, content='chunks', content_rowid='id',
     tokenize='unicode61 remove_diacritics 2'

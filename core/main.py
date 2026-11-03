@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 
 from config import settings
 from core import profile as nexus_profile
-from core import ask, backup, brain, briefing, charla, conversa, digest, dashboard, events, growth, inbox, iniciativa, outbox, persona, processor, reindex, reminders, search, ui, usage, worker
+from core import ask, backup, brain, briefing, charla, conversa, digest, dashboard, events, growth, inbox, iniciativa, internet, outbox, persona, processor, reindex, reminders, search, ui, usage, worker
 from core.db import connect, init_db
 from core.logs import setup_logging
 from providers.openrouter import ChatUnavailable, get_client
@@ -149,6 +149,17 @@ async def conversar(req: TurnoIn):
     return await conversa.conversar(req.mensajes, req.channel, req.chat_id)
 
 
+class SeguirIn(BaseModel):
+    channel: str = Field(min_length=1, max_length=40)
+    chat_id: str = Field(min_length=1, max_length=80)
+
+
+@app.post("/conversar/seguir")
+async def conversar_seguir(req: SeguirIn):
+    """La continuación de una respuesta con "seguir": la búsqueda en internet ya anunciada."""
+    return await conversa.seguir(req.channel, req.chat_id)
+
+
 @app.post("/conversar/boton")
 async def conversar_boton(req: BotonIn):
     return await conversa.boton(req.dato, req.channel, req.chat_id)
@@ -274,6 +285,8 @@ def usage_totals(days: int = Query(30, ge=1, le=366)):
         "presupuesto_diario_usd": settings.DAILY_BUDGET_USD,
         "gastado_hoy_usd": round(usage.spent_today(), 6),
         "total_usd": round(sum(d["costo_usd"] for d in dias), 6),
+        "busquedas_internet_hoy": internet.hechas_hoy(),
+        "busquedas_internet_tope": internet.config()["busquedas_dia"],
         "dias": dias,
     }
 

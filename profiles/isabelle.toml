@@ -223,3 +223,29 @@ normal = "Perfecto, {trato}: sigo saludándolo como siempre."
 pausa = "De acuerdo, {trato}: no le escribo por mi cuenta hasta que me diga «vuelve a saludarme». Sus recordatorios siguen igual."
 ajuste_dia = "Anotado, {trato}: {cuando} le escribo a las {hora}."
 ajuste_siempre = "Listo, {trato}: desde ahora el saludo {saludo} va a las {hora}."
+
+# Búsqueda en internet (core/internet.py), por OpenRouter con el buscador Exa. Solo viaja la
+# pregunta reformulada, sin datos personales ni nada de su memoria.
+[internet]
+busquedas_dia = 20
+aviso = [
+  "Eso no lo tengo, {trato}; déjeme buscarlo en internet un momento.",
+  "No está en mi memoria, {trato}. Lo busco en internet y le cuento.",
+  "Eso no lo sé de memoria, {trato}; un momentito, lo busco en internet.",
+]
+pedido = [
+  "Ya lo busco en internet, {trato}; un momento.",
+  "Voy a buscarlo en internet, {trato}. Dame un ratito.",
+]
+tope = "Hoy ya hice las {n} búsquedas en internet que tengo permitidas, {trato}; mañana sigo buscando."
+guardar = "¿Quiere que lo guarde en su cerebro, {trato}?"
+guardado = "Listo, {trato}: lo guardé como nota de internet, con la fuente y la fecha."
+no_guardado = "De acuerdo, {trato}, no lo guardo."
+sin_fuentes = "Busqué en internet, {trato}, pero no encontré fuentes claras sobre eso."
+no_buscar = "Eso no lo sé con seguridad, {trato}, y me pidió no buscar en internet."
+sin_consulta = "Para buscar eso en internet tendría que enviar datos suyos, {trato}, y no lo hago. ¿Me lo pregunta de forma general?"
+
+# «Olvida eso» (core/olvido.py): siempre confirma por texto antes de borrar.
+[olvido]
+max_items = 10
+respaldos = "Puede quedar en los respaldos de los últimos 7 días."

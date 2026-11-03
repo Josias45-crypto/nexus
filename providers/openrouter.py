@@ -7,6 +7,9 @@
   al alcanzarlo avisa y espera a mañana; no hay respaldo.
 - El modelo potente (análisis a fondo) tiene un modelo de respaldo propio: entra solo si el
   potente está caído, limitado (429) o no existe; nunca por falta de saldo, clave o tope diario.
+- Búsqueda en internet (web=True): plugin «web» con el buscador Exa. zdr y data_collection=deny
+  cubren al modelo, no al buscador: quien llama debe enviar solo una consulta limpia, sin datos
+  personales (core/internet.py). Las fuentes llegan en info["fuentes"] (url, título, extracto).
 - Si OpenRouter no responde, lanza ChatUnavailable con una línea clara para el dueño y pausa el
   trabajo de fondo con espera creciente (paused_for). Ante 402 avisa al dueño una sola vez.
 
@@ -32,6 +35,7 @@ BACKOFF = 1.0  # segundos; se duplica en cada reintento
 MAX_INLINE_WAIT = 10  # un Retry-After más largo no se espera aquí: se avisa
 PAUSE_MIN, PAUSE_MAX = 30, 1800  # pausa del trabajo de fondo tras un fallo (crece x2)
 DATA_POLICY = {"zdr": True, "data_collection": "deny"}
+WEB_PLUGIN = {"id": "web", "engine": "exa", "max_results": 5}
 
 SAVED = "Lo que me envíe queda guardado y lo proceso después."
 MESSAGES = {
@@ -198,7 +202,7 @@ class OpenRouter:
 
     async def chat_ex(
         self, messages: list[dict], *, model: str | None = None, temperature: float = 0,
-        max_tokens: int | None = None, razonar: bool = False,
+        max_tokens: int | None = None, razonar: bool = False, web: bool = False,
     ) -> tuple[str, dict]:
         """Devuelve (texto, uso). Sin `model`, el de uso diario. Temperatura 0 para datos y
         extracción; más alta para charla. Sin `razonar`, el razonamiento interno va apagado: con
@@ -220,6 +224,8 @@ class OpenRouter:
             body["max_tokens"] = max_tokens
         if not razonar:
             body["reasoning"] = {"enabled": False}
+        if web:
+            body["plugins"] = [WEB_PLUGIN]
         modelos = [model]
         if model == self.deep_model and self.deep_fallback and self.deep_fallback != model:
             modelos.append(self.deep_fallback)
@@ -244,6 +250,13 @@ class OpenRouter:
             "costo_usd": float(cost) if isinstance(cost, (int, float)) else None,
             "respaldo": body["model"] != model,
         }
+        if web:  # en /usage aparte del chat; las fuentes, del formato url_citation
+            info["proveedor"] = "openrouter-internet"
+            info["fuentes"] = [
+                {"url": c.get("url") or "", "titulo": c.get("title") or "", "extracto": c.get("content") or ""}
+                for a in data["choices"][0]["message"].get("annotations") or []
+                if a.get("type") == "url_citation" and isinstance(c := a.get("url_citation"), dict) and c.get("url")
+            ]
         if self._alert_stale and self.ledger:
             self._safe(self.ledger.clear_alert, "sin_saldo")
             self._alert_stale = False
