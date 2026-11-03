@@ -28,7 +28,7 @@ import unicodedata
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta
 
-from core import ask, charla, citations, clock, filtro, inbox, persona, questions, reminders, when
+from core import ask, charla, citations, clock, filtro, inbox, iniciativa, persona, questions, reminders, when
 from core.db import connect
 from core.search import relevant, search
 from providers.openrouter import ChatUnavailable, get_client
@@ -421,6 +421,8 @@ async def _reglas(textos: list[str], channel: str, chat_id: str, anterior: str |
         return Respuesta(persona.frase(clave), "cierre")
     if RE_AYUDA.match(p):
         return Respuesta(persona.frase("ayuda"), "ayuda")
+    if r := iniciativa.ajuste(texto):  # «mañana me levanto a las 5», «desde hoy el saludo a las 6»
+        return Respuesta(r, "iniciativa")
     if RE_RECORDATORIO.match(texto):
         return await _recordatorio(texto, channel, chat_id)
     if RE_LISTA.search(p):
@@ -702,6 +704,7 @@ async def conversar(textos: list[str], channel: str, chat_id: str) -> dict:
         anterior = next((m["texto"] for m in reversed(previos) if m["rol"] == "jefe"), None)
         for t in textos:
             charla.agregar("jefe", t, chat_id)
+        iniciativa.al_escribir(channel, chat_id, "\n".join(textos))
         r = await _turno(textos, channel, chat_id, previos, anterior)
     except ChatUnavailable as exc:
         r = Respuesta(str(exc), "aviso")
@@ -723,6 +726,8 @@ async def _turno(textos, channel, chat_id, previos, anterior) -> Respuesta:
     texto = "\n".join(textos)
     if r := await _resolver_hora(texto, channel, chat_id):
         return r
+    if r := iniciativa.resolver(texto):  # «¿prefiere que le escriba menos?»
+        return Respuesta(r, "iniciativa")
     if e := _espera(channel, chat_id):
         if r := await _resolver_espera(e, texto, channel, chat_id):
             return r
@@ -800,6 +805,7 @@ async def boton(dato: str, channel: str, chat_id: str) -> dict:
             n = len(reminders.cancelar_serie(rid, chat_id))
             r = Respuesta(persona.frase("recordatorios.cancelado", tarea=f"{actual['text']} (toda la serie, {n} pendiente(s))"), "recordatorio")
     r.texto = persona.dosificar(r.texto)
+    iniciativa.al_escribir(channel, chat_id)
     charla.agregar("jefe", f"[Pulsó «{etiqueta}»]", chat_id)
     charla.agregar("isabelle", r.texto, chat_id, r.accion)
     return r.dict()
@@ -817,6 +823,7 @@ def archivo(filename: str, kind: str, duplicate: bool, chat_id: str) -> dict:
         texto = persona.frase("archivo", archivo=filename)
     texto = persona.dosificar(texto)
     que = "una foto (todavía no puedes verla: no adivines qué tiene)" if kind == "image" else "un archivo"
+    iniciativa.al_escribir(None, chat_id)
     charla.agregar("jefe", f"[Envió {que}: {filename}]", chat_id)
     charla.agregar("isabelle", texto, chat_id, "archivo")
     return Respuesta(texto, "archivo").dict()
