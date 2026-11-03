@@ -173,3 +173,53 @@ cuando = [
   "¿Para cuándo se lo paso, {trato}?",
   "¿Cuándo se lo recuerdo, {trato}?",
 ]
+
+# Iniciativa propia (core/iniciativa.py): saludos de mañana y de noche. Horas locales HH:MM.
+# El silencio no aplica a los recordatorios ni a una hora que el jefe pidió («mañana me levanto a
+# las 5»). Si el sistema estuvo apagado, cada saludo sale solo hasta su «hasta»; si no, se salta.
+[iniciativa]
+manana = "07:30"
+noche = "21:30"
+silencio_desde = "23:00"
+silencio_hasta = "06:00"
+manana_hasta = "11:00"
+noche_hasta = "23:00"
+conversando_min = 30     # si él escribió hace menos, se espera...
+espera_max_min = 60      # ...hasta esto después de la hora; si sigue conversando, se salta
+dias_sin_respuesta = 3   # días seguidos sin respuesta antes de preguntar si le escribe menos
+# Respaldo si la IA falla o su texto no pasa la verificación (10 por saludo, arranques distintos)
+respaldo_manana = [
+  "Buenos días, {trato}. Que hoy le rinda el día.",
+  "¡Arriba, {trato}! Ya amaneció y aquí estoy para lo que necesite.",
+  "Buen día, {trato}. Un café y a darle con calma.",
+  "Hola, {trato}, buenos días. Hoy lo acompaño en lo que salga.",
+  "Feliz mañana, {trato}. Cuando quiera, empezamos.",
+  "Muy buenos días, {trato}. Que sea una jornada tranquila y productiva.",
+  "¿Cómo amaneció, {trato}? Aquí estoy para lo que necesite.",
+  "Ya es de mañana, {trato}: le deseo un día ligero.",
+  "Empezamos otro día, {trato}. Cuente conmigo para lo que venga.",
+  "Que tenga un lindo día, {trato}. Vamos paso a paso con lo de hoy.",
+]
+respaldo_noche = [
+  "¿Cómo le fue hoy, {trato}? Cuénteme si quiere.",
+  "Buenas noches, {trato}. ¿Qué tal estuvo el día?",
+  "Ya cae la noche, {trato}: ¿cómo lo trató el día?",
+  "Hola, {trato}. ¿Pudo descansar un poco hoy o fue un día movido?",
+  "¿Qué tal su día, {trato}? Aquí estoy si quiere contarme.",
+  "Terminando el día, {trato}: ¿cómo se siente?",
+  "Por fin de noche, {trato}. ¿Cómo salió todo hoy?",
+  "Ya casi a descansar, {trato}. ¿Cómo estuvo su jornada?",
+  "Paso a saludarlo, {trato}. ¿Cómo le fue en el día?",
+  "Otra jornada que se va, {trato}. ¿Qué tal le fue?",
+]
+pregunta_menos = [
+  "Hola, {trato}. Estos días no hemos coincidido y no quiero ser pesada: ¿prefiere que le escriba menos?",
+  "Buenos días, {trato}. Llevo unos días saludándolo sin respuesta y no quiero incomodar: ¿prefiere que le escriba menos?",
+]
+agenda = "Para hoy tiene:"
+sin_confirmar = "Quedó sin confirmar de días anteriores: {lista}. Si ya lo hizo, me avisa."
+menos = "Entendido, {trato}: desde mañana solo le escribo en las mañanas."
+normal = "Perfecto, {trato}: sigo saludándolo como siempre."
+pausa = "De acuerdo, {trato}: no le escribo por mi cuenta hasta que me diga «vuelve a saludarme». Sus recordatorios siguen igual."
+ajuste_dia = "Anotado, {trato}: {cuando} le escribo a las {hora}."
+ajuste_siempre = "Listo, {trato}: desde ahora el saludo {saludo} va a las {hora}."

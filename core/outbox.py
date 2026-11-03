@@ -11,7 +11,7 @@ from core.db import connect
 log = logging.getLogger("nexus.outbox")
 
 # Un resumen matutino que nadie recogió a tiempo (canal apagado) ya no tiene sentido
-STALE = {"briefing": timedelta(hours=12)}
+STALE = {"briefing": timedelta(hours=12), "saludo": timedelta(hours=3)}
 
 
 def put(conn, channel: str, chat_id: str | None, kind: str, ref_id: str | None, text: str,

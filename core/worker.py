@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
 from config import settings
-from core import backup, briefing, charla, conversa, digest, processor, reminders
+from core import backup, charla, conversa, digest, iniciativa, processor, reminders
 
 log = logging.getLogger("nexus.worker")
 
@@ -39,10 +39,10 @@ async def _digest_step() -> dict:
 
 async def _scheduler_step() -> dict:
     result = await asyncio.to_thread(reminders.due_step)
-    try:
-        result.update(await briefing.due_step())
+    try:  # saludos de mañana y noche (reemplazan al resumen matutino de core/briefing.py)
+        result.update(await iniciativa.due_step())
     except Exception:
-        log.exception("Error armando el resumen matutino")
+        log.exception("Error en los saludos de Isabelle")
     return result
 
 

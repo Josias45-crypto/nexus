@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 
 from config import settings
 from core import profile as nexus_profile
-from core import ask, backup, brain, briefing, charla, conversa, digest, dashboard, events, growth, inbox, outbox, persona, processor, reindex, reminders, search, ui, usage, worker
+from core import ask, backup, brain, briefing, charla, conversa, digest, dashboard, events, growth, inbox, iniciativa, outbox, persona, processor, reindex, reminders, search, ui, usage, worker
 from core.db import connect, init_db
 from core.logs import setup_logging
 from providers.openrouter import ChatUnavailable, get_client
@@ -382,6 +382,12 @@ async def run_backup_endpoint():
     if isinstance(result, dict):
         events.publish("backup", {"eventos": result.get("eventos_en_la_copia")})
     return result
+
+
+@app.get("/iniciativa")
+def iniciativa_estado():
+    """Saludos de Isabelle: preferencia, horas de hoy y los últimos (enviados o saltados y por qué)."""
+    return iniciativa.estado()
 
 
 @app.get("/backup")

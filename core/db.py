@@ -130,6 +130,26 @@ CREATE TRIGGER IF NOT EXISTS charla_ad AFTER DELETE ON charla BEGIN
     INSERT INTO charla_fts(charla_fts, rowid, texto) VALUES ('delete', old.id, old.texto);
 END;
 
+-- Iniciativa propia (core/iniciativa.py): un saludo por día y tipo (manana o noche), nunca dos.
+-- estado: redactando | enviado | saltado (motivo: tarde, conversando, despedida, preferencia...)
+CREATE TABLE IF NOT EXISTS iniciativa (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    dia TEXT NOT NULL,              -- día local AAAA-MM-DD
+    tipo TEXT NOT NULL,
+    estado TEXT NOT NULL,
+    motivo TEXT,
+    hora TEXT,                      -- hora local programada HH:MM
+    texto TEXT,
+    fuente TEXT,                    -- ia | respaldo | pregunta
+    detalle TEXT,                   -- por qué se usó el respaldo
+    respondido INTEGER NOT NULL DEFAULT 0,
+    dias_sin_respuesta INTEGER NOT NULL DEFAULT 0,
+    creado_at TEXT NOT NULL,
+    actualizado_at TEXT NOT NULL,
+    enviado_at TEXT,
+    UNIQUE (dia, tipo)
+);
+
 CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
     content, content='chunks', content_rowid='id',
     tokenize='unicode61 remove_diacritics 2'
