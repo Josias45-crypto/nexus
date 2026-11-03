@@ -35,6 +35,13 @@ audio y el OCR corren en tu máquina, en Docker.
   respondes un día, solo el de la mañana; a los 3 días pregunta «¿prefiere que le escriba menos?».
   Se ajusta hablando: «mañana me levanto a las 5», «desde hoy el saludo a las 6». Horarios en
   `[iniciativa]` de `profiles/isabelle.toml`; estado en `GET /iniciativa`.
+- **Busca en internet** solo si no está en tu memoria y es reciente o local, si el modelo no lo
+  sabe o si se lo pides («busca en internet…»); «no busques en internet» se respeta. Avisa antes en
+  un mensaje aparte, cita 1 a 3 fuentes (sitio y dominio), marca lo que no vio en ellas y pregunta
+  si lo guarda (como nota «de internet» con fuente y fecha). Tope de 20 búsquedas al día.
+- **«Olvida eso»** («borra lo de Rosa», «olvida todo lo de X»): lista candidatos si hay varios y
+  siempre confirma por texto («sí» y nada más). Borra el original, lo derivado, lo de tu ficha,
+  las menciones en la charla y cancela los recordatorios ligados; queda un registro sin contenido.
 - **Memoria de la charla**: historial completo con búsqueda, una ficha del jefe que sale solo de
   lo que él dice y un resumen corriente; va aparte del conocimiento con fuentes.
 - **Telegram** como canal principal; interfaz web en `http://localhost:8000`.
@@ -140,11 +147,17 @@ Cambiar de modelo: edita `NEXUS_OPENROUTER_MODEL` y `docker compose up -d`.
 > fragmentos de tu memoria que sirven para responder. NEXUS solo admite proveedores con
 > retención cero que no guardan ni entrenan con tus datos ([detalles](docs/MODO_NUBE.md)).
 
+> **Búsqueda en internet.** La retención cero de OpenRouter cubre al modelo, **no al buscador**:
+> la consulta llega a Exa, que declara no guardar consultas, pero eso no está garantizado para
+> búsquedas que llegan por OpenRouter. Por eso solo viaja la pregunta reformulada, sin teléfonos,
+> correos, montos ni nombres de tu ficha o de tus notas, y nunca fragmentos de tu memoria.
+
 ## Pruebas
 
 ```bash
-python3 tests/e2e.py                       # 21 casos en una instancia aislada temporal
+python3 tests/e2e.py                       # 22 casos en una instancia aislada temporal
 python3 tests/muestra_iniciativa.py        # una semana simulada de saludos (OpenRouter real)
+python3 tests/muestra_busqueda_olvido.py   # 10 charlas de búsqueda y «olvida eso» (3 búsquedas reales)
 python3 tests/e2e.py --chaos --audio voz.wav --audio-phrase "una palabra del audio"
 python3 tests/eval_ventas.py --label prueba    # 21 notas y 17 preguntas de ventas (aislada)
 python3 tests/informe.py                   # qué funciona hoy en TU instalación (instancia real)

@@ -32,7 +32,7 @@ El proyecto y el bot se llamarán "Isabelle" (NEXUS e Isabelle son lo mismo). El
 renombran al final.
 - Secretaria personal en Telegram, sin comandos. Trato: jefe, señor, señor Josias, gerente o
   ingeniero Josias. Sumisa pero siempre honesta, cariñosa y natural.
-- Responde desde el cerebro; si no hay dato, avisa y busca en internet con OpenRouter.
+- Responde desde el cerebro; si no hay dato, avisa y busca en internet con OpenRouter (hecho en 2E).
 - Comenta cada foto, audio o documento. Saludos de mañana y noche.
 - Recordatorios con seguimiento y botones ("Ya lo hice", "Sí", "Recuérdame").
 - Guarda lo importante de la charla; con "recuerda esto" (o equivalente) lo guarda tal cual.
@@ -89,6 +89,14 @@ núcleo es genérico; lo propio del rubro vive en profiles/*.toml.
   la noche; apagado: hasta 11 a. m. / 11 p. m. Una llamada (modelo diario, 0,8) verificada por
   código (cifras, horas, nombres, arranque de los últimos 7); si no, respaldo. Reemplaza en el
   programador al resumen matutino de core/briefing.py (/briefing y /today siguen).
+- Fase 2E: búsqueda en internet (core/internet.py; plugin web de OpenRouter con Exa: zdr no cubre al
+  buscador, así que solo viaja la pregunta limpia, sin datos personales ni del cerebro). Niveles:
+  cerebro -> saber general (NO_SE si no sabe) -> internet si es reciente/local, si el modelo no lo
+  sabe o si lo pide; aviso aparte (Respuesta.seguir + POST /conversar/seguir); fuentes legibles
+  verificadas; «¿lo guardo?» pendiente 30 min; tope [internet].busquedas_dia (tabla busquedas).
+  «Olvida eso» (core/olvido.py): candidatos numerados, confirmación solo con «sí», cascada
+  (original y su espejo en backups/raw, trozos, FTS, vectores, resúmenes, ficha, charla, resumen,
+  recordatorios), tabla olvidos sin contenido. Preguntas pendientes en core/pendientes.py.
 
 ## Cómo probar
 `python3 tests/e2e.py --audio <wav> --audio-phrase <palabra> --chaos` (20 casos, instancia
@@ -97,7 +105,7 @@ Para no tocar la imagen de los contenedores reales: `docker build -t nexus-core:
 `NEXUS_E2E_IMAGE=nexus-core:prueba python3 tests/e2e.py --chaos`. Unitarias dentro del contenedor (ver tests/test_senses.py).
 Antes de probar cambios de código: `docker compose build core`. También: `tests/eval_ventas.py`
 (medir antes y después en /ask), `tests/informe.py` (estado de la instalación real),
-`tests/muestra_conversaciones.py` (15 charlas para juzgar el tono), `tests/muestra_iniciativa.py` (una semana de saludos) y `tests/comparar_modelos.py`.
+`tests/muestra_conversaciones.py` (15 charlas para juzgar el tono), `tests/muestra_iniciativa.py` (una semana de saludos), `tests/muestra_busqueda_olvido.py` y `tests/comparar_modelos.py`.
 
 ## Reglas que no cambian
 - Embeddings, audio, OCR y visión nunca salen de la máquina (hasta sus fases).

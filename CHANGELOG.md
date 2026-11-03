@@ -33,6 +33,28 @@ AAAA-MM-DD.
 - Lenguaje natural: «pospón el 2 una hora», «¿qué tengo pendiente?»; «en 90 segundos».
 - `NEXUS_REMINDER_MAX_TRIES` se quita; `NEXUS_REMINDER_RETRY_MIN` queda solo para pruebas.
 
+### Agregado (Fase 2E: búsqueda en internet y «olvida eso»)
+- Búsqueda en internet por OpenRouter (plugin `web`, buscador Exa, ~0,008 USD por búsqueda):
+  primero el cerebro, luego el saber general avisado y solo después internet (dato reciente o
+  local, el modelo no lo sabe, o «busca en internet…»); «no busques en internet» se respeta.
+  Aviso aparte antes de buscar (`POST /conversar/seguir`), 1 a 3 fuentes legibles, verificación
+  de nombres y cifras contra lo devuelto y «¿Quiere que lo guarde en su cerebro?» (nota
+  `source=internet` con fuente y fecha; pendiente 30 min, sin tragarse mensajes).
+- Privacidad: zdr no cubre al buscador; viaja solo la pregunta limpia (sin teléfonos, correos,
+  montos, números largos ni nombres de su ficha o sus notas) con un sistema sin datos del jefe.
+- Tope de 20 búsquedas al día en `[internet]` de `profiles/isabelle.toml` (tabla `busquedas`, sin
+  la consulta); `/usage` separa el costo (`openrouter-internet`) y cuenta las búsquedas del día.
+- «Olvida eso» en lenguaje natural con candidatos numerados (máx. 10), confirmación solo con «sí»
+  y borrado en cascada: original y su copia del espejo de respaldos, trozos, FTS, vectores,
+  resúmenes, ítems de la ficha (listados al confirmar), menciones en la charla, frases del
+  resumen y recordatorios ligados. Tabla `olvidos` con tipo y fecha, sin contenido.
+- Migraciones no destructivas (`busquedas`, `olvidos`). Al desplegar: `POST /backup` antes.
+
+### Cambiado (ajuste 2D)
+- El saludo pregunta en vez de suponer: la verificación rechaza «se ve que», «seguro que», «debe
+  estar», «imagino que», «parece que», «se me hace que» con algo fuera del contexto, y no menciona
+  la hora actual.
+
 ### Agregado (Fase 2D: iniciativa propia)
 - Saludo de la mañana (7:30 a. m., con la agenda del día en 12 h y en orden) y de la noche
   (9:30 p. m., «¿cómo le fue?»), por el mismo programador y buzón que los recordatorios y dentro
