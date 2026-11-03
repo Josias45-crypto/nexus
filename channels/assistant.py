@@ -6,6 +6,8 @@
 - "escribiendo..." visible mientras piensa y una pausa humana según el largo de la respuesta.
 - Sin comandos: todo texto va a /conversar; los archivos se guardan y se acusa recibo; los
   botones van a /conversar/boton y después se quitan del mensaje.
+- Una respuesta con «seguir» (el aviso antes de buscar en internet) sale aparte y enseguida se
+  pide y envía la continuación (POST /conversar/seguir).
 - deliver_outbox() reparte lo que Isabelle quiere decir por su cuenta (avisos, resumen matutino).
 Nunca registra el contenido de los mensajes.
 """
@@ -90,10 +92,10 @@ class Assistant:
         inicio = time.monotonic()
         await self._typing(chat)
         latido = asyncio.create_task(self._keep_typing(chat))
-        botones = None
+        botones, seguir = None, False
         try:
             r = await trabajo
-            texto, botones = r.get("texto") or "", r.get("botones")
+            texto, botones, seguir = r.get("texto") or "", r.get("botones"), bool(r.get("seguir"))
         except NexusError as exc:
             texto = f"⚠️ {exc}"
         except Exception:
@@ -107,11 +109,15 @@ class Assistant:
                     await asyncio.sleep(restante)
         finally:
             latido.cancel()
+        if not texto:
+            return []
         try:
             await self.channel.send(chat, texto, botones)
         except Exception as exc:
             log.warning("No se pudo responder en %s (%s)", self.channel.name, type(exc).__name__)
             return []
+        if seguir:  # un aviso («déjeme buscarlo…») va aparte y enseguida llega la continuación
+            return [texto] + await self._atender(chat, self.nexus.seguir(self.channel.name, chat))
         return [texto]
 
     async def _typing(self, chat_id: str) -> None:

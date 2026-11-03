@@ -39,6 +39,10 @@ class NexusClient:
             "POST", "/conversar", json={"mensajes": mensajes, "channel": channel, "chat_id": chat_id}
         )
 
+    async def seguir(self, channel: str, chat_id: str) -> dict:
+        """La continuación de una respuesta con "seguir" (p. ej. la búsqueda ya anunciada)."""
+        return await self._req("POST", "/conversar/seguir", json={"channel": channel, "chat_id": chat_id})
+
     async def boton(self, dato: str, channel: str, chat_id: str) -> dict:
         return await self._req(
             "POST", "/conversar/boton", json={"dato": dato, "channel": channel, "chat_id": chat_id}
