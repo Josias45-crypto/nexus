@@ -33,6 +33,27 @@ AAAA-MM-DD.
 - Lenguaje natural: «pospón el 2 una hora», «¿qué tengo pendiente?»; «en 90 segundos».
 - `NEXUS_REMINDER_MAX_TRIES` se quita; `NEXUS_REMINDER_RETRY_MIN` queda solo para pruebas.
 
+### Agregado (Fase 2D: iniciativa propia)
+- Saludo de la mañana (7:30 a. m., con la agenda del día en 12 h y en orden) y de la noche
+  (9:30 p. m., «¿cómo le fue?»), por el mismo programador y buzón que los recordatorios y dentro
+  del historial de la charla. Horarios, silencio (11 p. m. a 6 a. m.), límites tras un apagón
+  (11 a. m. / 11 p. m.) y 10 frases de respaldo por saludo en `[iniciativa]` de
+  `profiles/isabelle.toml`.
+- Una sola llamada al modelo de uso diario (temperatura 0,8) con ficha, resumen, agenda de hoy y
+  mañana y lo real del día; el código verifica cifras, horas y nombres contra ese contexto, el
+  largo, la «vida propia» y que no repita el arranque de los últimos 7 saludos.
+- Sin hostigar: espera si el jefe está conversando (se salta tras 60 min); un día sin respuesta
+  deja solo el de la mañana; a los 3 días pregunta «¿prefiere que le escriba menos?» y entiende
+  «sí, menos», «no, como siempre» o «pausa»; una despedida de noche salta el saludo de la noche.
+- Ajustes hablando: «mañana me levanto a las 5» (solo ese día, aunque caiga en el silencio) y
+  «desde hoy el saludo a las 6» (persistente); «vuelve a saludarme», «escríbeme menos».
+- Tabla `iniciativa` (migración no destructiva, `UNIQUE(dia, tipo)`: sin duplicados tras un
+  reinicio) y `GET /iniciativa`. Al desplegar en la instancia real: `POST /backup` antes.
+
+### Cambiado
+- El programador ya no envía el resumen matutino de `core/briefing.py` (lo reemplaza el saludo
+  de la mañana); `/briefing` y `/today` siguen disponibles.
+
 ### Ajustes a la Fase 2B
 - Modelo potente `anthropic/claude-sonnet-5.5` con respaldo propio
   (`NEXUS_OPENROUTER_MODEL_DEEP_RESPALDO=deepseek/deepseek-v4-pro`) solo si está caído, limitado

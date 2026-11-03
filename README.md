@@ -7,7 +7,7 @@ Secretaria personal del dueño de un negocio (primer caso: ventas). Le escribes 
 a una persona, **sin comandos**, y le mandas notas, archivos, fotos y notas de voz; Isabelle
 guarda el original, lo entiende, conversa con su personalidad (`profiles/isabelle.toml`) y
 responde tus preguntas **citando de dónde sale cada dato**. También te escribe primero:
-recordatorios y un resumen cada mañana.
+recordatorios y saludos de mañana (con tu agenda) y de noche, sin hostigar.
 
 Empieza vacío y aprende día a día. La inteligencia vive en lo que acumula, no en el modelo: el
 chat va por OpenRouter (el modelo se cambia con una variable) y la memoria, los embeddings, el
@@ -29,6 +29,12 @@ audio y el OCR corren en tu máquina, en Docker.
   am/pm pregunta por texto «¿de la mañana o de la noche?» (salvo una sola vez a menos de 2 h). Avisa 30 min antes y a la hora con **Ya lo hice** y
   **Recuérdame**, insiste cada 20 min (máx. 3) y luego lo deja «sin confirmar». Sin IA, a prueba
   de reinicios y sin avisos duplicados ([detalles](docs/CANALES.md)).
+- **Saludos por iniciativa propia** a las 7:30 a. m. (con la agenda del día en 12 h) y 9:30 p. m.
+  («¿cómo le fue?»), redactados por la IA con lo real de tu día y verificados por código (si no
+  pasan, frase de respaldo). Silencio de 11 p. m. a 6 a. m.; si estás conversando, espera; si no
+  respondes un día, solo el de la mañana; a los 3 días pregunta «¿prefiere que le escriba menos?».
+  Se ajusta hablando: «mañana me levanto a las 5», «desde hoy el saludo a las 6». Horarios en
+  `[iniciativa]` de `profiles/isabelle.toml`; estado en `GET /iniciativa`.
 - **Memoria de la charla**: historial completo con búsqueda, una ficha del jefe que sale solo de
   lo que él dice y un resumen corriente; va aparte del conocimiento con fuentes.
 - **Telegram** como canal principal; interfaz web en `http://localhost:8000`.
@@ -41,8 +47,10 @@ audio y el OCR corren en tu máquina, en Docker.
 - **Preguntas que juntan varias notas** ("¿qué clientes pidieron laptops?"): acierta 2 de 4 en
   `tests/eval_ventas.py`. Las preguntas sobre una sola nota aciertan 9 de 9.
 - **Sin internet o sin saldo en OpenRouter no conversa**: guarda todo y avisa en una línea.
-- **Sin verificar por el usuario en uso real**: la nota de voz por Telegram y el resumen
-  matutino (pasan las pruebas automáticas, falta confirmarlos en el día a día).
+- **Sin verificar por el usuario en uso real**: la nota de voz por Telegram y los saludos de
+  mañana y noche (pasan las pruebas automáticas, falta confirmarlos en el día a día).
+- **Saludos**: la IA a veces supone lo que estás haciendo («se ve que arrancó temprano»); la
+  verificación solo frena cifras, horas y nombres que no estén en el contexto.
 - **WhatsApp** está implementado pero apagado: exige una cuenta de Meta Business.
 - No puede llamarte por teléfono (Telegram no lo permite).
 
@@ -135,7 +143,8 @@ Cambiar de modelo: edita `NEXUS_OPENROUTER_MODEL` y `docker compose up -d`.
 ## Pruebas
 
 ```bash
-python3 tests/e2e.py                       # 18 casos en una instancia aislada temporal
+python3 tests/e2e.py                       # 21 casos en una instancia aislada temporal
+python3 tests/muestra_iniciativa.py        # una semana simulada de saludos (OpenRouter real)
 python3 tests/e2e.py --chaos --audio voz.wav --audio-phrase "una palabra del audio"
 python3 tests/eval_ventas.py --label prueba    # 21 notas y 17 preguntas de ventas (aislada)
 python3 tests/informe.py                   # qué funciona hoy en TU instalación (instancia real)

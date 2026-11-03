@@ -82,6 +82,13 @@ núcleo es genérico; lo propio del rubro vive en profiles/*.toml.
   [AHORA] en cada turno; fuentes legibles (citations.legible); hora sin am/pm se pregunta por
   texto (pending_confirmations kind hora, 30 min; si no responde, se descarta), salvo una sola
   vez a menos de 2 h; los repetidos siempre preguntan.
+- Fase 2D: iniciativa propia (core/iniciativa.py, tabla iniciativa con UNIQUE(dia, tipo)): saludo
+  7:30 a. m. con agenda y 9:30 p. m., horarios en [iniciativa] de isabelle.toml; silencio 23-6
+  (salvo hora pedida por él); espera si conversa (30/60 min); 1 día sin respuesta -> solo mañana;
+  3 días -> «¿prefiere que le escriba menos?» (normal/menos/pausa en kv); despedida de noche salta
+  la noche; apagado: hasta 11 a. m. / 11 p. m. Una llamada (modelo diario, 0,8) verificada por
+  código (cifras, horas, nombres, arranque de los últimos 7); si no, respaldo. Reemplaza en el
+  programador al resumen matutino de core/briefing.py (/briefing y /today siguen).
 
 ## Cómo probar
 `python3 tests/e2e.py --audio <wav> --audio-phrase <palabra> --chaos` (20 casos, instancia
@@ -90,7 +97,7 @@ Para no tocar la imagen de los contenedores reales: `docker build -t nexus-core:
 `NEXUS_E2E_IMAGE=nexus-core:prueba python3 tests/e2e.py --chaos`. Unitarias dentro del contenedor (ver tests/test_senses.py).
 Antes de probar cambios de código: `docker compose build core`. También: `tests/eval_ventas.py`
 (medir antes y después en /ask), `tests/informe.py` (estado de la instalación real),
-`tests/muestra_conversaciones.py` (15 charlas para juzgar el tono) y `tests/comparar_modelos.py`.
+`tests/muestra_conversaciones.py` (15 charlas para juzgar el tono), `tests/muestra_iniciativa.py` (una semana de saludos) y `tests/comparar_modelos.py`.
 
 ## Reglas que no cambian
 - Embeddings, audio, OCR y visión nunca salen de la máquina (hasta sus fases).
