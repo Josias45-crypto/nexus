@@ -28,7 +28,7 @@ import unicodedata
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta
 
-from core import ask, charla, citations, clock, filtro, inbox, iniciativa, persona, questions, reminders, when
+from core import ask, charla, citations, clock, filtro, inbox, iniciativa, internet, olvido, pendientes, persona, questions, reminders, when
 from core.db import connect
 from core.search import relevant, search
 from providers.openrouter import ChatUnavailable, get_client
@@ -60,6 +60,7 @@ class Respuesta:
     nivel: str | None = None  # memoria | general | None
     botones: list | None = None  # [[{"texto": ..., "dato": ...}]]
     llm: dict | None = field(default=None)
+    seguir: bool = False  # el canal envía esto y enseguida pide la continuación (POST /conversar/seguir)
 
     def dict(self) -> dict:
         return asdict(self)
@@ -444,6 +445,8 @@ async def _reglas(textos: list[str], channel: str, chat_id: str, anterior: str |
             if not r:
                 return Respuesta(f"No encuentro un recordatorio activo con el n.º {m.group(2)}, {persona.tratamiento()}.", "recordatorio")
             return _cancelar(r, channel, chat_id, confirmar=True)
+    if r := olvido.pedir(texto, channel, chat_id):  # «olvida eso», «borra lo de Rosa»
+        return Respuesta(r, "olvido")
     if m := RE_GUARDAR.match(texto):
         resto = m.group("resto").strip()
         if not resto and anterior:
@@ -563,17 +566,79 @@ def sin_segun(texto: str) -> str:
 GENERAL = """[TU TAREA]
 La pregunta no está en tu memoria. Si es sobre datos de él, su negocio, sus clientes o personas
 que conoce, empieza tu respuesta con NO_ANOTADO y dile en una frase que no lo tienes anotado y
-que te lo cuente; no inventes nada. Si es una pregunta general, responde con lo que sabes, en 1 a
-3 frases."""
+que te lo cuente; no inventes nada. Si es una pregunta general y la sabes con seguridad, responde
+con lo que sabes, en 1 a 3 frases. Si no la sabes con seguridad o depende de datos recientes,
+locales o que cambian (precios, horarios, noticias), responde solo NO_SE."""
 
 
-async def _preguntar(consulta: str) -> Respuesta:
+async def _anunciar(pregunta: str, channel: str, chat_id: str, pedida: bool = False) -> Respuesta:
+    """Aviso corto y aparte antes de buscar en internet; la búsqueda la hace seguir()."""
+    if not internet.queda_cupo():
+        return Respuesta(internet.texto("tope", n=internet.config()["busquedas_dia"]), "buscar")
+    consulta = internet.consulta_limpia(pregunta)
+    if not consulta:
+        return Respuesta(internet.texto("sin_consulta"), "buscar")
+    pendientes.guardar(channel, chat_id, "busqueda", {"consulta": consulta, "pregunta": pregunta}, 10)
+    return Respuesta(internet.texto("pedido" if pedida else "aviso"), "buscar", seguir=True)
+
+
+async def seguir(channel: str, chat_id: str) -> dict:
+    """La continuación de un aviso: hace la búsqueda anunciada y responde con fuentes legibles y
+    la pregunta «¿lo guardo?» (pendiente en la base, 30 min)."""
+    global _en_curso
+    datos = pendientes.tomar(channel, chat_id, "busqueda")
+    if not datos:
+        return Respuesta("", "nada").dict()
+    _en_curso += 1
+    try:
+        r = await internet.buscar(datos["consulta"])
+    except ChatUnavailable as exc:
+        resp = Respuesta(str(exc), "aviso")
+    else:
+        if not r["fuentes"] or not r["texto"]:
+            resp = Respuesta(internet.texto("sin_fuentes"), "buscar", "internet", llm=r["llm"])
+        else:
+            pendientes.guardar(channel, chat_id, "web", {"pregunta": datos["pregunta"], "texto": r["texto"],
+                                                         "fuentes": r["fuentes"]}, 30)
+            resp = Respuesta(f"{internet.mensaje(r)}\n\n{internet.texto('guardar')}", "buscar", "internet", llm=r["llm"])
+    finally:
+        _en_curso -= 1
+    if resp.accion != "aviso":
+        resp.texto = persona.dosificar(resp.texto)
+    charla.agregar("isabelle", sin_avisos(resp.texto) or resp.texto, chat_id, resp.accion)
+    return resp.dict()
+
+
+RE_GUARDA_SI = re.compile(r"^(si|sip|dale|ok|okey|claro|por favor|guarda|guardalo|guardala|si guardalo|si por favor|si guarda)\b")
+RE_GUARDA_NO = re.compile(r"^(no|nop|no gracias|no hace falta|dejalo|mejor no|asi esta bien)\b")
+
+
+async def _resolver_web(texto: str, channel: str, chat_id: str) -> Respuesta | None:
+    """Su respuesta a «¿Quiere que lo guarde en su cerebro?». Si no responde eso, no se guarda
+    nada y el mensaje sigue normal."""
+    d = pendientes.tomar(channel, chat_id, "web")
+    if not d:
+        return None
+    p = plano(texto)
+    if len(p.split()) <= 4 and RE_GUARDA_SI.match(p) and not p.startswith("si no"):
+        await asyncio.to_thread(inbox.save, internet.nota(d["pregunta"], d).encode("utf-8"), "internet.txt",
+                                "text/plain", "internet", kind="text")
+        return Respuesta(internet.texto("guardado"), "guardar")
+    if len(p.split()) <= 5 and RE_GUARDA_NO.match(p):
+        return Respuesta(internet.texto("no_guardado"), "cierre")
+    return None
+
+
+async def _preguntar(consulta: str, texto: str = "", channel: str = "", chat_id: str = "") -> Respuesta:
     r = await ask.ask(consulta, contexto=_ahora())
     if r.get("answer") != ask.NO_INFO:
         texto = r["answer"]
         if r.get("tipo") in ("memoria", "sobre") or r.get("llm"):
             texto = sin_segun(filtro.limpiar(texto) or texto)
         return Respuesta(texto + _fuentes(r.get("sources") or []), "preguntar", "memoria", llm=r.get("llm"))
+    sin_internet = internet.no_buscar(texto or consulta)
+    if channel and not sin_internet and internet.conviene(consulta):  # reciente o local: internet
+        return await _anunciar(consulta, channel, chat_id)
     salida, info = await get_client().chat_ex(
         [{"role": "system", "content": f"[QUIÉN ERES]\n{persona.sistema()}\n\n{_ahora()}\n\n{GENERAL}"},
          {"role": "user", "content": consulta}],
@@ -586,6 +651,10 @@ async def _preguntar(consulta: str) -> Respuesta:
         )
         texto = texto[:1].upper() + texto[1:]
         return Respuesta(texto, "preguntar", None, llm=info)
+    if salida.startswith("NO_SE"):  # el modelo no lo sabe: internet, salvo que pidió no buscar
+        if sin_internet or not channel:
+            return Respuesta(internet.texto("no_buscar"), "preguntar", None, llm=info)
+        return await _anunciar(consulta, channel, chat_id)
     return Respuesta(f"{persona.frase('sin_memoria')}\n\n{salida}", "preguntar", "general", llm=info)
 
 
@@ -680,7 +749,7 @@ def _avisos_del_codigo() -> tuple[str, ...]:
             pref = v.split("{")[0].strip().rstrip(",;:").strip().lower()
             if len(pref) >= 12:
                 out.append(pref)
-    return tuple(out) + (FUENTES.lower(), "fuentes:")
+    return tuple(out) + (FUENTES.lower(), "fuentes:", "fuentes de internet:", "⚠ esto no lo vi en las fuentes")
 
 
 def sin_avisos(texto: str) -> str:
@@ -728,6 +797,10 @@ async def _turno(textos, channel, chat_id, previos, anterior) -> Respuesta:
         return r
     if r := iniciativa.resolver(texto):  # «¿prefiere que le escriba menos?»
         return Respuesta(r, "iniciativa")
+    if r := await _resolver_web(texto, channel, chat_id):  # «¿lo guardo en su cerebro?»
+        return r
+    if r := olvido.resolver(texto, channel, chat_id):  # lista de candidatos o «¿confirma que olvide…?»
+        return Respuesta(r, "olvido")
     if e := _espera(channel, chat_id):
         if r := await _resolver_espera(e, texto, channel, chat_id):
             return r
@@ -736,6 +809,8 @@ async def _turno(textos, channel, chat_id, previos, anterior) -> Respuesta:
     if r := await _reglas(textos, channel, chat_id, anterior):
         return r
     p = plano(texto)
+    if internet.pedida(texto):  # «busca en internet…»: aviso y búsqueda, sin pasar por el cerebro
+        return await _anunciar(texto, channel, chat_id, pedida=True)
     if RE_SALUDO.match(p):
         return await _hablar("charlar", texto, chat_id, False)
     if RE_PROFUNDO.search(p):
@@ -751,7 +826,7 @@ async def _turno(textos, channel, chat_id, previos, anterior) -> Respuesta:
         r.accion = "guardar"
         return r
     if datos["accion"] == "preguntar":
-        return await _preguntar(datos["consulta"] or texto)
+        return await _preguntar(datos["consulta"] or texto, texto, channel, chat_id)
     return await _hablar(datos["accion"], texto, chat_id, False)
 
 
