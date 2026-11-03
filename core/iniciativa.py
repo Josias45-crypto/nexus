@@ -60,6 +60,15 @@ PERMITIDOS = {"isabelle", "peru"} | {d for d in when.WEEKDAY_NAMES} | {m for m i
 RE_VIDA = re.compile(
     r"\b(fui a|sal[ií] a|sal[ií] con|com[ií]|almorc[eé]|desayun[eé]|cen[eé]|mi familia|mi mam[aá]|mi casa"
     r"|me dorm[ií]|mi d[ií]a fue|estuve en|vi una pel[ií]cula)\b", re.I)
+# Suposiciones sobre lo que él hace, siente o piensa («se ve que arrancó temprano», «seguro está cansado»):
+# se rechazan si lo que sigue trae palabras que no están en el contexto.
+RE_ESPECULA = re.compile(
+    r"\b(?:se (?:le )?ve[ií]?a? que|se (?:le )?nota(?:ba)? que|se (?:le )?nota(?:ba)?|se (?:le )?ve[ií]?a?|seguro que|seguro|seguramente"
+    r"|debe (?:de )?(?:estar|haber|andar|tener|sentirse)|imagino que|me imagino|se me hace que|parece que|supongo que"
+    r"|apuesto a que|ya debe|habr[aá] (?:estado|tenido|sido))\b\s*(?P<resto>[^.,;:!?…]*)", re.I)
+VACIAS = {"que", "esta", "estar", "esta", "este", "esto", "eso", "muy", "mas", "bien", "hoy", "ya", "con", "por", "para",
+          "una", "uno", "unos", "unas", "los", "las", "del", "sus", "su", "le", "lo", "la", "el", "de", "en", "y", "a",
+          "usted", "tiene", "tener", "haber", "sido", "estado", "anda", "andar", "sentirse", "siente", "todo", "toda"}
 RE_LISTA = re.compile(r"(^|\n)\s*([-*•#]|\d+[.)])")
 RE_HORA = re.compile(r"\b(\d{1,2})(?::(\d{2}))?\s*([ap])\.?\s?m\b\.?|\ba las? (\d{1,2})(?::(\d{2}))?", re.I)
 RE_NOMBRE = re.compile(r"[A-ZÁÉÍÓÚÑ][a-záéíóúñü]+")
@@ -395,6 +404,10 @@ def verificar(texto: str, tipo: str, ctx: str, previos: list[str]) -> str | None
         return "vida propia"
     base = plano(ctx)
     palabras = set(base.split())
+    for m in RE_ESPECULA.finditer(t):
+        nuevas = [w for w in plano(m.group("resto")).split() if w not in VACIAS and w not in palabras]
+        if nuevas or not m.group("resto").strip():
+            return f"supone ({' '.join(plano(m.group(0)).split()[:6])})"
     cifras = set(re.findall(r"\d+", ctx))
     horas = {(int(m[0] or m[3]), int(m[1] or m[4] or 0)) for m in RE_HORA.findall(ctx)}
     for m in RE_HORA.findall(t):  # una hora debe estar en el contexto (no basta que el número aparezca)
@@ -422,11 +435,13 @@ def verificar(texto: str, tipo: str, ctx: str, previos: list[str]) -> str | None
 
 TAREA = {
     "manana": ("Escribe tu saludo de buenos días para el jefe: de 1 a 3 frases, cálido y natural, con cariño medio, "
-               "como una persona real por WhatsApp. {agenda} No inventes ningún hecho ni supongas qué está haciendo él ahora: usa solo lo que está arriba. "
+               "como una persona real por WhatsApp. {agenda} No inventes ningún hecho. No supongas ni afirmes qué está haciendo, sintiendo o pensando él (nada de «se ve que», «seguro que», «debe estar», «imagino que», «parece que»): si quieres saberlo, pregúntaselo. Usa solo lo que está arriba. "
                "Como mucho una pregunta. Sin listas ni horas: la agenda la pongo yo debajo."),
     "noche": ("Escribe tu saludo de buenas noches: pregúntale cómo le fue, como una amiga, de 1 a 3 frases con UNA sola "
               "pregunta en todo el mensaje (un solo signo «?»). Si en [SU DÍA] o en la agenda de mañana hay algo real, puedes mencionar UNA cosa; si no, no "
-              "inventes nada. No cuentes nada de tu propia vida (no comes, no sales, no tienes familia)."),
+              "inventes nada. No supongas ni afirmes cómo está, qué hizo o qué siente él si no está arriba (nada de «se ve que», "
+              "«seguro que», «debe estar», «imagino que», «parece que»): pregúntaselo. No cuentes nada de tu propia vida "
+              "(no comes, no sales, no tienes familia)."),
 }
 
 
@@ -451,8 +466,10 @@ async def redactar(tipo: str, now: datetime) -> dict:
     agenda = (f"Hoy tiene {len(ctx['agenda_hoy'])} recordatorio(s); puedes aludir a cómo pinta el día."
               if ctx["agenda_hoy"] else "Hoy no tiene recordatorios.")
     evitar = sorted({arranque(p) for p in previos} - {""})
-    tarea = TAREA[tipo].format(agenda=agenda) + (
-        f" No empieces con: {', '.join('«' + a + '»' for a in evitar)}." if evitar else "")
+    tarea = TAREA[tipo].format(agenda=agenda) + " No menciones la hora actual." + (
+        f"\nPROHIBIDO empezar con estas palabras (ya las usaste en los últimos saludos): "
+        f"{', '.join('«' + a + '»' for a in evitar)}. Empieza distinto: con algo del día, una pregunta o una frase cariñosa."
+        if evitar else "")
     sistema = (f"[QUIÉN ERES]\n{persona.sistema()}\n\n{ctx['texto']}\n\n{ctx['ahora']}\n\n[TU TAREA]\n{tarea}")
     permitido = "\n".join((ctx["texto"], ctx["ahora"], " ".join(persona.get()["trato"]["tratamientos"])))
     detalle = None

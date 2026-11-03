@@ -243,6 +243,23 @@ class RedaccionTest(Base):
         self.assertEqual(iniciativa.verificar("Tiene cinco pendientes.", "manana", ctx, []), "cifra cinco")
         self.assertIn("arranque", iniciativa.verificar("Buenos días, señor. Ánimo.", "manana", ctx, ["Buenos días, jefe."]))
 
+    def test_rechaza_suposiciones_sobre_el_jefe(self):
+        ctx = "[RESUMEN DE LA CHARLA]\nContó que está cansado por la semana. Mañana tiene inventario."
+        for t in ("Buen día. Se ve que arrancó temprano hoy.", "¿Cómo le fue? Seguro está cansado de tanto trabajo.",
+                  "Hola. Debe estar feliz con las ventas.", "Buen día. Imagino que ya desayunó.",
+                  "Buenas. Parece que tuvo un día tranquilo, ¿no?", "Buen día. Se nota que la semana pesó.", "Se me hace que hoy va a ser un día movido."):
+            with self.subTest(t=t):
+                self.assertTrue((iniciativa.verificar(t, "noche" if "?" in t else "manana", ctx, []) or "").startswith("supone"), t)
+        # Si lo que sigue sí está en el contexto, no es suposición; preguntar siempre vale
+        self.assertIsNone(iniciativa.verificar("Buenas noches. ¿Sigue cansado por la semana?", "noche", ctx, []))
+        self.assertIsNone(iniciativa.verificar("Buen día. Seguro que mañana tiene inventario.", "manana", ctx, []))
+
+    def test_el_prompt_pide_preguntar_en_vez_de_suponer(self):
+        self.en(0, 7, 30)
+        self.paso()
+        self.assertIn("pregúntaselo", self.ia.ultimo_sistema)
+        self.assertIn("«se ve que»", self.ia.ultimo_sistema)
+
     def test_no_repite_el_arranque_de_los_ultimos_7(self):
         self.ia.textos = ["Buenos días, jefe. Que le vaya bonito."] * 8
         fuentes = []
