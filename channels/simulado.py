@@ -6,7 +6,7 @@ Autoprueba (la usa tests/e2e.py contra la instancia aislada):
 Conversación natural, sin comandos (Isabelle responde por POST /conversar).
 
 Pasos sueltos, cada uno en un proceso nuevo (e2e reinicia el contenedor entre pedir y confirmar):
-    python -m channels.simulado --step pedir|confirmar|entregar|caos|boton90|saludo_ajuste|saludo --tag X
+    python -m channels.simulado --step pedir|confirmar|entregar|caos|boton90|saludo_ajuste|saludo|internet_olvido --tag X
 """
 
 import argparse
@@ -220,6 +220,29 @@ async def step(url: str, tag: str, name: str) -> int:
         enviados = [s for s in estado["saludos"] if s["estado"] == "enviado"]
         check(len(enviados) == 1 and enviados[0]["respondido"] == 1, "un solo saludo, marcado como respondido",
               str(estado["saludos"])[:300])
+    elif name == "internet_olvido":  # 1 búsqueda real: aviso aparte, fuentes, «sí» la guarda; luego «olvida»
+        enviados = await bot.handle(ch.text("busca en internet cuál es la capital de Australia"))
+        check(len(enviados) == 2 and "internet" in enviados[0], "aviso corto y aparte antes de buscar", str(enviados)[:200])
+        final = enviados[-1] if enviados else ""
+        check("Fuentes de internet:" in final and "¿Quiere que lo guarde" in final, "responde con fuentes y ofrece guardar", final)
+        r = "\n".join(await bot.handle(ch.text("sí")))
+        check("nota de internet" in r, "«sí» la guarda como nota de internet", r)
+        await bot.handle(ch.text(f"recuerda esto: el proveedor ficticio Brontal{tag} cobra 70 soles por envío"))
+        visto = False
+        for _ in range(45):  # la nota se procesa en el worker (trozos e índice)
+            hits = await nexus._req("GET", "/search", params={"q": f"Brontal{tag}", "k": 5})
+            if any(f"Brontal{tag}" in h.get("content", "") for h in hits):
+                visto = True
+                break
+            await asyncio.sleep(2)
+        check(visto, "la nota quedó en la memoria", "")
+        r = "\n".join(await bot.handle(ch.text(f"olvida lo de Brontal{tag}")))
+        check("¿Confirma que olvide" in r and "7 días" in r, "pide confirmar por texto, sin botones", r)
+        check(not ch.buttons, "sin botones", str(ch.buttons))
+        r = "\n".join(await bot.handle(ch.text("sí")))
+        check("olvidé" in r and "7 días" in r, "«sí» lo borra y lo dice", r)
+        hits = await nexus._req("GET", "/search", params={"q": f"Brontal{tag}", "k": 5})
+        check(not any(f"Brontal{tag}" in h.get("content", "") for h in hits), "ya no está en la memoria", str(hits)[:200])
     elif name == "caos":  # OpenRouter inalcanzable: una nota se guarda y una pregunta avisa en una línea
         r = "\n".join(await bot.handle(ch.text(f"recuerda esto: nota durante el caos Vendral{tag}")))
         check(any(w in r.lower() for w in ("guardado", "anotado")), "guarda la nota sin OpenRouter", r)
@@ -234,7 +257,7 @@ def main() -> int:
     p = argparse.ArgumentParser()
     p.add_argument("--url", default="http://localhost:8000")
     p.add_argument("--tag", default=str(int(time.time())))
-    p.add_argument("--step", choices=["pedir", "confirmar", "entregar", "caos", "boton90", "saludo_ajuste", "saludo"])
+    p.add_argument("--step", choices=["pedir", "confirmar", "entregar", "caos", "boton90", "saludo_ajuste", "saludo", "internet_olvido"])
     args = p.parse_args()
     logging.basicConfig(level=logging.WARNING)
     if args.step:

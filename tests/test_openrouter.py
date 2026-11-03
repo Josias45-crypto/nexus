@@ -244,3 +244,22 @@ class TestOpenRouter(Base):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestBusquedaWeb(Base):
+    def test_plugin_exa_con_politica_de_datos_y_fuentes(self):
+        cuerpo = {"model": "deepseek/deepseek-v4-flash", "usage": {"cost": 0.0081, "prompt_tokens": 900, "completion_tokens": 60},
+                  "choices": [{"message": {"content": "Según SUNAT, 3,75.", "annotations": [
+                      {"type": "url_citation", "url_citation": {"url": "https://sunat.gob.pe/x", "title": "SUNAT", "content": "3,75"}},
+                      {"type": "otra"}]}}]}
+        s = Script(lambda: httpx.Response(200, json=cuerpo))
+        ledger = FakeLedger()
+        texto, info = asyncio.run(client(s, ledger).chat_ex(MSG, web=True))
+        self.assertEqual(s.bodies[0]["plugins"], [{"id": "web", "engine": "exa", "max_results": 5}])
+        self.assertEqual(s.bodies[0]["provider"], {"zdr": True, "data_collection": "deny"})
+        self.assertEqual(info["fuentes"], [{"url": "https://sunat.gob.pe/x", "titulo": "SUNAT", "extracto": "3,75"}])
+        self.assertEqual(info["proveedor"], "openrouter-internet")
+        self.assertEqual(info["costo_usd"], 0.0081)
+        self.assertEqual(ledger.records[-1]["proveedor"], "openrouter-internet") if hasattr(ledger, "records") else None
+        asyncio.run(client(s).chat_ex(MSG))
+        self.assertNotIn("plugins", s.bodies[-1], "sin web, sin plugin")

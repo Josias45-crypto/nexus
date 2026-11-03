@@ -579,6 +579,17 @@ class Suite:
         fila = next(s for s in self.api.ok("GET", "/iniciativa")["saludos"] if s["estado"] == "enviado")
         return f"{out.count('ok ')} comprobaciones: saludo de {tipo} ({fila['fuente']}{', ' + fila['detalle'] if fila['detalle'] else ''}) por /outbox → «ok ok» sin pregunta"
 
+    def t22_internet_olvido(self):
+        """Por el camino del bot real: búsqueda en internet con aviso (1 búsqueda real), guardar «sí»
+        y «olvida lo de X» con confirmación por texto y borrado verificado en /search."""
+        if not self.isolated:
+            raise Skip("solo en instancia aislada")
+        out = self._sim_step("internet_olvido")
+        uso = self.api.ok("GET", "/usage")
+        if uso.get("busquedas_internet_hoy", 0) < 1:
+            raise Fail(f"/usage no cuenta la búsqueda: {uso.get('busquedas_internet_hoy')}")
+        return f"{out.count('ok ')} comprobaciones; /usage: {uso['busquedas_internet_hoy']} búsqueda(s) hoy"
+
     def t12_unit(self):
         local = subprocess.run(
             [sys.executable, "-m", "unittest", "-q", "tests.test_when"],
@@ -593,7 +604,7 @@ class Suite:
              "python", "-m", "unittest", "-q", "tests.test_telegram", "tests.test_whatsapp",
              "tests.test_openrouter", "tests.test_questions", "tests.test_chunker", "tests.test_senses",
              "tests.test_verify", "tests.test_reminders_flow", "tests.test_conversa", "tests.test_charla",
-             "tests.test_filtro", "tests.test_recordatorios", "tests.test_persona", "tests.test_iniciativa"],
+             "tests.test_filtro", "tests.test_recordatorios", "tests.test_persona", "tests.test_iniciativa", "tests.test_busqueda_olvido"],
             capture_output=True, text=True, timeout=120,
         )
         if r.returncode != 0:
@@ -802,6 +813,7 @@ TESTS = [
     ("19 memoria de la charla", "t19_memoria"),
     ("20 recordatorio a 90 s con botón", "t20_recordatorio_90s"),
     ("21 saludo por iniciativa", "t21_saludo"),
+    ("22 internet y olvido", "t22_internet_olvido"),
 ]
 
 # Programador acelerado en la instancia aislada: avisos e insistencias en segundos
