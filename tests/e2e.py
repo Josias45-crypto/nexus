@@ -552,6 +552,33 @@ class Suite:
         out = self._sim_step("boton90")
         return f"{out.count('ok ')} comprobaciones: creado → aviso con botones en /outbox → «Ya lo hice»"
 
+    def t21_saludo(self):
+        """Iniciativa por el camino del bot real: el jefe ajusta el saludo por el canal simulado, el
+        programador lo redacta (OpenRouter real) y lo deja en /outbox, el bot lo entrega y «ok ok» cierra."""
+        if not self.isolated:
+            raise Skip("solo en instancia aislada")
+        self._sim_step("saludo_ajuste")
+        # Como si hubiera escrito hace 2 h y pidió el saludo de hoy hace un minuto (sin esperar a las 7:30)
+        prep = subprocess.run(
+            ["docker", "exec", E2E_NAME, "python", "-c",
+             "from datetime import timedelta\n"
+             "from core import clock, db, iniciativa\n"
+             "now = clock.now_local()\n"
+             "tipo = 'manana' if now.hour < 11 else 'noche'\n"
+             "with db.connect() as c:\n"
+             "    c.execute('UPDATE charla SET created_at = ?', ((clock.now_utc() - timedelta(hours=2)).isoformat(),))\n"
+             "    c.execute('DELETE FROM iniciativa WHERE dia = ?', (now.date().isoformat(),))\n"
+             "    iniciativa._set(c, f'iniciativa:hora:{now.date().isoformat()}:{tipo}', (now - timedelta(minutes=1)).strftime('%H:%M'))\n"
+             "print(tipo)"],
+            capture_output=True, text=True, timeout=60,
+        )
+        tipo = prep.stdout.strip()
+        if prep.returncode != 0 or tipo not in ("manana", "noche"):
+            raise Fail("preparación: " + (prep.stderr or prep.stdout)[-300:])
+        out = self._sim_step("saludo")
+        fila = next(s for s in self.api.ok("GET", "/iniciativa")["saludos"] if s["estado"] == "enviado")
+        return f"{out.count('ok ')} comprobaciones: saludo de {tipo} ({fila['fuente']}{', ' + fila['detalle'] if fila['detalle'] else ''}) por /outbox → «ok ok» sin pregunta"
+
     def t12_unit(self):
         local = subprocess.run(
             [sys.executable, "-m", "unittest", "-q", "tests.test_when"],
@@ -566,7 +593,7 @@ class Suite:
              "python", "-m", "unittest", "-q", "tests.test_telegram", "tests.test_whatsapp",
              "tests.test_openrouter", "tests.test_questions", "tests.test_chunker", "tests.test_senses",
              "tests.test_verify", "tests.test_reminders_flow", "tests.test_conversa", "tests.test_charla",
-             "tests.test_filtro", "tests.test_recordatorios"],
+             "tests.test_filtro", "tests.test_recordatorios", "tests.test_persona", "tests.test_iniciativa"],
             capture_output=True, text=True, timeout=120,
         )
         if r.returncode != 0:
@@ -774,6 +801,7 @@ TESTS = [
     ("18 recordatorio tras reinicio", "t18_reminder_restart"),
     ("19 memoria de la charla", "t19_memoria"),
     ("20 recordatorio a 90 s con botón", "t20_recordatorio_90s"),
+    ("21 saludo por iniciativa", "t21_saludo"),
 ]
 
 # Programador acelerado en la instancia aislada: avisos e insistencias en segundos

@@ -6,7 +6,7 @@ Autoprueba (la usa tests/e2e.py contra la instancia aislada):
 Conversación natural, sin comandos (Isabelle responde por POST /conversar).
 
 Pasos sueltos, cada uno en un proceso nuevo (e2e reinicia el contenedor entre pedir y confirmar):
-    python -m channels.simulado --step pedir|confirmar|entregar|caos|boton90 --tag X
+    python -m channels.simulado --step pedir|confirmar|entregar|caos|boton90|saludo_ajuste|saludo --tag X
 """
 
 import argparse
@@ -203,6 +203,23 @@ async def step(url: str, tag: str, name: str) -> int:
         check(f"Corvel{tag}" in r, "«Ya lo hice» lo cierra", r)
         rows = [p for p in await nexus.reminders(OWNER) if f"Corvel{tag}" in p["text"]]
         check(rows == [], "ya no está pendiente ni sin confirmar", str(rows))
+    elif name == "saludo_ajuste":  # ajuste del saludo en lenguaje natural (también fija a dónde escribirle)
+        r = "\n".join(await bot.handle(ch.text("desde hoy el saludo de la noche a las 10")))
+        check("10:00 p. m." in r, "«desde hoy el saludo de la noche a las 10» lo cambia", r)
+    elif name == "saludo":  # el programador deja el saludo en /outbox y el bot lo entrega por su cuenta
+        deadline, got = time.monotonic() + 120, None
+        while time.monotonic() < deadline and not got:
+            before = len(ch.sent)
+            await bot.deliver_outbox()
+            got = next((t for c, t in ch.sent[before:] if c == OWNER), None)
+            await asyncio.sleep(2)
+        check(bool(got) and "/" not in got, "el saludo llega solo, sin comandos", str(ch.sent[-2:]))
+        r = "\n".join(await bot.handle(ch.text("ok ok")))
+        check(bool(r) and "?" not in r, "tras «ok ok» no hace otra pregunta", r)
+        estado = await nexus._req("GET", "/iniciativa")
+        enviados = [s for s in estado["saludos"] if s["estado"] == "enviado"]
+        check(len(enviados) == 1 and enviados[0]["respondido"] == 1, "un solo saludo, marcado como respondido",
+              str(estado["saludos"])[:300])
     elif name == "caos":  # OpenRouter inalcanzable: una nota se guarda y una pregunta avisa en una línea
         r = "\n".join(await bot.handle(ch.text(f"recuerda esto: nota durante el caos Vendral{tag}")))
         check(any(w in r.lower() for w in ("guardado", "anotado")), "guarda la nota sin OpenRouter", r)
@@ -217,7 +234,7 @@ def main() -> int:
     p = argparse.ArgumentParser()
     p.add_argument("--url", default="http://localhost:8000")
     p.add_argument("--tag", default=str(int(time.time())))
-    p.add_argument("--step", choices=["pedir", "confirmar", "entregar", "caos", "boton90"])
+    p.add_argument("--step", choices=["pedir", "confirmar", "entregar", "caos", "boton90", "saludo_ajuste", "saludo"])
     args = p.parse_args()
     logging.basicConfig(level=logging.WARNING)
     if args.step:
