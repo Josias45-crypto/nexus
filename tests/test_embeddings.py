@@ -147,6 +147,9 @@ class ProcesoYBusquedaTest(Base):
             r = asyncio.run(ask.ask("¿Cuánto cobra Brontal por envío?"))
         self.assertIn("70 soles", r["answer"])
         self.assertIn(search.SOLO_TEXTO, r["answer"])
+        r = asyncio.run(ask.ask("¿Qué pasó con el río Ondarel?"))  # sin resultados: igual lo dice
+        self.assertTrue(r["answer"].startswith(ask.NO_INFO))
+        self.assertIn(search.SOLO_TEXTO, r["answer"])
 
 
 class ReindexTest(Base):

@@ -2,7 +2,7 @@ import re
 
 from config import settings
 from core import citations, profile, verify
-from core.search import SOLO_TEXTO, publish_recall, search
+from core.search import SOLO_TEXTO, buscar, publish_recall
 from providers.openrouter import get_client
 
 NO_INFO = "No tengo información sobre eso en mi memoria."
@@ -84,15 +84,14 @@ async def ask(question: str, k: int | None = None, contexto: str = "") -> dict:
     if verify.question_entities(question):
         # Con entidades se mira más allá de los candidatos: la nota que nombra al cliente
         # puede quedar lejos en distancia y aun así ser la única que sirve
-        found = await search(question, max(limit * 2, 10), publish=False)
+        found, solo_texto = await buscar(question, max(limit * 2, 10), publish=False)
         hits = candidates(found, limit)
         pool = hits + [h for h in found if h not in hits]
         hits = (about_entities(question, pool) or [])[:limit]
     else:
-        found = await search(question, limit, publish=False)
+        found, solo_texto = await buscar(question, limit, publish=False)
         hits = candidates(found, limit)
-    # Sin embeddings (OpenRouter no responde) se buscó solo por palabras: se dice al final
-    solo_texto = any(h.get("solo_texto") for h in found)
+    # solo_texto: sin embeddings (OpenRouter no responde) se buscó solo por palabras; se dice al final
     if not hits:
         return {"answer": NO_INFO + (f" {SOLO_TEXTO}" if solo_texto else ""), "sources": [], "llm": None, "tipo": "memoria"}
     publish_recall("ask", hits)

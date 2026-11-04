@@ -58,10 +58,10 @@ class AskRegenerationTest(unittest.TestCase):
             return None
 
         async def fake_search(*a, **kw):
-            return [hit]
+            return [hit], False
 
         with mock.patch("core.questions.route", no_route), \
-                mock.patch.object(ask, "search", fake_search), \
+                mock.patch.object(ask, "buscar", fake_search), \
                 mock.patch.object(ask, "get_client", lambda: FakeLLM()), \
                 mock.patch.object(ask, "publish_recall", lambda *a: None):
             return asyncio.run(ask.ask("¿Quién debe dinero?")), calls

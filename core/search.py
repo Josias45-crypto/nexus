@@ -62,6 +62,12 @@ def _rare_rows(conn, query: str) -> set[int]:
 
 
 async def search(query: str, k: int = 5, publish: bool = True) -> list[dict]:
+    return (await buscar(query, k, publish))[0]
+
+
+async def buscar(query: str, k: int = 5, publish: bool = True) -> tuple[list[dict], bool]:
+    """(resultados, solo_texto): solo_texto es True si los embeddings no estaban disponibles y se
+    buscó solo por palabras (aunque no haya resultados)."""
     try:
         qvec = await get_embedder().embed_query(query)
     except ChatUnavailable as exc:
@@ -131,7 +137,7 @@ async def search(query: str, k: int = 5, publish: bool = True) -> list[dict]:
                 )
     if publish:
         publish_recall("search", results)
-    return results
+    return results, qvec is None
 
 
 def relevant(hits: list[dict], max_distance: float | None = None, margin: float | None = None) -> list[dict]:
