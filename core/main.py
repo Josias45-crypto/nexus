@@ -5,14 +5,14 @@ from datetime import date
 
 import httpx
 
-from fastapi import FastAPI, File, HTTPException, Query, Request, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 
 from config import settings
 from core import profile as nexus_profile
-from core import ask, backup, brain, briefing, charla, conversa, digest, dashboard, events, growth, inbox, iniciativa, internet, outbox, persona, processor, reindex, reminders, search, ui, usage, worker
+from core import ask, auth, backup, brain, briefing, charla, conversa, digest, dashboard, events, growth, guardado, inbox, iniciativa, internet, outbox, persona, processor, reindex, reminders, search, ui, usage, web, worker
 from core.db import connect, init_db
 from core.logs import setup_logging
 from providers.openrouter import ChatUnavailable, get_client
@@ -29,6 +29,68 @@ TOO_LARGE = f"El archivo supera el límite de {settings.MAX_UPLOAD_MB} MB (NEXUS
 
 
 log = logging.getLogger("nexus.api")
+auth.token_interno()  # el token de los canales existe desde el arranque
+
+# Sin sesión solo se ve /login. La API entera (no solo las páginas) exige la cookie de sesión o,
+# para los canales, el healthcheck y las pruebas, el token interno (X-Nexus-Token).
+ABIERTAS = {"/login"}
+SEGURIDAD = {
+    "X-Content-Type-Options": "nosniff", "X-Frame-Options": "DENY", "Referrer-Policy": "no-referrer",
+    "Content-Security-Policy": ("default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';"
+                                " img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none';"
+                                " form-action 'self'"),
+}
+
+
+@app.middleware("http")
+async def exigir_sesion(request: Request, call_next):
+    if request.url.path not in ABIERTAS and not auth.autorizado(
+            request.cookies.get(auth.COOKIE), request.headers.get(auth.CABECERA)):
+        if request.method == "GET" and "text/html" in request.headers.get("accept", ""):
+            r = RedirectResponse("/login", status_code=303)
+        else:
+            r = JSONResponse(status_code=401, content={"detail": "Inicia sesión."})
+    else:
+        r = await call_next(request)
+    for k, v in SEGURIDAD.items():
+        r.headers.setdefault(k, v)
+    return r
+
+
+def _ip(request: Request) -> str:
+    return request.client.host if request.client else "?"
+
+
+@app.get("/login", response_class=HTMLResponse, include_in_schema=False)
+def login_page():
+    return ui.login(auth.hay_clave())
+
+
+@app.post("/login", include_in_schema=False)
+def login(request: Request, clave: str = Form("", max_length=500)):
+    ip = _ip(request)
+    if s := auth.espera(ip):
+        return JSONResponse(status_code=429, content={"detail": f"Demasiados intentos. Espera {s} s."},
+                            headers={"Retry-After": str(s)})
+    if not auth.hay_clave():
+        return JSONResponse(status_code=409, content={"detail": "Aún no hay contraseña: créala con docker compose exec core python -m core.auth"})
+    if not auth.verificar_clave(clave):
+        s = auth.fallo(ip)
+        log.warning("Intento de acceso fallido desde %s; espera %d s", ip, s)
+        return JSONResponse(status_code=401, content={"detail": f"Contraseña incorrecta. Espera {s} s para reintentar."})
+    auth.exito(ip)
+    r = JSONResponse({"ok": True})
+    r.set_cookie(auth.COOKIE, auth.crear_sesion(), max_age=auth.SESION_DIAS * 86400, httponly=True,
+                 samesite="strict", secure=request.url.scheme == "https", path="/")
+    return r
+
+
+@app.post("/logout", include_in_schema=False)
+def logout(request: Request):
+    auth.cerrar_sesion(request.cookies.get(auth.COOKIE))
+    r = JSONResponse({"ok": True})
+    r.delete_cookie(auth.COOKIE, path="/")
+    return r
 
 
 @app.exception_handler(httpx.TransportError)
@@ -143,7 +205,7 @@ async def conversar(req: TurnoIn):
     """Un turno de conversación en lenguaje natural (uno o varios mensajes seguidos del jefe)."""
     if sum(len(m) for m in req.mensajes) > 20000:
         raise HTTPException(413, "El mensaje es demasiado largo.")
-    return await conversa.conversar(req.mensajes, req.channel, req.chat_id)
+    return await conversa.conversar(req.mensajes, *web.conversacion(req.channel, req.chat_id))
 
 
 class SeguirIn(BaseModel):
@@ -154,12 +216,12 @@ class SeguirIn(BaseModel):
 @app.post("/conversar/seguir")
 async def conversar_seguir(req: SeguirIn):
     """La continuación de una respuesta con "seguir": la búsqueda en internet ya anunciada."""
-    return await conversa.seguir(req.channel, req.chat_id)
+    return await conversa.seguir(*web.conversacion(req.channel, req.chat_id))
 
 
 @app.post("/conversar/boton")
 async def conversar_boton(req: BotonIn):
-    return await conversa.boton(req.dato, req.channel, req.chat_id)
+    return await conversa.boton(req.dato, *web.conversacion(req.channel, req.chat_id))
 
 
 @app.post("/conversar/archivo")
@@ -168,7 +230,7 @@ async def conversar_archivo(req: ArchivoIn):
     (una sola vez) y Isabelle los comenta; un álbum es una sola respuesta."""
     if not req.archivos and not req.grande:
         raise HTTPException(422, "Faltan los archivos.")
-    return await conversa.archivos([a.model_dump() for a in req.archivos], req.channel, req.chat_id,
+    return await conversa.archivos([a.model_dump() for a in req.archivos], *web.conversacion(req.channel, req.chat_id),
                                    req.leyenda, req.voz, req.grande)
 
 
@@ -563,6 +625,60 @@ def outbox_delivered(msg_id: int):
 @app.get("/", response_class=HTMLResponse, include_in_schema=False)
 def home():
     return ui.PAGE
+
+
+@app.get("/web/historial")
+def web_historial(n: int = Query(40, ge=1, le=200)):
+    """Los últimos mensajes de la conversación (la misma de Telegram)."""
+    return web.historial(n)
+
+
+@app.get("/web/panel")
+def web_panel():
+    """Panel esencial: días de vida, elementos y gasto de hoy."""
+    return web.panel()
+
+
+@app.get("/guardado", response_class=HTMLResponse, include_in_schema=False)
+def guardado_page():
+    return ui.GUARDADO
+
+
+@app.get("/guardado/lista")
+def guardado_lista(tipo: str | None = Query(None, max_length=20), q: str | None = Query(None, max_length=200),
+                   limit: int = Query(50, ge=1, le=200), offset: int = Query(0, ge=0)):
+    try:
+        return guardado.lista(tipo, q, limit, offset)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc))
+
+
+@app.get("/guardado/{event_id}")
+def guardado_detalle(event_id: str):
+    try:
+        return guardado.detalle(event_id)
+    except guardado.NoEncontrado as exc:
+        raise HTTPException(404, str(exc))
+
+
+@app.get("/guardado/{event_id}/original")
+def guardado_original(event_id: str):
+    """El original intacto, siempre como descarga y por partes (sirve para archivos grandes)."""
+    try:
+        path, nombre = guardado.original(event_id)
+    except guardado.NoEncontrado as exc:
+        raise HTTPException(404, str(exc))
+    return FileResponse(path, media_type="application/octet-stream", filename=nombre,
+                        content_disposition_type="attachment",
+                        headers={"Content-Security-Policy": "sandbox; default-src 'none'", "Cache-Control": "private, no-store"})
+
+
+@app.get("/guardado/{event_id}/vista")
+def guardado_vista(event_id: str):
+    try:
+        return Response(guardado.vista(event_id), media_type="image/jpeg", headers={"Cache-Control": "private, max-age=3600"})
+    except guardado.NoEncontrado as exc:
+        raise HTTPException(404, str(exc))
 
 
 @app.get("/brain", response_class=HTMLResponse, include_in_schema=False)
