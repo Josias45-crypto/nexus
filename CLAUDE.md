@@ -122,6 +122,10 @@ núcleo es genérico; lo propio del rubro vive en profiles/*.toml.
   descarga siempre como attachment y verifica que la ruta esté en data/raw.
 - Nombres: el jefe es Josias (trato.nombre_jefe). core/nombres.py: ningún nombre de persona fuera de
   ficha, notas o conversación en la charla (_hablar) ni en los saludos; regenera una vez y luego respaldo.
+- VPS compartido (docs/DESPLIEGUE.md): compose «isabelle» sin nombres fijos, NEXUS_PORT (8100 en el VPS,
+  siempre 127.0.0.1), límites 1 GB / 256 MB, logs 10 MB x 3, web por túnel SSH,
+  scripts/respaldo_remoto.sh. En la laptop, la instalación previa es el proyecto «nexus»
+  (docker compose -p nexus ...).
 
 ## Cómo probar
 `python3 tests/e2e.py --audio <wav> --audio-phrase <palabra> --chaos` (24 casos, instancia

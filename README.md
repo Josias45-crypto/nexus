@@ -233,6 +233,7 @@ docker compose down                      # detener (conserva datos y modelos)
 | [API](docs/API.md) | Todas las rutas con ejemplos |
 | [FORMATOS](docs/FORMATOS.md) | Qué lee, qué no, ver y oír, límites, cómo agregar un formato |
 | [OPERACION](docs/OPERACION.md) | Recursos, actualizar, respaldar, restaurar, servidor, problemas |
+| [DESPLIEGUE](docs/DESPLIEGUE.md) | VPS compartido: usuario, Docker, clave de solo lectura, túnel SSH, actualizar, volver atrás y respaldos a la laptop |
 | [CANALES](docs/CANALES.md) | Telegram, WhatsApp, comandos y horas que entiende |
 | [PERFILES](docs/PERFILES.md) | Crear un perfil para otro rubro |
 | [MODO_NUBE](docs/MODO_NUBE.md) | Chat por OpenRouter: configurar, política de datos, fallos, costo |

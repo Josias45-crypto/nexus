@@ -33,6 +33,15 @@ AAAA-MM-DD.
 - Lenguaje natural: «pospón el 2 una hora», «¿qué tengo pendiente?»; «en 90 segundos».
 - `NEXUS_REMINDER_MAX_TRIES` se quita; `NEXUS_REMINDER_RETRY_MIN` queda solo para pruebas.
 
+### Agregado (preparación del VPS compartido)
+- `docker-compose.yml`: proyecto fijo `isabelle` sin `container_name` ni volúmenes con nombre;
+  puerto del núcleo por `NEXUS_PORT` (por defecto 8000), siempre en 127.0.0.1; límites de memoria
+  (núcleo 1 GB, canales 256 MB), `restart: unless-stopped`, healthcheck de los canales
+  (`channels/salud.py`) y logs de Docker rotados (10 MB × 3).
+- `docs/DESPLIEGUE.md` (usuario, Docker, clave de despliegue de solo lectura, copia del .env y los
+  datos, `NEXUS_PORT=8100`, túnel SSH, actualizar, volver atrás) y `scripts/respaldo_remoto.sh`.
+- Las pruebas y `tests/informe.py` encuentran los contenedores por `docker compose ps`.
+
 ### Corregido
 - Isabelle llamó «señor Joaquín» al jefe. `nombre_jefe = "Josias"` en `[trato]` y regla de usar solo
   los tratamientos aprobados; `core/nombres.py` rechaza todo nombre de persona (tras un título, en
