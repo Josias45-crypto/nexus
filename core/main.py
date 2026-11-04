@@ -107,7 +107,7 @@ async def internal_error(request: Request, exc: Exception):
     log.exception("Error no controlado en %s", request.url.path)
     return JSONResponse(
         status_code=500,
-        content={"detail": "Error interno de Isabelle. Detalle en: docker logs nexus-core"},
+        content={"detail": "Error interno de Isabelle. Detalle en: docker compose logs core"},
     )
 
 
