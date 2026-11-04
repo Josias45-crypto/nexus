@@ -82,9 +82,11 @@ class ClienteTest(unittest.TestCase):
         self.assertEqual(e.exception.reason, "caido")
 
     def test_dimension_distinta_no_se_guarda(self):
+        c = cliente(Red(dim=DIM + 4))
         with self.assertRaises(ChatUnavailable) as e:
-            asyncio.run(cliente(Red(dim=DIM + 4)).embed(["x"]))
-        self.assertIn("NEXUS_EMBED_DIM", str(e.exception))
+            asyncio.run(c.embed(["x"]))
+        self.assertIn("memoria", str(e.exception))
+        self.assertIn("NEXUS_EMBED_DIM", c.ultimo_fallo["detalle"])
 
 
 class Base(unittest.TestCase):

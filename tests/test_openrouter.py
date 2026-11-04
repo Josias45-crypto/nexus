@@ -168,7 +168,8 @@ class TestOpenRouter(Base):
         with self.assertRaises(ChatUnavailable) as ctx:
             run(client(s))
         self.assertEqual(ctx.exception.reason, "limite")
-        self.assertIn("limitando", str(ctx.exception))
+        self.assertIn("cola", str(ctx.exception))
+        self.assertNotIn("OpenRouter", str(ctx.exception), "en su voz, sin nombres técnicos")
         self.assertEqual(len(s.bodies), 1 + openrouter.RETRIES)
 
     def test_retry_after_largo_no_se_espera(self):
@@ -184,7 +185,8 @@ class TestOpenRouter(Base):
             with self.assertRaises(ChatUnavailable) as ctx:
                 run(c)
             self.assertEqual(ctx.exception.reason, "sin_saldo")
-            self.assertIn("sin saldo", str(ctx.exception))
+            self.assertIn("saldo", str(ctx.exception))
+            self.assertNotIn("OpenRouter", str(ctx.exception))
         self.assertEqual(len(s.bodies), 3)  # sin reintentos
         self.assertEqual(len(ledger.alerts), 1)
         # Recargó: al primer éxito el aviso se rearma para la próxima vez
@@ -200,7 +202,7 @@ class TestOpenRouter(Base):
         with self.assertRaises(ChatUnavailable) as ctx:
             run(client(s, FakeLedger(spent=0.5), budget=0.5))
         self.assertEqual(ctx.exception.reason, "presupuesto")
-        self.assertIn("Llegué al tope de hoy", str(ctx.exception))
+        self.assertIn("tope de gasto", str(ctx.exception))
         self.assertEqual(s.bodies, [])
 
     def test_sin_key_no_llama(self):
@@ -255,9 +257,11 @@ class TestVerYOir(Base):
         partes = body["messages"][0]["content"]
         self.assertEqual(partes[1]["image_url"]["url"][:23], "data:image/jpeg;base64,")
         self.assertEqual(ledger.rows[-1]["proveedor"], "openrouter-vision")
+        sin_vision = client(s)
         with self.assertRaises(ChatUnavailable) as e:  # sin modelo de visión no llama
-            asyncio.run(client(s).ver("Describe", [b"x"]))
-        self.assertIn("NEXUS_OPENROUTER_MODEL_VISION", str(e.exception))
+            asyncio.run(sin_vision.ver("Describe", [b"x"]))
+        self.assertIn("no puedo mirar fotos", str(e.exception))
+        self.assertIn("NEXUS_OPENROUTER_MODEL_VISION", sin_vision.ultimo_fallo["detalle"], "el detalle, para «dime qué pasó»")
 
     def test_transcripcion_por_su_endpoint(self):
         respuesta = {"text": "hola", "segments": [{"start": 0, "end": 1, "text": "hola"}], "usage": {"seconds": 9.2, "cost": 0.00003}}

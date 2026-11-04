@@ -74,8 +74,12 @@ class IAFalsa:
         self.llamadas["transcribir"] += 1
         return self.transcripcion, {"modelo": self.audio_model, "costo_usd": 0.00002}
 
+    ultimo_fallo = None  # como el cliente real, para «dime qué pasó»
+    ultimo_sistema = ""
+
     async def chat_ex(self, messages, **kw):
         self.llamadas["chat"] += 1
+        self.ultimo_sistema = messages[0]["content"]
         if "Coméntalo" in messages[-1]["content"]:
             return self.comentario, {"costo_usd": 0.00005}
         return "Anotado, jefe.", {}
