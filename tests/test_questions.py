@@ -1,6 +1,6 @@
 """Reconocimiento de preguntas temporales y meta (sin base de datos).
 
-    docker run --rm -v "$PWD/tests:/app/tests:ro" nexus-core python -m unittest tests.test_questions
+    docker run --rm -v "$PWD/tests:/app/tests:ro" isabelle-core python -m unittest tests.test_questions
 """
 
 import unittest

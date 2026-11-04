@@ -1,6 +1,6 @@
 """10 casos de ejemplo de la Fase 3 (ver y oír), con datos inventados.
 
-    NEXUS_E2E_IMAGE=nexus-core:prueba python3 tests/muestra_ver_oir.py
+    NEXUS_E2E_IMAGE=isabelle-core:prueba python3 tests/muestra_ver_oir.py
 
 Levanta una instancia aislada (como tests/e2e.py; la memoria real no se toca). Las fotos se dibujan
 con Pillow dentro del contenedor y las notas de voz se generan con un modelo de voz de OpenRouter

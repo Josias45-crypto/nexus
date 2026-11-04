@@ -2,7 +2,7 @@
 sobre una base temporal (httpx.ASGITransport, sin el worker). Sin modelo: las fechas se
 entienden por reglas.
 
-    docker run --rm -e NEXUS_DATA_DIR=/tmp/x -v "$PWD/tests:/app/tests:ro" nexus-core \
+    docker run --rm -e NEXUS_DATA_DIR=/tmp/x -v "$PWD/tests:/app/tests:ro" isabelle-core \
         python -m unittest tests.test_reminders_flow
 """
 

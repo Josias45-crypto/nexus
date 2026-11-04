@@ -1,6 +1,6 @@
 """Muestra de la web (Fase 5) con capturas reales, con datos inventados.
 
-    NEXUS_E2E_IMAGE=nexus-core:prueba python3 tests/muestra_web.py
+    NEXUS_E2E_IMAGE=isabelle-core:prueba python3 tests/muestra_web.py
 
 Levanta una instancia aislada (la memoria real no se toca), le enseña unas notas y una foto
 sintéticas, conversa por la web y toma capturas en un Chromium sin interfaz dentro de Docker

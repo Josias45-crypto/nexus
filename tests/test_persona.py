@@ -1,7 +1,7 @@
 """Personalidad: límites de tratamientos y emojis por código, fuentes legibles, [AHORA] y lo que
 Isabelle puede (y no puede) ofrecer. Sin red.
 
-    docker run --rm -e NEXUS_DATA_DIR=/tmp/p -v "$PWD/tests:/app/tests:ro" nexus-core \
+    docker run --rm -e NEXUS_DATA_DIR=/tmp/p -v "$PWD/tests:/app/tests:ro" isabelle-core \
         python -m unittest tests.test_persona
 """
 

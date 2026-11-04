@@ -1,6 +1,6 @@
 """Pruebas de los sentidos (extracción por formato). Corren dentro del contenedor:
 
-    docker run --rm -e NEXUS_DATA_DIR=/tmp -v $PWD/tests:/app/tests:ro nexus-core \
+    docker run --rm -e NEXUS_DATA_DIR=/tmp -v $PWD/tests:/app/tests:ro isabelle-core \
         python -m unittest tests.test_senses
 """
 

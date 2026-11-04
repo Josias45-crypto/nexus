@@ -1,7 +1,7 @@
 """Fase 5 sin red: la API entera exige sesión (o el token interno de los canales), login con espera
 creciente, «Lo guardado» que solo descarga y la página sin librerías externas.
 
-    docker run --rm -e NEXUS_DATA_DIR=/tmp/w -v "$PWD/tests:/app/tests:ro" nexus-core \
+    docker run --rm -e NEXUS_DATA_DIR=/tmp/w -v "$PWD/tests:/app/tests:ro" isabelle-core \
         python -m unittest tests.test_web
 """
 

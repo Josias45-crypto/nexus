@@ -1,6 +1,6 @@
 """Canal de WhatsApp sin llamar a Meta: firma del webhook, verificación y envío.
 
-    docker run --rm -v "$PWD/tests:/app/tests:ro" nexus-core python -m unittest tests.test_whatsapp
+    docker run --rm -v "$PWD/tests:/app/tests:ro" isabelle-core python -m unittest tests.test_whatsapp
 """
 
 import asyncio

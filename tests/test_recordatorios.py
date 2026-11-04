@@ -1,6 +1,6 @@
 """Recordatorios con seguimiento (Fase 2C) con reloj simulado y sin red ni IA.
 
-    docker run --rm -e NEXUS_DATA_DIR=/tmp/r -v "$PWD/tests:/app/tests:ro" nexus-core \
+    docker run --rm -e NEXUS_DATA_DIR=/tmp/r -v "$PWD/tests:/app/tests:ro" isabelle-core \
         python -m unittest tests.test_recordatorios
 """
 

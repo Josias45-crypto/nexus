@@ -1,7 +1,7 @@
 """Canal de Telegram con la red simulada (httpx.MockTransport): no llama a Telegram real ni al núcleo.
 
 Se ejecuta dentro de la imagen (tests/e2e.py lo hace así):
-    docker run --rm -v "$PWD/tests:/app/tests:ro" nexus-core python -m unittest tests.test_telegram
+    docker run --rm -v "$PWD/tests:/app/tests:ro" isabelle-core python -m unittest tests.test_telegram
 """
 
 import asyncio

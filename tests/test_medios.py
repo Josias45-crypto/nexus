@@ -1,6 +1,6 @@
 """Fase 3 sin red: ver y oír con proveedores simulados (visión, transcripción, comentario y embeddings).
 
-    docker run --rm -e NEXUS_DATA_DIR=/tmp/m -v "$PWD/tests:/app/tests:ro" nexus-core \
+    docker run --rm -e NEXUS_DATA_DIR=/tmp/m -v "$PWD/tests:/app/tests:ro" isabelle-core \
         python -m unittest tests.test_medios
 """
 

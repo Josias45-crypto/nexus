@@ -1,7 +1,7 @@
 """Memoria de la charla sin red: historial con búsqueda, ficha del jefe validada campo por campo,
 versión anterior si algo falla y actualización solo cuando nadie espera respuesta.
 
-    docker run --rm -e NEXUS_DATA_DIR=/tmp/m -v "$PWD/tests:/app/tests:ro" nexus-core \
+    docker run --rm -e NEXUS_DATA_DIR=/tmp/m -v "$PWD/tests:/app/tests:ro" isabelle-core \
         python -m unittest tests.test_charla
 """
 

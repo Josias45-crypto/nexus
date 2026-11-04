@@ -1,7 +1,7 @@
 """Conversación en lenguaje natural sin red: reglas baratas, intérprete con validación, acciones,
 niveles de respuesta y contexto acotado. La IA es un doble (FakeLLM).
 
-    docker run --rm -e NEXUS_DATA_DIR=/tmp/c -v "$PWD/tests:/app/tests:ro" nexus-core \
+    docker run --rm -e NEXUS_DATA_DIR=/tmp/c -v "$PWD/tests:/app/tests:ro" isabelle-core \
         python -m unittest tests.test_conversa
 """
 

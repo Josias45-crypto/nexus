@@ -1,6 +1,6 @@
 """Fase 2E sin red: búsqueda en internet (IA falsa) y «olvida eso» con borrado en cascada.
 
-    docker run --rm -e NEXUS_DATA_DIR=/tmp/b -v "$PWD/tests:/app/tests:ro" nexus-core \
+    docker run --rm -e NEXUS_DATA_DIR=/tmp/b -v "$PWD/tests:/app/tests:ro" isabelle-core \
         python -m unittest tests.test_busqueda_olvido
 """
 

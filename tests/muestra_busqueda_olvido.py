@@ -1,6 +1,6 @@
 """10 conversaciones de ejemplo de la Fase 2E (búsqueda en internet y «olvida eso"), datos inventados.
 
-    NEXUS_E2E_IMAGE=nexus-core:prueba python3 tests/muestra_busqueda_olvido.py
+    NEXUS_E2E_IMAGE=isabelle-core:prueba python3 tests/muestra_busqueda_olvido.py
 
 Levanta una instancia aislada (como tests/e2e.py; la memoria real no se toca), le enseña unas notas
 sintéticas y conversa por POST /conversar (y /conversar/seguir tras el aviso, como el bot). Usa

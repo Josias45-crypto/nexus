@@ -2,10 +2,18 @@
 """Informe rápido: qué puede y qué no puede hacer NEXUS hoy. Uso: python3 tests/informe.py"""
 import json, re, subprocess, sys, time, urllib.parse, urllib.request, uuid
 from datetime import datetime, timezone
+from pathlib import Path
 
 BASE = sys.argv[1] if len(sys.argv) > 1 else "http://localhost:8000"
 RUN = uuid.uuid4().hex[:8]
 filas = []
+
+
+def contenedor(servicio: str) -> str:
+    """El contenedor en marcha del servicio (proyecto «isabelle»), o el nombre anterior."""
+    r = subprocess.run(["docker", "compose", "ps", "-q", servicio], cwd=Path(__file__).resolve().parent.parent,
+                       capture_output=True, text=True)
+    return (r.stdout.strip().splitlines() or [f"nexus-{servicio}"])[0]
 
 
 def _token() -> str:
@@ -85,7 +93,7 @@ def t_worker():
 
 def t_telegram():
     nombres = subprocess.run(["docker", "ps", "--format", "{{.Names}}"], capture_output=True, text=True).stdout
-    ok = "nexus-telegram" in nombres
+    ok = any(n in nombres for n in ("isabelle-telegram", "nexus-telegram"))
     return ("OK" if ok else "FALLA"), "contenedor del bot " + ("encendido" if ok else "APAGADO (usa --profile channels)")
 
 
@@ -120,7 +128,7 @@ def _fecha(v):
 
 
 def _leer_tablas():
-    p = subprocess.run(["docker", "exec", "-i", "nexus-core", "python", "-"], input=CODIGO,
+    p = subprocess.run(["docker", "exec", "-i", contenedor("core"), "python", "-"], input=CODIGO,
                        capture_output=True, text=True)
     if p.returncode:
         raise RuntimeError(p.stderr[-150:])
@@ -205,7 +213,7 @@ asyncio.run(main())
 
 def t_recordatorio_manejador():
     chat = f"informe-{RUN}"
-    p = subprocess.run(["docker", "exec", "-i", "nexus-telegram", "python", "-", chat, RUN],
+    p = subprocess.run(["docker", "exec", "-i", contenedor("telegram"), "python", "-", chat, RUN],
                        input=MANEJADOR, capture_output=True, text=True, timeout=300)
     if p.returncode:
         return "FALLA", (p.stderr.strip().splitlines() or ["sin salida"])[-1][:150]

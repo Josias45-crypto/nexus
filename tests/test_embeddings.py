@@ -1,7 +1,7 @@
 """Fase 4 sin red: embeddings por OpenRouter (lotes, reintentos, prefijos, caché), búsqueda que cae
 a solo palabras, reindexado de solo vectores y espera sin gastar intentos.
 
-    docker run --rm -e NEXUS_DATA_DIR=/tmp/e -v "$PWD/tests:/app/tests:ro" nexus-core \
+    docker run --rm -e NEXUS_DATA_DIR=/tmp/e -v "$PWD/tests:/app/tests:ro" isabelle-core \
         python -m unittest tests.test_embeddings
 """
 

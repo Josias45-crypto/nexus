@@ -1,6 +1,6 @@
 """Cliente único de OpenRouter sin red real (httpx.MockTransport).
 
-    docker run --rm -v "$PWD/tests:/app/tests:ro" nexus-core python -m unittest tests.test_openrouter
+    docker run --rm -v "$PWD/tests:/app/tests:ro" isabelle-core python -m unittest tests.test_openrouter
 """
 
 import asyncio

@@ -7,7 +7,7 @@ Uso:
 Sin --url levanta una instancia temporal aislada (contenedor nexus-e2e, puerto 8001) con la
 misma imagen, pero con datos y respaldos en una carpeta temporal que se borra al terminar: la
 memoria real no se toca. Requiere la imagen construida (`docker compose build core`).
-Con NEXUS_E2E_IMAGE=<imagen> usa esa imagen (p. ej. `docker build -t nexus-core:prueba .`).
+Con NEXUS_E2E_IMAGE=<imagen> usa esa imagen (p. ej. `docker build -t isabelle-core:prueba .`).
 Con --url prueba contra esa instancia (y deja en ella los datos sintéticos).
 
 Usa solo datos sintéticos marcados con un id de corrida único. El chat y los embeddings usan
@@ -218,10 +218,22 @@ def _docker(*args: str) -> str:
     return r.stdout.strip()
 
 
+def contenedor(servicio: str = "core") -> str:
+    """El contenedor en marcha de ese servicio de compose (proyecto «isabelle»); si no hay, el
+    nombre de las instalaciones anteriores (nexus-core, nexus-telegram)."""
+    r = subprocess.run(["docker", "compose", "ps", "-q", servicio], cwd=REPO, capture_output=True, text=True)
+    return (r.stdout.strip().splitlines() or [f"nexus-{servicio}"])[0]
+
+
 def _imagen() -> str:
-    """La imagen de nexus-core, o NEXUS_E2E_IMAGE para probar una construida aparte (así no se
-    reconstruye la imagen de los contenedores reales)."""
-    return os.environ.get("NEXUS_E2E_IMAGE") or _docker("inspect", "nexus-core", "-f", "{{.Config.Image}}")
+    """La imagen del núcleo en marcha, o NEXUS_E2E_IMAGE para probar una construida aparte (así no
+    se reconstruye la imagen de los contenedores reales)."""
+    if img := os.environ.get("NEXUS_E2E_IMAGE"):
+        return img
+    try:
+        return _docker("inspect", contenedor("core"), "-f", "{{.Config.Image}}")
+    except RuntimeError:
+        return "isabelle-core:latest"
 
 
 @contextmanager

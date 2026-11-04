@@ -1,6 +1,6 @@
 """Iniciativa propia (Fase 2D) con reloj simulado, sin red: la IA es falsa.
 
-    docker run --rm -e NEXUS_DATA_DIR=/tmp/i -v "$PWD/tests:/app/tests:ro" nexus-core \
+    docker run --rm -e NEXUS_DATA_DIR=/tmp/i -v "$PWD/tests:/app/tests:ro" isabelle-core \
         python -m unittest tests.test_iniciativa
 """
 

@@ -2,7 +2,7 @@
 
 Uso:
     python3 tests/eval_ventas.py [--url http://localhost:8000] [--label nombre]
-                                 [--candidatos N] [--image nexus-core:otra]
+                                 [--candidatos N] [--image isabelle-core:otra]
 
 Sin --url usa una instancia temporal aislada (como tests/e2e.py): solo estarán las 20 notas
 de la corrida. Responde OpenRouter con la clave y el modelo de .env (datos sintéticos). El costo

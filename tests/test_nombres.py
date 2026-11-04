@@ -1,6 +1,6 @@
 """El jefe es Josias: Isabelle nunca inventa un nombre de persona («señor Joaquín»).
 
-    docker run --rm -e NEXUS_DATA_DIR=/tmp/n -v "$PWD/tests:/app/tests:ro" nexus-core \
+    docker run --rm -e NEXUS_DATA_DIR=/tmp/n -v "$PWD/tests:/app/tests:ro" isabelle-core \
         python -m unittest tests.test_nombres
 """
 

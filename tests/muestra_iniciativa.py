@@ -4,7 +4,7 @@ naturalidad y que no se repitan. Datos inventados; OpenRouter real (centavos).
     python3 tests/muestra_iniciativa.py
 
 Corre en un contenedor temporal con base propia en /tmp (la memoria real no se toca), con la imagen
-de NEXUS_E2E_IMAGE (o la de nexus-core) y el reloj simulado. Escribe tests/muestra_iniciativa.md
+de NEXUS_E2E_IMAGE (o la del núcleo en marcha) y el reloj simulado. Escribe tests/muestra_iniciativa.md
 (ignorado por git).
 """
 
