@@ -283,7 +283,7 @@ class OpenRouter:
 
     async def chat_ex(
         self, messages: list[dict], *, model: str | None = None, temperature: float = 0,
-        max_tokens: int | None = None, razonar: bool = False, web: bool = False, proveedor: str = "openrouter",
+        max_tokens: int | None = None, razonar: bool | int = False, web: bool = False, proveedor: str = "openrouter",
     ) -> tuple[str, dict]:
         """Devuelve (texto, uso). Sin `model`, el de uso diario. Temperatura 0 para datos y
         extracción; más alta para charla. Sin `razonar`, el razonamiento interno va apagado: con
@@ -299,6 +299,8 @@ class OpenRouter:
             body["max_tokens"] = max_tokens
         if not razonar:
             body["reasoning"] = {"enabled": False}
+        elif razonar is not True:  # un entero: razonamiento acotado a esos tokens (los modelos que no lo apagan)
+            body["reasoning"] = {"max_tokens": int(razonar)}
         if web:
             body["plugins"] = [WEB_PLUGIN]
         modelos = [model]
