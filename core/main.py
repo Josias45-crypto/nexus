@@ -61,9 +61,13 @@ def _ip(request: Request) -> str:
     return request.client.host if request.client else "?"
 
 
+def _https(request: Request) -> bool:
+    return auth.cifrada(request.url.scheme, request.headers.get("x-forwarded-proto"))
+
+
 @app.get("/login", response_class=HTMLResponse, include_in_schema=False)
-def login_page():
-    return ui.login(auth.hay_clave())
+def login_page(request: Request):
+    return ui.login(auth.hay_clave(), cifrada=_https(request))
 
 
 @app.post("/login", include_in_schema=False)
@@ -81,7 +85,7 @@ def login(request: Request, clave: str = Form("", max_length=500)):
     auth.exito(ip)
     r = JSONResponse({"ok": True})
     r.set_cookie(auth.COOKIE, auth.crear_sesion(), max_age=auth.SESION_DIAS * 86400, httponly=True,
-                 samesite="strict", secure=request.url.scheme == "https", path="/")
+                 samesite="strict", secure=auth.cookie_segura(_https(request)), path="/")
     return r
 
 

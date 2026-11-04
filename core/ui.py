@@ -22,9 +22,11 @@ input.linea:focus{border-bottom-color:rgba(63,182,255,.8);box-shadow:0 10px 22px
 FONDO_LOGIN = "radial-gradient(ellipse at 50% 60%, #0b1f4a 0%, #050a1f 45%, #02040d 80%)"
 
 
-def login(hay_clave: bool) -> str:
+def login(hay_clave: bool, cifrada: bool = True) -> str:
     aviso = ("" if hay_clave else
              '<p class="mut">Aún no hay contraseña. En la terminal: <code>docker compose exec core python -m core.auth</code></p>')
+    if not cifrada:  # HTTP: la contraseña y la sesión viajan sin cifrar
+        aviso += '<p class="sincifrar" role="note">Conexión sin cifrar</p>'
     return f"""<!doctype html><html lang="es"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1"><title>Isabelle</title>
 <style>{ESTILO_BASE}
@@ -32,6 +34,7 @@ body{{display:flex;align-items:center;justify-content:center;background:{FONDO_L
 main{{width:min(360px,86vw);text-align:center}}
 h1{{font-weight:300;letter-spacing:.3em;font-size:22px;text-shadow:0 0 18px var(--glow)}}
 #m{{min-height:1.5em;font-size:14px}}
+.sincifrar{{color:#ffb86b;font-size:12px;letter-spacing:.06em;margin:-6px 0 14px}}
 </style></head><body><main>
 <h1>ISABELLE</h1>{aviso}
 <form id="f"><input class="linea" id="c" type="password" autocomplete="current-password" placeholder="contraseña" autofocus>

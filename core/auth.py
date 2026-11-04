@@ -125,6 +125,17 @@ def cerrar_sesion(token: str | None) -> None:
             conn.execute("DELETE FROM sesiones WHERE huella = ?", (_huella(token),))
 
 
+def cifrada(esquema: str, reenviado: str | None) -> bool:
+    """¿La conexión del navegador va por HTTPS? (directa o tras un proxy con TLS)."""
+    return esquema == "https" or (reenviado or "").split(",")[0].strip().lower() == "https"
+
+
+def cookie_segura(es_https: bool) -> bool:
+    """Secure en la cookie: por HTTP no se puede (el navegador no la devolvería y el login fallaría)."""
+    modo = settings.COOKIE_SECURE
+    return True if modo == "on" else False if modo == "off" else es_https
+
+
 def autorizado(cookie: str | None, cabecera: str | None) -> bool:
     if cabecera and hmac.compare_digest(cabecera.encode(), token_interno().encode()):
         return True

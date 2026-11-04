@@ -17,8 +17,9 @@ services:
     build: .
     env_file: .env
     ports:
-      # Siempre en 127.0.0.1 (se entra por túnel SSH); el puerto, por NEXUS_PORT (en el VPS: 8100)
-      - "127.0.0.1:${NEXUS_PORT:-8000}:8000"
+      # Por defecto solo en 127.0.0.1 (se entra por túnel SSH). NEXUS_BIND=0.0.0.0 publica la web por
+      # HTTP sin cifrar (riesgos en docs/DESPLIEGUE.md). El puerto, por NEXUS_PORT (en el VPS: 8100)
+      - "${NEXUS_BIND:-127.0.0.1}:${NEXUS_PORT:-8000}:8000"
     volumes:
       - ./data:/data
       - ${NEXUS_BACKUP_HOST_DIR:-./backups}:/backups

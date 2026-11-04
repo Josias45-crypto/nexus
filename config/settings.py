@@ -59,6 +59,9 @@ REMINDER_CONFIRM_MIN = float(os.getenv("NEXUS_REMINDER_CONFIRM_MIN", "15"))  # c
 SCHEDULER_INTERVAL = int(os.getenv("NEXUS_SCHEDULER_INTERVAL", "30"))
 # Canal por defecto para avisos proactivos
 DEFAULT_CHANNEL = os.getenv("NEXUS_DEFAULT_CHANNEL", "telegram")
+# Cookie de sesión de la web: Secure solo por HTTPS. auto = según la conexión (o X-Forwarded-Proto
+# de un proxy con TLS); on = siempre (el login solo funciona por HTTPS); off = nunca.
+COOKIE_SECURE = os.getenv("NEXUS_COOKIE_SECURE", "auto").strip().lower()
 BACKUP_DIR = os.getenv("NEXUS_BACKUP_DIR", "/backups")
 BACKUP_HOURS = int(os.getenv("NEXUS_BACKUP_HOURS", "24"))
 BACKUP_KEEP = int(os.getenv("NEXUS_BACKUP_KEEP", "7"))
