@@ -10,7 +10,7 @@ No hay autenticación: la API escucha solo en `127.0.0.1` y se accede por Tailsc
 
 | Método | Ruta | Qué hace |
 |---|---|---|
-| GET | `/health` | `status` `ok` o `degradado` (si Ollama responde y tiene el modelo de embeddings); `llm_model`; `llm`: modelo, política de datos, presupuesto, último resultado, fallos seguidos y pausa. 503 si la base no responde |
+| GET | `/health` | `status` `ok` o `degradado` (si a algún trozo le falta vector con el modelo de embeddings actual); `embeddings`: modelo, dimensión, tabla, trozos y con vector; `llm_model`; `llm`: modelo, política de datos, presupuesto, último resultado, fallos seguidos y pausa. 503 si la base no responde |
 | GET | `/profile` | Perfil activo: nombre del asistente, negocio, categorías, reglas proactivas, ejemplos |
 | GET | `/worker` | Estado de los bucles, digestión en curso (`digiriendo`) y eventos por estado |
 | GET | `/growth?days=14` | Días de vida, elementos aprendidos, pendientes y fallidos |
@@ -66,7 +66,9 @@ curl -X POST localhost:8000/ask -H 'Content-Type: application/json' \
 | POST | `/requeue/{id}` | Reencola uno. 409 si no está en un estado reintentable |
 | POST | `/requeue/digests` | Reintenta los resúmenes fallidos |
 | POST | `/reindex?event_id=...` | Rehace trozos, vectores y resumen de uno desde su original |
-| POST | `/reindex?todos=true` | Rehace todos (tras cambiar de modelo de embeddings o de troceado) |
+| POST | `/reindex?todos=true` | Rehace todos desde los originales (tras cambiar el troceado) |
+| POST | `/reindex?solo_vectores=true` | Tras cambiar de modelo de embeddings: respaldo y vectores de los trozos actuales en la tabla nueva, en segundo plano y retomable (sin re-trocear ni resumir) |
+| GET | `/reindex` | Vectores de la tabla actual frente a los trozos, tabla vieja y progreso del último reindexado |
 | POST | `/backup` | Respaldo inmediato y verificado |
 | GET | `/backup` | Respaldos existentes y el último |
 

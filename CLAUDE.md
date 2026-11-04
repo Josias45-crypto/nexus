@@ -23,8 +23,8 @@ FastAPI, SQLite (FTS5 + sqlite-vec, WAL), chat por OpenRouter (providers/openrou
 deepseek/deepseek-v4-flash; potente anthropic/claude-sonnet-5.5 con respaldo
 deepseek/deepseek-v4-pro solo si está caído, 429 o no existe; solo proveedores zdr y
 data_collection=deny; visión NEXUS_OPENROUTER_MODEL_VISION, hoy qwen/qwen3.5-9b; transcripción
-NEXUS_OPENROUTER_MODEL_AUDIO, hoy openai/whisper-large-v3-turbo), Ollama 0.35.1 solo para
-embeddings (nomic-embed-text), Docker Compose
+NEXUS_OPENROUTER_MODEL_AUDIO, hoy openai/whisper-large-v3-turbo; embeddings NEXUS_EMBED_MODEL y
+NEXUS_EMBED_DIM, hoy baai/bge-m3 de 1024), sin Ollama, Docker Compose
 (profiles channels y whatsapp). Carpetas: core/, senses/, providers/, channels/, config/, profiles/, tests/, docs/.
 
 ## Visión: Isabelle
@@ -49,7 +49,7 @@ renombran al final.
 4. Embeddings sin Ollama (fuera Ollama).
 5. Web.
 6. Servidor.
-Hasta la Fase 4, los embeddings siguen locales (Ollama) y sin interruptores.
+Desde la Fase 4 todo modelo va por OpenRouter; en la máquina quedan la base, los originales y los respaldos.
 
 ## Propósito
 Asistente PARA EL DUEÑO de un negocio (primer caso: ventas), usado sobre todo por Telegram. El
@@ -107,6 +107,12 @@ núcleo es genérico; lo propio del rubro vive en profiles/*.toml.
   (15), filtro de alucinaciones, «no lo escuché bien» si queda dudoso; una nota de voz corta se
   atiende como si la hubiera escrito. Videos solo se guardan. Álbum: una respuesta. Telegram de más
   de 20 MB: lo dice. Sin Whisper local ni Tesseract (imagen de 1,03 GB a 563 MB).
+- Fase 4: embeddings por OpenRouter (providers/openrouter.py embed(): lotes, reintentos, prefijos
+  solo si el modelo los pide; caché por huella en embed_cache, providers/embeddings.py). Tabla de
+  vectores por modelo y dimensión (db.VEC); POST /reindex?solo_vectores=true la llena con respaldo y
+  progreso. Sin embeddings la búsqueda cae a FTS5 y lo dice (search.SOLO_TEXTO). Umbrales para
+  bge-m3: 0,92 / 0,05 / ruido 1,08 (eval_ventas). Fuera Ollama (3 servicios). when.py entiende
+  «de la tarde/noche/mañana» y «el viernes 13 a las 3»; vocabulario del negocio en la transcripción.
 
 ## Cómo probar
 `python3 tests/e2e.py --audio <wav> --audio-phrase <palabra> --chaos` (23 casos, instancia

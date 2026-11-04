@@ -25,7 +25,6 @@ flowchart LR
     OUT[Buzón de salida<br/>outbox]
   end
   subgraph Modelos
-    OL[Ollama local<br/>embeddings]
     CL[OpenRouter zdr<br/>chat · visión · transcripción]
   end
   DB[(SQLite<br/>data/nexus.db)]
@@ -37,7 +36,7 @@ flowchart LR
   INB --> DB
   WK --> SEN --> MEM --> DB
   SEN -->|fotos, escaneos, audios<br/>core/medios.py| CL
-  MEM -->|embeddings| OL
+  MEM -->|embeddings| CL
   API --> ASK --> MEM
   ASK -->|chat| CL
   WK --> REM --> OUT
@@ -56,15 +55,13 @@ Sin Mermaid (por ejemplo, en la terminal):
            outbox ◄────────────│  /ask: preguntas por fecha │ búsqueda híbrida│
                                └───────────────┬────────────────────────────┘
                                                ▼
-             OpenRouter (chat)   Ollama local (solo nomic-embed-text)
+             OpenRouter (zdr): chat, visión, transcripción y embeddings
 ```
 
 ## Servicios (docker-compose.yml)
 
 | Servicio | Qué hace | Puertos |
 |---|---|---|
-| `ollama` | Embeddings locales. Versión fijada (`0.35.1`) | ninguno hacia afuera |
-| `ollama-models` | Al arrancar, descarga el modelo de embeddings si falta y termina | — |
 | `core` | API, interfaz web, worker, sentidos, memoria | `127.0.0.1:8000` |
 | `telegram` | Canal de Telegram por long polling (profile `channels`) | ninguno |
 | `whatsapp` | Canal oficial de Meta, apagado (profile `whatsapp`) | `127.0.0.1:8081` |
@@ -106,7 +103,7 @@ SSH, nunca abriendo puertos a internet.
 | Tarea | Dónde corre |
 |---|---|
 | Chat: `/ask`, digestión, saludo matutino, fechas difíciles de recordatorios | OpenRouter (`providers/openrouter.py`), solo proveedores sin retención ([MODO_NUBE.md](MODO_NUBE.md)) |
-| Embeddings | Ollama local |
+| Embeddings | OpenRouter (`NEXUS_EMBED_MODEL`, hoy `baai/bge-m3` de 1024), solo zdr; caché por huella en `embed_cache`. Sin OpenRouter, la búsqueda cae a solo palabras (FTS5) y lo dice |
 | Fotos y PDF escaneados | OpenRouter, modelo de visión (`NEXUS_OPENROUTER_MODEL_VISION`), solo zdr; una vez por archivo (`core/medios.py`) |
 | Audios y notas de voz | OpenRouter, `/audio/transcriptions` (`NEXUS_OPENROUTER_MODEL_AUDIO`), solo zdr |
 | Videos | No se analizan: solo se guardan |
@@ -138,7 +135,7 @@ ejemplos salen de `profiles/<NEXUS_PROFILE>.toml` ([PERFILES.md](PERFILES.md)).
 ```
 core/        API, bandeja, worker, memoria, preguntas, interfaz web
 senses/      un extractor por formato (texto, documentos, oficina, correo, imagen, audio, zip)
-providers/   chat (OpenRouter) y embeddings (Ollama local)
+providers/   OpenRouter: chat, visión, audio y embeddings (con caché por huella)
 channels/    Telegram, WhatsApp, simulado y la conversación común (assistant.py)
 config/      lectura de variables de entorno
 profiles/    perfiles de rubro (.toml)

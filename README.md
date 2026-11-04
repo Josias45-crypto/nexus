@@ -82,8 +82,8 @@ curl localhost:8000/health                 # "status": "ok"
 docker compose --profile channels up -d    # bot de Telegram (ver abajo)
 ```
 
-Pon tu clave en `OPENROUTER_API_KEYS` dentro de `.env`. La primera vez descarga Ollama y el
-modelo de embeddings (`nomic-embed-text`).
+Pon tu clave en `OPENROUTER_API_KEYS` dentro de `.env`. No descarga modelos: chat, visión,
+audio y embeddings van por OpenRouter.
 
 Abre <http://localhost:8000>: escribe y pulsa **Recordar** para enseñarle, o **Preguntar**.
 Arrastra archivos a la página. El botón **Bandeja** muestra el estado de cada uno.
@@ -139,7 +139,8 @@ valor por defecto. Las más usadas:
 | `NEXUS_DAILY_BUDGET_USD` | vacío | Tope de gasto diario; al llegar avisa y espera a mañana (ver `GET /usage`) |
 | `NEXUS_PROFILE` | `general` | Perfil de rubro (`profiles/*.toml`) |
 | `NEXUS_TZ_OFFSET` | `-5` | Zona horaria para "hoy", recordatorios y resumen |
-| `NEXUS_MAX_DISTANCE` / `NEXUS_FTS_MARGIN` | `0.78` / `0.04` | Qué tan parecido debe ser un recuerdo para usarlo |
+| `NEXUS_EMBED_MODEL` / `NEXUS_EMBED_DIM` | `baai/bge-m3` / `1024` | Embeddings por OpenRouter (0,01 USD por millón de tokens) |
+| `NEXUS_MAX_DISTANCE` / `NEXUS_FTS_MARGIN` | `0.92` / `0.05` | Qué tan parecido debe ser un recuerdo para usarlo (calibrado para bge-m3) |
 | `NEXUS_OPENROUTER_MODEL_VISION` | `qwen/qwen3.5-9b` | Visión: fotos y páginas escaneadas (~0,0001 USD por foto) |
 | `NEXUS_OPENROUTER_MODEL_AUDIO` | `openai/whisper-large-v3-turbo` | Transcripción de audios (~0,0002 USD por minuto) |
 | `NEXUS_BACKUP_HOURS` / `NEXUS_BACKUP_HOST_DIR` | `24` / `./backups` | Respaldos automáticos y dónde guardarlos |
@@ -197,7 +198,7 @@ NEXUS pasará a llamarse **Isabelle**: una secretaria personal en Telegram, sin 
 1. Limpieza y chat solo por OpenRouter (hecho).
 2. Isabelle: personalidad, conversación sin comandos, recordatorios con botones.
 3. Ver y oír: comentar fotos, audios y documentos (hecho).
-4. Embeddings sin Ollama.
+4. Embeddings sin Ollama (hecho).
 5. Web: chat minimalista, subida de archivos, vista de lo guardado y contraseña.
 6. Servidor: VPS (Ubuntu 24.04, 16 GB, 8 vCPU) solo por Tailscale y SSH con llave, con respaldos
    sincronizados a la laptop ([OPERACION](docs/OPERACION.md)).
@@ -232,7 +233,7 @@ docker compose down                      # detener (conserva datos y modelos)
 ```
 core/       API, bandeja, worker, memoria, preguntas, recordatorios, interfaz web
 senses/     un extractor por formato
-providers/  chat (OpenRouter) y embeddings (Ollama local)
+providers/  OpenRouter: chat, visión, audio y embeddings (con caché por huella)
 channels/   Telegram, WhatsApp, simulado
 profiles/   perfiles de rubro
 tests/      e2e, evaluación, informe, unitarias y fixtures

@@ -33,6 +33,27 @@ AAAA-MM-DD.
 - Lenguaje natural: «pospón el 2 una hora», «¿qué tengo pendiente?»; «en 90 segundos».
 - `NEXUS_REMINDER_MAX_TRIES` se quita; `NEXUS_REMINDER_RETRY_MIN` queda solo para pruebas.
 
+### Cambiado (Fase 4: embeddings por OpenRouter, fuera Ollama)
+- Embeddings por OpenRouter con zdr y `data_collection=deny`: `baai/bge-m3` (1024, 0,01 USD por
+  millón de tokens), elegido entre 36 modelos por MRR 0,889 frente a 0,768 de nomic en las notas del
+  eval; `NEXUS_EMBED_MODEL` y `NEXUS_EMBED_DIM` sin valor en el código. `embed()` en el cliente único
+  (lotes de 64, reintentos 1/2/4 s, prefijos solo si el modelo los pide) y caché por huella
+  (`embed_cache`). Uso aparte en `/usage` (`openrouter-embeddings`).
+- Si OpenRouter falla: el original queda guardado, el procesamiento espera con pausa creciente
+  sin gastar intentos y la búsqueda cae a solo palabras (FTS5) y lo dice.
+- Tabla de vectores por modelo y dimensión (`vec_baai_bge_m3_1024`); `POST /reindex?solo_vectores=true`
+  la llena desde los trozos actuales con respaldo y progreso (`GET /reindex`), sin tocar la vieja
+  hasta comprobar. `/health` muestra los vectores en lugar de Ollama.
+- Eval de ventas: recuperación 10/13 → 11/13, respuesta 12/13 → 13/13 (síntesis 3/4 → 4/4),
+  «no sé» 4/4 y 0 datos inventados en ambos. Umbrales recalibrados: `NEXUS_MAX_DISTANCE` 0,92,
+  `NEXUS_FTS_MARGIN` 0,05, `NEXUS_NOISE_DISTANCE` 1,08.
+- Fuera Ollama: servicios `ollama` y `ollama-models`, `OLLAMA_BASE_URL`, su volumen y la imagen de
+  9,4 GB; de 5 servicios a 3. La prueba de caos simula OpenRouter inalcanzable con un proxy.
+- «a las 3 de la tarde», «9 de la noche», «7 de la mañana», «al mediodía» y «las 12 del mediodía»
+  sin preguntar; «el viernes 13 a las 3» toma el 13 como día del mes (si no cae viernes, pregunta).
+- Transcripción con el vocabulario del negocio (`[medios].vocabulario`): va como indicación y se
+  corrige lo que suena igual («IGB» → «IGV»).
+
 ### Agregado (Fase 3: ver y oír)
 - Fotos, PDF escaneados y audios por OpenRouter con zdr y `data_collection=deny`
   (`core/medios.py`): visión `NEXUS_OPENROUTER_MODEL_VISION` (qwen/qwen3.5-9b, ~0,0001 USD por

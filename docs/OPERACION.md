@@ -10,11 +10,12 @@ y `docker stats`.
 | Componente | Disco | RAM |
 |---|---|---|
 | Imagen `nexus-core` (Python, PyAV, Pillow; sin Whisper ni Tesseract desde la Fase 3) | 563 MB (antes 1,03 GB) | no se volvió a medir: ya no carga Whisper ni OCR en memoria |
-| Imagen `ollama/ollama:0.35.1` (trae librerías de GPU aunque no se usen) | 9,4 GB | — |
-| Modelo de embeddings de Ollama (`nomic-embed-text`) | 274 MB | menos de 1 GB (no se volvió a medir sin el modelo de chat) |
 | Canal de Telegram (misma imagen que `core`) | — | ~50 MB |
 
-**Mínimo razonable:** 4 núcleos, 8 GB de RAM y 15 GB de disco libre más tus datos. El servidor
+Desde la Fase 4 no hay Ollama: se fueron la imagen `ollama/ollama:0.35.1` (9,4 GB) y el modelo
+`nomic-embed-text` (274 MB). Servicios: de 5 a 3 (`core`, y `telegram` y `whatsapp` por perfil).
+
+**Mínimo razonable:** 2 núcleos, 2 GB de RAM y 2 GB de disco libre más tus datos. El servidor
 previsto (8 vCPU, 16 GB) sobra.
 
 Tiempos (laptop): una pregunta tarda de 5 a 25 s; una foto, unos 10 s con su comentario; una nota
@@ -27,13 +28,12 @@ de voz corta, 3 a 5 s (por OpenRouter); la digestión de un documento largo, 1 a
 ```bash
 git clone https://github.com/Josias45-crypto/nexus.git && cd nexus
 cp .env.example .env          # ajusta lo que necesites (ver la tabla del README)
-docker compose up -d --build  # la primera vez descarga ~11 GB entre imagen y modelos
+docker compose up -d --build  # construye una imagen de ~560 MB; no descarga modelos
 curl localhost:8000/health    # "status": "ok"
 ```
 
-Desde un clon limpio, `up` tardó 10 min (construir la imagen y descargar Ollama y los
-modelos); el primer audio suma unos 4 min por la descarga de Whisper. `ollama-models` descarga los modelos que falten y termina; `core` espera a que acabe. Si se
-corta internet, repite el comando: continúa donde quedó.
+Todos los modelos van por OpenRouter: `up` solo construye la imagen. Si se corta internet,
+repite el comando: continúa donde quedó.
 
 ## Actualizar
 
@@ -77,7 +77,7 @@ los regenera desde los originales.
 
 | Qué | Cómo |
 |---|---|
-| Salud | `curl localhost:8000/health` (`degradado` = Ollama caído o falta un modelo). `docker compose ps` muestra `unhealthy` si no responde |
+| Salud | `curl localhost:8000/health` (`degradado` = hay trozos sin vector en la tabla del modelo actual: `POST /reindex?solo_vectores=true`). `docker compose ps` muestra `unhealthy` si no responde |
 | Qué entró y qué falló | Botón **Bandeja** en `/`, o `curl 'localhost:8000/inbox?limit=50'` |
 | Worker y digestión | `curl localhost:8000/worker` |
 | Registros | `docker compose logs -f core` (`NEXUS_LOG_LEVEL=DEBUG` para más detalle) |
