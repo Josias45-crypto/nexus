@@ -85,8 +85,13 @@ docker compose --profile channels up -d    # bot de Telegram (ver abajo)
 Pon tu clave en `OPENROUTER_API_KEYS` dentro de `.env`. No descarga modelos: chat, visión,
 audio y embeddings van por OpenRouter.
 
-Abre <http://localhost:8000>: escribe y pulsa **Recordar** para enseñarle, o **Preguntar**.
-Arrastra archivos a la página. El botón **Bandeja** muestra el estado de cada uno.
+Crea la contraseña de la web (una vez; se guarda solo su hash):
+`docker compose exec core python -m core.auth`. Abre <http://localhost:8000>: un chat
+transparente sobre las neuronas vivas de tu memoria (notas, archivos y conceptos reales, con
+destellos al aprender, buscar y responder). Es la misma conversación que Telegram. El clip 📎 o
+arrastrar y soltar suben audio, fotos, videos y documentos (sin el tope de 20 MB de Telegram).
+«lo guardado» lista todo, con su análisis y la descarga del original; «·» abre el panel
+esencial (días de vida, elementos, gasto de hoy).
 
 ## Crear el bot de Telegram
 
@@ -156,6 +161,10 @@ Cambiar de modelo: edita `NEXUS_OPENROUTER_MODEL` y `docker compose up -d`.
   queda siempre en tu máquina. Los videos no salen.
 - `data/`, `backups/` y `.env` están en `.gitignore`. Tokens y keys solo viven en `.env`.
 - Los puertos escuchan solo en `127.0.0.1`; para acceso remoto usa Tailscale o SSH.
+- Toda la API exige sesión (cookie HttpOnly y SameSite=Strict, 30 días) salvo `/login`; los
+  canales usan un token interno (`data/interno/token`, lo crea el núcleo). Tras un fallo la espera
+  crece (1, 2, 4… s). Los originales se descargan siempre como archivo (nunca se ejecuta un HTML o
+  SVG subido).
 
 > **Aviso.** Las preguntas y los textos que se resumen **se envían a OpenRouter** junto con los
 > fragmentos de tu memoria que sirven para responder. NEXUS solo admite proveedores con
@@ -169,10 +178,11 @@ Cambiar de modelo: edita `NEXUS_OPENROUTER_MODEL` y `docker compose up -d`.
 ## Pruebas
 
 ```bash
-python3 tests/e2e.py                       # 23 casos en una instancia aislada temporal
+python3 tests/e2e.py                       # 24 casos en una instancia aislada temporal
 python3 tests/muestra_iniciativa.py        # una semana simulada de saludos (OpenRouter real)
 python3 tests/muestra_busqueda_olvido.py   # 10 charlas de búsqueda y «olvida eso» (3 búsquedas reales)
 python3 tests/muestra_ver_oir.py           # 10 casos de fotos, PDF, notas de voz y video (OpenRouter real)
+python3 tests/muestra_web.py               # capturas de la web en un Chromium sin interfaz (Docker)
 python3 tests/e2e.py --chaos --audio voz.wav --audio-phrase "una palabra del audio"
 python3 tests/eval_ventas.py --label prueba    # 21 notas y 17 preguntas de ventas (aislada)
 python3 tests/informe.py                   # qué funciona hoy en TU instalación (instancia real)
@@ -199,7 +209,7 @@ NEXUS pasará a llamarse **Isabelle**: una secretaria personal en Telegram, sin 
 2. Isabelle: personalidad, conversación sin comandos, recordatorios con botones.
 3. Ver y oír: comentar fotos, audios y documentos (hecho).
 4. Embeddings sin Ollama (hecho).
-5. Web: chat minimalista, subida de archivos, vista de lo guardado y contraseña.
+5. Web: chat minimalista, subida de archivos, vista de lo guardado y contraseña (hecho).
 6. Servidor: VPS (Ubuntu 24.04, 16 GB, 8 vCPU) solo por Tailscale y SSH con llave, con respaldos
    sincronizados a la laptop ([OPERACION](docs/OPERACION.md)).
 

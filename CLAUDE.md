@@ -113,15 +113,22 @@ núcleo es genérico; lo propio del rubro vive en profiles/*.toml.
   progreso. Sin embeddings la búsqueda cae a FTS5 y lo dice (search.SOLO_TEXTO). Umbrales para
   bge-m3: 0,92 / 0,05 / ruido 1,08 (eval_ventas). Fuera Ollama (3 servicios). when.py entiende
   «de la tarde/noche/mañana» y «el viernes 13 a las 3»; vocabulario del negocio en la transcripción.
+- Fase 5: web (core/ui.py, core/web.py, core/guardado.py, core/auth.py). Toda la API exige sesión
+  (cookie HttpOnly + SameSite=Strict; contraseña scrypt en data/interno/web.json, creada con
+  `docker compose exec core python -m core.auth`) salvo /login; canales y healthcheck con el token
+  interno (X-Nexus-Token, data/interno/token, montado ro en telegram/whatsapp). Espera creciente al
+  fallar. La web es la misma conversación de Telegram (web.conversacion). Neuronas en canvas con
+  /brain/graph + /brain/stream (galaxia, tope de FPS, pausa oculta, reduced-motion). «Lo guardado»
+  descarga siempre como attachment y verifica que la ruta esté en data/raw.
 
 ## Cómo probar
-`python3 tests/e2e.py --audio <wav> --audio-phrase <palabra> --chaos` (23 casos, instancia
+`python3 tests/e2e.py --audio <wav> --audio-phrase <palabra> --chaos` (24 casos, instancia
 aislada; la memoria real no se toca; usa OpenRouter real y --chaos simula OpenRouter inalcanzable).
 Para no tocar la imagen de los contenedores reales: `docker build -t nexus-core:prueba .` y
 `NEXUS_E2E_IMAGE=nexus-core:prueba python3 tests/e2e.py --chaos`. Unitarias dentro del contenedor (ver tests/test_senses.py).
 Antes de probar cambios de código: `docker compose build core`. También: `tests/eval_ventas.py`
 (medir antes y después en /ask), `tests/informe.py` (estado de la instalación real),
-`tests/muestra_conversaciones.py` (15 charlas para juzgar el tono), `tests/muestra_iniciativa.py` (una semana de saludos), `tests/muestra_busqueda_olvido.py`, `tests/muestra_ver_oir.py` y `tests/comparar_modelos.py`.
+`tests/muestra_conversaciones.py` (15 charlas para juzgar el tono), `tests/muestra_iniciativa.py` (una semana de saludos), `tests/muestra_busqueda_olvido.py`, `tests/muestra_ver_oir.py`, `tests/muestra_web.py` (capturas en Docker) y `tests/comparar_modelos.py`.
 
 ## Reglas que no cambian
 - Los embeddings nunca salen de la máquina (hasta la Fase 4). Fotos, escaneos y audios solo a

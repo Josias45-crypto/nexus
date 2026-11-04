@@ -33,6 +33,25 @@ AAAA-MM-DD.
 - Lenguaje natural: «pospón el 2 una hora», «¿qué tengo pendiente?»; «en 90 segundos».
 - `NEXUS_REMINDER_MAX_TRIES` se quita; `NEXUS_REMINDER_RETRY_MIN` queda solo para pruebas.
 
+### Agregado (Fase 5: web)
+- Chat transparente (solo letras y botones de texto) sobre una galaxia de neuronas en canvas con
+  datos reales: notas, archivos y conceptos (máx. 300, los más recientes), conexiones por parecido
+  y por conceptos compartidos, destellos al llegar algo, al buscar y al responder (`/brain/stream`).
+  JS puro sin CDN, tope de 24/30 cuadros por segundo, pausa con la pestaña oculta y quieto con
+  `prefers-reduced-motion`. Clip y arrastrar y soltar; panel esencial oculto (días, elementos,
+  gasto de hoy). La web es la misma conversación de Telegram.
+- «Lo guardado»: lista con filtros y búsqueda, detalle con análisis, vista previa re-codificada
+  de las fotos y descarga del original (`attachment`, `nosniff`, CSP sandbox, por partes, ruta
+  verificada dentro de `data/raw`).
+- Seguridad: toda la API exige sesión (cookie HttpOnly, SameSite=Strict) salvo `/login`; canales,
+  healthcheck y pruebas con token interno (`X-Nexus-Token`); contraseña scrypt creada en la
+  terminal; espera creciente al fallar; cabeceras CSP, X-Frame-Options y nosniff; la contraseña
+  nunca va a los registros. Tabla `sesiones` (solo la huella del token).
+- `tests/muestra_web.py`: capturas en Chromium sin interfaz (Playwright en Docker).
+
+### Quitado
+- La imagen `ollama/ollama:0.35.1` (la etiqueta; el contenido sigue como `ollama:latest`).
+
 ### Cambiado (Fase 4: embeddings por OpenRouter, fuera Ollama)
 - Embeddings por OpenRouter con zdr y `data_collection=deny`: `baai/bge-m3` (1024, 0,01 USD por
   millón de tokens), elegido entre 36 modelos por MRR 0,889 frente a 0,768 de nomic en las notas del

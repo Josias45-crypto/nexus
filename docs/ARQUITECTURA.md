@@ -62,8 +62,8 @@ Sin Mermaid (por ejemplo, en la terminal):
 
 | Servicio | Qué hace | Puertos |
 |---|---|---|
-| `core` | API, interfaz web, worker, sentidos, memoria | `127.0.0.1:8000` |
-| `telegram` | Canal de Telegram por long polling (profile `channels`) | ninguno |
+| `core` | API (toda con sesión o token interno), web, worker, sentidos, memoria | `127.0.0.1:8000` |
+| `telegram` | Canal de Telegram por long polling (profile `channels`); lee el token interno de `data/interno` (solo lectura) | ninguno |
 | `whatsapp` | Canal oficial de Meta, apagado (profile `whatsapp`) | `127.0.0.1:8081` |
 
 Los puertos solo escuchan en `127.0.0.1`: desde otra máquina se entra por Tailscale o un túnel

@@ -4,7 +4,24 @@ Base: `http://localhost:8000`. La documentación interactiva con todos los campo
 <http://localhost:8000/docs>. Los errores llegan en español como `{"detail": "..."}`; los de
 validación (422) además traen `errores: [{campo, problema}]`.
 
-No hay autenticación: la API escucha solo en `127.0.0.1` y se accede por Tailscale o SSH.
+Autenticación (Fase 5): toda ruta exige la cookie de sesión de `POST /login` (formulario `clave`)
+o la cabecera `X-Nexus-Token` con el token interno (`data/interno/token`; canales, healthcheck y
+pruebas). Sin ella: 401 (las páginas redirigen a `/login`). Tras un intento fallido, 429 con
+`Retry-After` y espera creciente. La contraseña se crea con `docker compose exec core python -m core.auth`.
+
+## Web
+
+| Método | Ruta | Qué hace |
+|---|---|---|
+| GET | `/` | Chat sobre las neuronas (la misma conversación que Telegram: `channel: "web"` se atiende como el chat del jefe) |
+| POST | `/login` · `/logout` | Abre o cierra la sesión |
+| GET | `/web/historial?n=40` | Últimos mensajes de la conversación |
+| GET | `/web/panel` | Días de vida, elementos y gasto de hoy |
+| GET | `/guardado` | Página «Lo guardado» |
+| GET | `/guardado/lista?tipo=&q=&limit=&offset=` | Lo guardado (tipo: notas, documentos, fotos, audios, videos; q busca en nombre y contenido) |
+| GET | `/guardado/{id}` | Detalle: texto, análisis (descripción, datos, notas), resumen y conceptos |
+| GET | `/guardado/{id}/original` | El original, siempre como descarga (`attachment`, `octet-stream`, `nosniff`, CSP sandbox), por partes |
+| GET | `/guardado/{id}/vista` | Vista previa de una foto, re-codificada como JPEG |
 
 ## Estado
 

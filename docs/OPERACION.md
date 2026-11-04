@@ -35,6 +35,10 @@ curl localhost:8000/health    # "status": "ok"
 Todos los modelos van por OpenRouter: `up` solo construye la imagen. Si se corta internet,
 repite el comando: continúa donde quedó.
 
+Después, crea la contraseña de la web: `docker compose exec core python -m core.auth` (pide
+la contraseña dos veces; sin terminal interactiva genera una al azar y la muestra una sola vez).
+Cambiarla cierra todas las sesiones. Se guarda solo su hash en `data/interno/web.json`.
+
 ## Actualizar
 
 ```bash
