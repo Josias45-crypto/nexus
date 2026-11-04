@@ -840,8 +840,7 @@ async def main():
     ch = SimChannel([OWNER])
     nexus = NexusClient("http://core", transport=httpx.ASGITransport(app=app))
     bot = Assistant(ch, nexus, {OWNER}, pausa=False)
-    r = "
-".join(await bot.handle(ch.file(wav(), "nota_de_voz.ogg", "audio/ogg", voice=True)))
+    r = " ".join(await bot.handle(ch.file(wav(), "nota_de_voz.ogg", "audio/ogg", voice=True)))
     pend = await nexus.reminders(OWNER)
     ok = f"Quelvar{tag}" in r and any(f"Quelvar{tag}" in p["text"] for p in pend)
     print(("ok " if ok else "FALLA ") + "la nota de voz crea el recordatorio como si la hubiera escrito -> " + r[:120])
