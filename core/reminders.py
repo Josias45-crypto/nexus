@@ -43,7 +43,8 @@ ABIERTOS = ("creado", "avisado_previo", "avisado", "esperando", "pospuesto")
 CERRADOS = ("hecho", "cancelado", "sin_confirmar")
 PREVIO_MIN = 30  # aviso previo: 30 min antes, si se creó con más anticipación
 INSISTENCIAS = 3
-RETRASO_MIN = 5  # más tarde que esto respecto de lo programado: el aviso dice «(retrasado)»
+RETRASO_MIN = 2  # más tarde que esto respecto de lo programado: el aviso dice «(retrasado)»
+ATRASO_S = 120  # un aviso vencido hace más que esto sin salir al buzón: el vigilante lo reenvía
 AMBIGUA_TOMA_H = 2  # hora sin am/pm de una sola vez: si la próxima cae antes de esto, se toma
 PREGUNTA_HORA_MIN = 30  # vida de la pregunta «¿de la mañana o de la noche?»
 ESTADO_ES = {
@@ -149,7 +150,7 @@ async def interpret(text: str, usar_ia: bool = True) -> dict:
         if guess:
             return _result(guess["dt"], guess["task"], "llm", now)
     raise NotUnderstood(
-        "No entendí la fecha. Pruebe así: «recuérdame mañana a las 9 llamar a Pedro»."
+        "No entendí la fecha. Pruebe así: «recuérdame mañana a las 9 am llamar al proveedor»."
     )
 
 
@@ -422,7 +423,7 @@ def cerrar(rid: int, estado: str, chat_id: str | None = None, respuesta: str | N
     Con chat_id, solo si es de ese chat. Si es de una serie, crea la siguiente ocurrencia."""
     if estado not in CERRADOS:
         raise ValueError(f"estado de cierre inválido: {estado}")
-    desde = ABIERTOS + (("sin_confirmar",) if estado == "hecho" else ())
+    desde = ABIERTOS + (("sin_confirmar",) if estado in ("hecho", "cancelado") else ())  # sin confirmar: también se cancela
     now = clock.now_utc().isoformat()
     with connect() as conn:
         conn.execute("BEGIN IMMEDIATE")
@@ -530,6 +531,25 @@ def _paso(conn, r, now: datetime) -> str | None:
     if nuevo == "sin_confirmar":
         _siguiente_de_serie(conn, r)
     return clave + (" (retrasado)" if retrasado else "")
+
+
+def proximo() -> datetime | None:
+    """Cuándo toca el próximo aviso (para que el programador despierte justo a esa hora)."""
+    marks = ",".join("?" * len(ABIERTOS))
+    with connect() as conn:
+        r = conn.execute(f"SELECT MIN(proximo_envio) FROM reminders WHERE estado IN ({marks}) AND proximo_envio IS NOT NULL",
+                         ABIERTOS).fetchone()[0]
+    return _utc(r) if r else None
+
+
+def atrasados(segundos: int = ATRASO_S) -> list[int]:
+    """Recordatorios abiertos cuyo aviso venció hace más de `segundos` y no salió al buzón."""
+    marks = ",".join("?" * len(ABIERTOS))
+    limite = (clock.now_utc() - timedelta(seconds=segundos)).isoformat()
+    with connect() as conn:
+        return [r["id"] for r in conn.execute(
+            f"SELECT id FROM reminders WHERE estado IN ({marks}) AND proximo_envio IS NOT NULL AND proximo_envio < ?",
+            (*ABIERTOS, limite))]
 
 
 def due_step() -> dict:

@@ -257,6 +257,11 @@ def _migrate(conn) -> None:
     outbox_cols = {r["name"] for r in conn.execute("PRAGMA table_info(outbox)")}
     if "botones" not in outbox_cols:
         conn.execute("ALTER TABLE outbox ADD COLUMN botones TEXT")  # JSON: filas de {texto, dato}
+    # Entrega con acuse (message_id de Telegram) y reintentos con espera creciente
+    for col, tipo in (("acuse", "TEXT"), ("intentos", "INTEGER NOT NULL DEFAULT 0"), ("proximo_intento", "TEXT"),
+                      ("ultimo_error", "TEXT")):
+        if col not in outbox_cols:
+            conn.execute(f"ALTER TABLE outbox ADD COLUMN {col} {tipo}")
 
 
 def _migrate_reminders(conn) -> None:

@@ -145,8 +145,12 @@ async def health():
             content={"status": "error", "detail": f"Base de datos inaccesible ({type(exc).__name__})"},
         )
     vec = reindex.estado_vectores()  # embeddings por OpenRouter: ¿todos los trozos tienen vector?
+    prog = worker.salud_programador() if worker.state["activo"] else {"vivo": None, "recordatorios_atrasados": 0}
+    bien = vec["completo"] and prog["vivo"] is not False and not prog["recordatorios_atrasados"]
     return {
-        "status": "ok" if vec["completo"] else "degradado",
+        "status": "ok" if bien else "degradado",
+        "recordatorios_atrasados": prog["recordatorios_atrasados"],
+        "programador": prog,
         "embeddings": {"modelo": settings.EMBED_MODEL, "dimension": settings.EMBED_DIM,
                        **{k: vec[k] for k in ("tabla", "trozos", "con_vector", "completo", "tabla_vieja")}},
         "llm_model": settings.OPENROUTER_MODEL,
@@ -619,9 +623,28 @@ def outbox_pending(channel: str = Query(max_length=40), limit: int = Query(20, g
     return outbox.pending(channel, limit)
 
 
+class AcuseIn(BaseModel):
+    acuse: str = Field(min_length=1, max_length=200)  # message_id de la plataforma
+
+
+class FalloIn(BaseModel):
+    error: str = Field(max_length=200)
+    reintentar_en: float | None = Field(None, ge=0, le=3600)
+
+
+@app.post("/outbox/{msg_id}/fallo")
+def outbox_fallo(msg_id: int, req: FalloIn):
+    """El canal no pudo entregarlo (429, 400, chat bloqueado, sin red): reintento con espera creciente."""
+    r = outbox.fallo(msg_id, req.error, req.reintentar_en)
+    if r is None:
+        raise HTTPException(404, "Mensaje inexistente o ya entregado.")
+    return r
+
+
 @app.post("/outbox/{msg_id}/delivered")
-def outbox_delivered(msg_id: int):
-    if not outbox.delivered(msg_id):
+def outbox_delivered(msg_id: int, req: AcuseIn):
+    """Entregado: solo con el acuse de la plataforma (message_id de Telegram)."""
+    if not outbox.delivered(msg_id, req.acuse):
         raise HTTPException(404, "Mensaje inexistente o ya entregado.")
     return {"ok": True}
 
