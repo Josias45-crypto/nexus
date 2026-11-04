@@ -834,12 +834,12 @@ class Suite:
         status, _ = self.api.call("POST", f"/requeue/{ok_id}")
         if status != 409:
             raise Fail(f"reintentar algo ya procesado debería dar 409, dio {status}")
-        for path, marks in (("/", ("inboxBtn", "Reintentar")), ("/brain", ("Reintentar", "Imagen"))):
+        for path, marks in (("/guardado", ("Reintentar", "/requeue/")), ("/brain", ("Reintentar", "Imagen"))):
             status, html = self.api.call("GET", path, raw=True)
             missing = [m for m in marks if m.encode() not in html]
             if status != 200 or missing:
                 raise Fail(f"{path}: HTTP {status}, falta {missing}")
-        return "motivo visible en bandeja y cerebro, reintento por elemento, 409 si ya está listo"
+        return "motivo visible en lo guardado y el cerebro, reintento por elemento, 409 si ya está listo"
 
 
 TESTS = [

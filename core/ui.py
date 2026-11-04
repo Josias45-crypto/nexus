@@ -273,6 +273,9 @@ async function detalle(id){const det=$('det');det.innerHTML='';
     const v=el('button','t','← volver');v.onclick=()=>{location.hash=''};det.append(v);
     det.append(el('h2',null,d.filename||'(sin nombre)'));
     det.append(el('div','m',`${NOMBRE[d.kind]||d.kind} · ${fecha(d.created_at)} · ${kb(d.size)} · ${d.trozos} trozos`));
+    if(['failed','unsupported','empty'].includes(d.status)){det.append(el('div','m',`${d.status}: ${d.error||''}`));
+      const re=el('button','t','Reintentar');re.onclick=async()=>{re.disabled=true;
+        const r=await fetch('/requeue/'+d.id,{method:'POST',credentials:'same-origin'});re.textContent=r.ok?'reencolado':'no se pudo'};det.append(re)}
     const a=el('a',null,'descargar el original');a.href=`/guardado/${d.id}/original`;a.setAttribute('download','');det.append(el('p')).append(a);
     if(d.vista){const im=el('img');im.alt='';im.src=`/guardado/${d.id}/vista`;det.append(im)}
     const an=d.analisis;
