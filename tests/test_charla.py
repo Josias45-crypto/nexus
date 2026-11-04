@@ -11,7 +11,7 @@ import unittest
 from datetime import date
 from unittest import mock
 
-from core import charla, db
+from core import charla, clock, db
 
 BUENA = {"ficha": {**{k: [] for k in charla.CAMPOS}, "personas": ["Piter: proveedor de laptops"]},
          "resumen": "Hablaron de Piter."}
@@ -81,7 +81,8 @@ class HistorialTest(Base):
         charla.agregar("jefe", "Piter trae las laptops el lunes", "1")
         charla.agregar("isabelle", "Anotado, jefe.", "1")
         self.assertEqual([m["texto"] for m in charla.buscar("laptops")], ["Piter trae las laptops el lunes"])
-        hoy = charla.buscar(desde=date.today(), hasta=date.today())
+        dia = clock.now_local().date()  # el día local, no el de UTC
+        hoy = charla.buscar(desde=dia, hasta=dia)
         self.assertGreaterEqual(len(hoy), 1)
         self.assertEqual(charla.buscar("laptops", desde=date(2000, 1, 1), hasta=date(2000, 1, 2)), [])
 
