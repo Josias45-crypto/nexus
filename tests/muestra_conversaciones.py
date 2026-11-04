@@ -55,8 +55,9 @@ PNG = bytes.fromhex(
 
 def subir_foto(api: Api, nombre: str) -> dict:
     r = api.upload(nombre, PNG, "image/png")
-    return api.ok("POST", "/conversar/archivo",
-                  {"filename": nombre, "kind": r.get("kind", "image"), "duplicate": bool(r.get("duplicate")), "chat_id": CHAT})
+    return api.ok("POST", "/conversar/archivo", {
+        "archivos": [{"id": r["id"], "filename": nombre, "kind": r.get("kind", "image"), "duplicate": bool(r.get("duplicate"))}],
+        "channel": "muestra", "chat_id": CHAT})
 
 
 def main() -> int:

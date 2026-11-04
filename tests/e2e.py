@@ -11,7 +11,8 @@ Con NEXUS_E2E_IMAGE=<imagen> usa esa imagen (p. ej. `docker build -t nexus-core:
 Con --url prueba contra esa instancia (y deja en ella los datos sintéticos).
 
 Usa solo datos sintéticos marcados con un id de corrida único. El chat usa OpenRouter de verdad
-(la clave de .env; cuesta centavos). --chaos levanta una segunda instancia aislada con una clave
+(la clave de .env; cuesta centavos). Ver y oír (caso 23): una sola llamada real de visión; el audio
+va por el mismo camino del bot con la transcripción simulada (--audio sí transcribe de verdad). --chaos levanta una segunda instancia aislada con una clave
 inválida para simular OpenRouter inalcanzable.
 """
 
@@ -205,17 +206,13 @@ def _imagen() -> str:
 @contextmanager
 def isolated_instance(extra_env: dict | None = None, image: str | None = None,
                       name: str | None = None, port: int | None = None):
-    """Contenedor temporal con datos propios; usa la red, la imagen (o la indicada) y el caché
-    de Whisper de la instalación en marcha (nexus-core y nexus-ollama deben estar arriba)."""
+    """Contenedor temporal con datos propios; usa la red y la imagen (o la indicada) de la
+    instalación en marcha (nexus-core y nexus-ollama deben estar arriba)."""
     try:
         image = image or _imagen()
         network = _docker(
             "inspect", "nexus-ollama", "-f",
             "{{range $k, $v := .NetworkSettings.Networks}}{{$k}}{{end}}",
-        )
-        whisper = _docker(
-            "inspect", "nexus-core", "-f",
-            '{{range .Mounts}}{{if eq .Destination "/models"}}{{.Name}}{{end}}{{end}}',
         )
     except RuntimeError as e:
         raise SystemExit(f"Levanta NEXUS antes (docker compose up -d): {e}")
@@ -239,8 +236,6 @@ def isolated_instance(extra_env: dict | None = None, image: str | None = None,
     ]
     for key, value in (extra_env or {}).items():
         cmd += ["-e", f"{key}={value}"]
-    if whisper:
-        cmd += ["-v", f"{whisper}:/models"]
     try:
         _docker(*cmd, image)
         url = f"http://127.0.0.1:{port}"
@@ -590,6 +585,20 @@ class Suite:
             raise Fail(f"/usage no cuenta la búsqueda: {uso.get('busquedas_internet_hoy')}")
         return f"{out.count('ok ')} comprobaciones; /usage: {uso['busquedas_internet_hoy']} búsqueda(s) hoy"
 
+    def t23_ver_oir(self):
+        """Fase 3 por el camino del bot real: una foto con una llamada REAL de visión (comenta y pide
+        confirmar la cifra), el repetido sin IA, la pregunta desde lo guardado y el video solo
+        guardado. Luego una nota de voz por el mismo camino (canal -> API -> conversa -> medios) con
+        la transcripción simulada: se atiende como si él la hubiera escrito."""
+        if not self.isolated:
+            raise Skip("solo en instancia aislada")
+        out = self._sim_step("ver")
+        r = subprocess.run(["docker", "exec", "-i", E2E_NAME, "python", "-", self.rid], input=OIR_SIMULADO,
+                           capture_output=True, text=True, timeout=180)
+        if r.returncode != 0 or "FALLA" in r.stdout:
+            raise Fail("oír: " + ((r.stdout + r.stderr)[-300:]))
+        return f"{out.count('ok ')} comprobaciones de ver; oír: {r.stdout.strip().splitlines()[-1]}"
+
     def t12_unit(self):
         local = subprocess.run(
             [sys.executable, "-m", "unittest", "-q", "tests.test_when"],
@@ -604,12 +613,13 @@ class Suite:
              "python", "-m", "unittest", "-q", "tests.test_telegram", "tests.test_whatsapp",
              "tests.test_openrouter", "tests.test_questions", "tests.test_chunker", "tests.test_senses",
              "tests.test_verify", "tests.test_reminders_flow", "tests.test_conversa", "tests.test_charla",
-             "tests.test_filtro", "tests.test_recordatorios", "tests.test_persona", "tests.test_iniciativa", "tests.test_busqueda_olvido"],
+             "tests.test_filtro", "tests.test_recordatorios", "tests.test_persona", "tests.test_iniciativa", "tests.test_busqueda_olvido",
+             "tests.test_medios"],
             capture_output=True, text=True, timeout=120,
         )
         if r.returncode != 0:
             raise Fail("canales: " + r.stderr[-300:])
-        return "fechas, troceado, citas, preguntas, formatos, Telegram, WhatsApp, OpenRouter, conversación, memoria y filtro"
+        return "fechas, troceado, citas, preguntas, formatos, Telegram, WhatsApp, OpenRouter, conversación, memoria, filtro y ver/oír"
 
     def t13_profile(self):
         if not self.isolated:
@@ -699,29 +709,17 @@ class Suite:
             f"{tag}.csv": (f"cliente,deuda\nPrastel{r},40\n".encode(), "text/csv", f"Prastel{r}", "fila"),
             f"{tag}.json": (json.dumps({"cliente": f"Lumbrac{r}"}).encode(), "application/json", f"Lumbrac{r}", None),
         }
-        # Imagen, PDF escaneado y video: se generan en el contenedor (Pillow y PyAV)
-        image = _imagen()
-        mounts = ["-v", f"{REPO / 'tests'}:/app/tests:ro"]
-        audio = Path(self.args.audio) if self.args.audio else None
-        if audio:
-            mounts += ["-v", f"{audio.resolve()}:/tmp/audio{audio.suffix}:ro"]
-        code = (
-            "import base64, json, sys; from tests import fixtures as f;"
-            f"lines = ['Recibo {r[-6:]}', 'Cliente Rosa Paredes'];"
-            f"a = open('/tmp/audio{audio.suffix if audio else ''}', 'rb').read() if {bool(audio)} else b'';"
-            "out = {'png': f.image_with_text(lines), 'pdf': f.scanned_pdf(lines),"
-            f" 'mp4': f.video_from_audio(a, '{audio.suffix if audio else '.wav'}', with_audio={bool(audio)})}};"
-            "json.dump({k: base64.b64encode(v).decode() for k, v in out.items()}, sys.stdout)"
-        )
+        # Fotos y PDF escaneados van al modelo de visión: los prueban el caso 23 (una llamada real)
+        # y tests/test_medios.py. El video se genera en el contenedor (PyAV) y solo se guarda.
         gen = subprocess.run(
-            ["docker", "run", "--rm", "-e", "NEXUS_DATA_DIR=/tmp", *mounts, image, "python", "-c", code],
+            ["docker", "run", "--rm", "-e", "NEXUS_DATA_DIR=/tmp", "-v", f"{REPO / 'tests'}:/app/tests:ro", _imagen(),
+             "python", "-c", "import base64, sys; from tests import fixtures as f;"
+             "sys.stdout.write(base64.b64encode(f.video_from_audio(b'', with_audio=False)).decode())"],
             capture_output=True, text=True, timeout=300,
         )
         if gen.returncode != 0:
-            raise Fail("no se pudieron generar imagen/PDF/video: " + gen.stderr[-300:])
-        made = {k: base64.b64decode(v) for k, v in json.loads(gen.stdout).items()}
-        docs[f"{tag}-foto.png"] = (made["png"], "image/png", "Paredes", "ocr")
-        docs[f"{tag}-escaneo.pdf"] = (made["pdf"], "application/pdf", "Paredes", "ocr")
+            raise Fail("no se pudo generar el video: " + gen.stderr[-300:])
+        made = {"mp4": base64.b64decode(gen.stdout)}
 
         ids = {name: event_id(self.api.upload(name, data, mime)) for name, (data, mime, _, _) in docs.items()}
         bad = {
@@ -748,12 +746,8 @@ class Suite:
             if ev["status"] != "unsupported" or bad[name][2] not in (ev.get("error") or ""):
                 problems.append(f"{name}: {ev['status']} ({ev.get('error')})")
         ev = wait_final(self.api, video_id, AUDIO_TIMEOUT)
-        if audio:
-            hits = self.api.ok("GET", f"/search?q={urllib.parse.quote(self.args.audio_phrase or '')}&k=5")
-            if ev["status"] != "processed" or (self.args.audio_phrase and not any(h["event_id"] == video_id for h in hits)):
-                problems.append(f"video: {ev['status']} ({ev.get('error')}), frase no encontrada")
-        elif ev["status"] != "empty":
-            problems.append(f"video sin audio: {ev['status']} ({ev.get('error')})")
+        if ev["status"] != "empty" or "solo se guardan" not in (ev.get("error") or ""):
+            problems.append(f"video: {ev['status']} ({ev.get('error')})")
         if problems:
             raise Fail("; ".join(problems)[:600])
 
@@ -761,8 +755,7 @@ class Suite:
         citas = [s.get("cita") or "" for s in r2.get("sources", [])]
         if not any("hoja Ventas" in c for c in citas):
             raise Fail(f"la cita del Excel no indica la hoja: {citas} · {r2.get('answer', '')[:80]}")
-        video = "video transcrito" if audio else "video sin audio -> sin texto"
-        return f"{len(docs)} formatos encontrados con su origen, 2 no soportados con motivo, {video}"
+        return f"{len(docs)} formatos encontrados con su origen, 2 no soportados con motivo, video solo guardado"
 
     def t17_ui_retry(self):
         """La interfaz muestra estado y motivo, y el reintento por elemento funciona."""
@@ -814,7 +807,48 @@ TESTS = [
     ("20 recordatorio a 90 s con botón", "t20_recordatorio_90s"),
     ("21 saludo por iniciativa", "t21_saludo"),
     ("22 internet y olvido", "t22_internet_olvido"),
+    ("23 ver y oír", "t23_ver_oir"),
 ]
+
+# Caso 23: nota de voz por el camino del bot (SimChannel -> Assistant -> API en el mismo proceso,
+# con httpx.ASGITransport) con la transcripción simulada. Corre dentro del contenedor aislado.
+OIR_SIMULADO = r"""
+import asyncio, io, struct, sys, wave
+import httpx
+from providers import openrouter
+tag = sys.argv[1]
+TEXTO = f"Isabel, recuérdame mañana a las 10 am llamar al contador Quelvar{tag}."
+
+async def transcribir(self, audio, formato, idioma="es"):
+    return ({"text": TEXTO, "segments": [{"start": 0, "end": 3, "text": TEXTO, "avg_logprob": -0.2, "no_speech_prob": 0.01}]},
+            {"proveedor": "openrouter-audio", "modelo": "simulado", "costo_usd": 0.0})
+
+openrouter.OpenRouter.transcribir = transcribir
+from core.main import app
+from channels.assistant import Assistant
+from channels.client import NexusClient
+from channels.simulado import OWNER, SimChannel
+
+def wav():
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as w:
+        w.setnchannels(1); w.setsampwidth(2); w.setframerate(16000)
+        w.writeframes(b"".join(struct.pack("<h", (i * 37 + len(tag)) % 2000) for i in range(32000)))
+    return buf.getvalue()
+
+async def main():
+    ch = SimChannel([OWNER])
+    nexus = NexusClient("http://core", transport=httpx.ASGITransport(app=app))
+    bot = Assistant(ch, nexus, {OWNER}, pausa=False)
+    r = "
+".join(await bot.handle(ch.file(wav(), "nota_de_voz.ogg", "audio/ogg", voice=True)))
+    pend = await nexus.reminders(OWNER)
+    ok = f"Quelvar{tag}" in r and any(f"Quelvar{tag}" in p["text"] for p in pend)
+    print(("ok " if ok else "FALLA ") + "la nota de voz crea el recordatorio como si la hubiera escrito -> " + r[:120])
+    await nexus.close()
+
+asyncio.run(main())
+"""
 
 # Programador acelerado en la instancia aislada: avisos e insistencias en segundos
 ISOLATED_ENV = {"NEXUS_SCHEDULER_INTERVAL": "2", "NEXUS_REMINDER_RETRY_MIN": "0.1"}

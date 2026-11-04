@@ -83,7 +83,9 @@ class FakeNexus:
             return httpx.Response(200, json={"id": "x", "kind": "audio", "duplicate": False})
         if p == "/conversar/archivo":
             self.archivos.append(body)
-            return httpx.Response(200, json={"texto": "Recibí su nota de voz, jefe.", "botones": None})
+            if body.get("grande") and not body["archivos"]:
+                return httpx.Response(200, json={"texto": "Ese archivo pesa más de 20 MB, jefe.", "botones": None})
+            return httpx.Response(200, json={"texto": f"Vi {len(body['archivos'])} archivo(s), jefe.", "botones": None})
         if p == "/outbox":
             return httpx.Response(200, json=[{"id": 1, "chat_id": None, "text": "⏰ Recordatorio: algo"}])
         if p == "/outbox/1/delivered":
@@ -133,7 +135,9 @@ class TelegramTest(unittest.TestCase):
         self.assertIn("Los martes, jefe.", to_owner)
         self.assertFalse(any(c == "6666" for c, _ in self.tg.sent), "respondió a un extraño")
         self.assertEqual(self.tg.downloads, 1, "solo descarga archivos del dueño")
-        self.assertEqual(len(self.nx.archivos), 1, "acusa recibo de la nota de voz")
+        voz, grande = self.nx.archivos
+        self.assertTrue(voz["voz"] and len(voz["archivos"]) == 1, "la nota de voz va a Isabelle")
+        self.assertTrue(grande["grande"] and grande["archivos"] == [], "el de más de 20 MB no se baja")
         self.assertTrue(any("20 MB" in t for t in to_owner))
         self.assertTrue(any("Recordatorio" in t for t in to_owner), "no repartió el buzón")
         self.assertFalse(any(TOKEN in line for line in logs), "el token apareció en el registro")
@@ -156,6 +160,22 @@ class TelegramTest(unittest.TestCase):
         self.assertIn("answerCallbackQuery", self.tg.calls)
         self.assertIn("editMessageReplyMarkup", self.tg.calls, "no quitó los botones")
         self.assertIn("Cancelado, jefe: llamar a Piter.", [t for _, t in self.tg.sent])
+
+    def test_album_una_sola_respuesta(self):
+        """Las fotos de un álbum llegan como mensajes separados con el mismo media_group_id."""
+        self.make([])
+        foto = lambda n: self.channel.to_incoming(_msg(OWNER, message_id=n, media_group_id="alb1",  # noqa: E731
+                                                       photo=[{"file_id": f"f{n}", "file_size": 900}],
+                                                       **({"caption": "las del local"} if n == 1 else {})))
+
+        async def go():
+            return await asyncio.gather(*(self.bot.handle(foto(n)) for n in (1, 2, 3)))
+
+        respuestas = asyncio.run(go())
+        self.assertEqual(len(self.nx.archivos), 1, "una sola llamada para el álbum")
+        self.assertEqual(len(self.nx.archivos[0]["archivos"]), 3)
+        self.assertEqual(self.nx.archivos[0]["leyenda"], "las del local")
+        self.assertEqual(sum(len(r) for r in respuestas), 1, "una sola respuesta")
 
     def test_cola_junta_mensajes_seguidos(self):
         self.make([], espera=0.3)

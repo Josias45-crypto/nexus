@@ -128,20 +128,25 @@ class SensesTest(unittest.TestCase):
             extract(self.file("roto.docx", b"no es zip"))
         self.assertIsNone(find(Path("x.rar"), "application/zip"))
 
-    @unittest.skipUnless(shutil.which("tesseract"), "sin tesseract")
-    def test_ocr_imagen_y_pdf_escaneado(self):
-        lines = ["Factura 4471", "Cliente Rosa Paredes"]
-        text, segs = self.text_of("foto.png", fixtures.image_with_text(lines))
-        self.assertIn("Factura 4471", text)
-        self.assertTrue(segs[0].meta.get("ocr"))
-        text, segs = self.text_of("escaneo.pdf", fixtures.scanned_pdf(lines))
-        self.assertIn("Rosa Paredes", text)
-        self.assertEqual(segs[0].meta, {"pagina": 1, "ocr": True})
+    def test_pdf_escaneado_va_a_vision(self):
+        """Sin OCR local: las páginas sin texto no salen de aquí; core/medios.py las manda al modelo
+        de visión (Fase 3). escaneadas() las detecta y paginas_jpeg() las prepara."""
+        from senses import documentos
 
-    def test_video_sin_audio(self):
-        data = fixtures.video_from_audio(b"", with_audio=False)
-        self.assertEqual(extract(self.file("mudo.mp4", data), "video/mp4"), [])
+        path = self.file("escaneo.pdf", fixtures.scanned_pdf(["Factura 4471", "Cliente Rosa Paredes"]))
+        self.assertEqual(extract(path, "application/pdf"), [])
+        textos = documentos.textos(path)
+        self.assertEqual(documentos.escaneadas(textos), [1])
+        jpeg = documentos.paginas_jpeg(path, [1])[1]
+        self.assertTrue(jpeg.startswith(b"\xff\xd8"), "la página va como JPEG")
 
+    def test_fotos_y_audios_no_son_de_senses(self):
+        """Fotos, audios y videos los analiza core/medios.py; dentro de un .zip se piden aparte."""
+        for name in ("foto.png", "nota.ogg", "video.mp4"):
+            with self.subTest(name=name), self.assertRaises(Unsupported):
+                extract(self.file(name, b"\x00\x01binario\x02"))
+        segs = extract(self.file("c.zip", fixtures.zip_of({"foto.png": fixtures.image_with_text(["x"]), "n.txt": "Nota Velbra"})))
+        self.assertIn("Velbra", " ".join(s.text for s in segs))
 
 if __name__ == "__main__":
     os.environ.setdefault("NEXUS_DATA_DIR", tempfile.gettempdir())

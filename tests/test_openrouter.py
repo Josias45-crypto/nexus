@@ -242,6 +242,50 @@ class TestOpenRouter(Base):
         self.assertNotIn(SECRET_PROMPT, text)
 
 
+
+class TestVerYOir(Base):
+    def test_vision_con_politica_de_datos_y_su_modelo(self):
+        s, ledger = Script(ok), FakeLedger()
+        c = OpenRouter(KEY, "deepseek/deepseek-v4-flash", None, ledger, httpx.MockTransport(s), vision_model="qwen/qwen3.5-9b")
+        asyncio.run(c.ver("Describe", [b"\xff\xd8jpeg"]))
+        body = s.bodies[0]
+        self.assertEqual(body["model"], "qwen/qwen3.5-9b")
+        self.assertEqual(body["provider"], {"zdr": True, "data_collection": "deny"})
+        self.assertEqual(body["temperature"], 0)
+        partes = body["messages"][0]["content"]
+        self.assertEqual(partes[1]["image_url"]["url"][:23], "data:image/jpeg;base64,")
+        self.assertEqual(ledger.rows[-1]["proveedor"], "openrouter-vision")
+        with self.assertRaises(ChatUnavailable) as e:  # sin modelo de visión no llama
+            asyncio.run(client(s).ver("Describe", [b"x"]))
+        self.assertIn("NEXUS_OPENROUTER_MODEL_VISION", str(e.exception))
+
+    def test_transcripcion_por_su_endpoint(self):
+        respuesta = {"text": "hola", "segments": [{"start": 0, "end": 1, "text": "hola"}], "usage": {"seconds": 9.2, "cost": 0.00003}}
+        urls = []
+        s = Script(lambda: httpx.Response(200, json=respuesta))
+
+        def transporte(request):
+            urls.append(str(request.url))
+            return s(request)
+
+        ledger = FakeLedger()
+        c = OpenRouter(KEY, "deepseek/deepseek-v4-flash", None, ledger, httpx.MockTransport(transporte),
+                       audio_model="openai/whisper-large-v3-turbo")
+        data, info = asyncio.run(c.transcribir(b"OggS", "ogg"))
+        self.assertEqual(urls, ["https://openrouter.ai/api/v1/audio/transcriptions"])
+        body = s.bodies[0]
+        self.assertEqual(body["provider"], {"zdr": True, "data_collection": "deny"})
+        self.assertEqual((body["model"], body["language"], body["response_format"]), ("openai/whisper-large-v3-turbo", "es", "verbose_json"))
+        self.assertEqual(body["input_audio"]["format"], "ogg")
+        self.assertEqual(data["text"], "hola")
+        self.assertEqual((info["proveedor"], info["costo_usd"], info["segundos"]), ("openrouter-audio", 0.00003, 9.2))
+        self.assertEqual(ledger.rows[-1]["proveedor"], "openrouter-audio")
+        s2 = Script(httpx.Response(402))
+        c2 = OpenRouter(KEY, "m", None, FakeLedger(), httpx.MockTransport(s2), audio_model="a")
+        with self.assertRaises(ChatUnavailable) as e:
+            asyncio.run(c2.transcribir(b"x", "ogg"))
+        self.assertEqual(e.exception.reason, "sin_saldo")
+
 if __name__ == "__main__":
     unittest.main()
 
