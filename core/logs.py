@@ -12,4 +12,3 @@ def setup_logging() -> None:
     )
     # httpx registra cada petición en INFO (incluidas URLs de proveedores): solo avisos
     logging.getLogger("httpx").setLevel(logging.WARNING)
-    logging.getLogger("faster_whisper").setLevel(logging.WARNING)

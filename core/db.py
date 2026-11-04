@@ -167,6 +167,30 @@ CREATE TABLE IF NOT EXISTS olvidos (
     tipo TEXT NOT NULL              -- nota | archivo | ficha | charla | recordatorio | resumen
 );
 
+-- Ver y oír (core/medios.py): el análisis de cada foto, PDF escaneado, audio o video, hecho UNA
+-- vez y ligado a su original (events.sha256 es la huella). Si llega repetido se reutiliza.
+-- estado: analizado | dudoso (audio que no se entendió) | guardado (video, sin analizar)
+CREATE TABLE IF NOT EXISTS medios (
+    event_id TEXT PRIMARY KEY REFERENCES events(id),
+    tipo TEXT NOT NULL,             -- foto | pdf | audio | video
+    estado TEXT NOT NULL,
+    clase TEXT,                     -- de la foto: foto | documento | boleta | factura | captura | otro
+    descripcion TEXT,
+    texto TEXT,                     -- texto legible de la foto o transcripción del audio
+    datos TEXT,                     -- JSON: lista de tipo, valor y qué es (solo los que están en el texto)
+    ilegible TEXT,
+    partes TEXT,                    -- JSON. PDF: texto por página escaneada leída; audio: ventanas con inicio, fin y texto
+    paginas_total INTEGER,          -- PDF: páginas escaneadas en total
+    duracion_s REAL,                -- audio: duración total
+    transcrito_s REAL,              -- audio: segundos transcritos (tope [medios].audio_max_min)
+    notas TEXT,                     -- JSON: lo que el jefe dijo de este medio («se llama Max»)
+    confirmado INTEGER NOT NULL DEFAULT 0,  -- el jefe confirmó las cifras leídas
+    modelo TEXT,
+    costo_usd REAL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
 CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
     content, content='chunks', content_rowid='id',
     tokenize='unicode61 remove_diacritics 2'

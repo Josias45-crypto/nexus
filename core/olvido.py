@@ -298,6 +298,7 @@ def ejecutar(plan: dict) -> dict:
             memory.delete_chunks(conn, eid)
             conn.execute("DELETE FROM digests WHERE event_id = ?", (eid,))
             conn.execute("UPDATE reminders SET source_event_id = NULL WHERE source_event_id = ?", (eid,))
+            conn.execute("DELETE FROM medios WHERE event_id = ?", (eid,))  # análisis de la foto o el audio
             conn.execute("DELETE FROM events WHERE id = ?", (eid,))
             archivos += [Path(ev["raw_path"])] + ([e] if (e := _espejo(ev["raw_path"])) else [])
             tipo = "nota" if ev["kind"] == "text" else "archivo"

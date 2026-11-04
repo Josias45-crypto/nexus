@@ -2,7 +2,8 @@
 diapositiva, minuto, archivo dentro de un .zip...).
 
 Cada módulo registra sus extractores con @register. extract() elige por extensión y, si no
-la reconoce, por tipo MIME. Todo es local: el OCR y la transcripción no salen de la máquina.
+la reconoce, por tipo MIME. Todo es local y sin IA. Fotos, páginas escaneadas y audios no pasan
+por aquí: los ve y los oye core/medios.py (Fase 3, por OpenRouter); los videos solo se guardan.
 """
 
 import logging
@@ -114,8 +115,8 @@ def extract_member(name: str, data: bytes, mime: str, depth: int) -> list[Segmen
     suffix = Path(name).suffix.lower()
     if depth > MAX_DEPTH:
         raise Unsupported("demasiados niveles de archivos dentro de archivos")
-    if suffix in AUDIO_EXT | VIDEO_EXT:
-        raise Unsupported("audio o video dentro de otro archivo: súbelo aparte")
+    if suffix in AUDIO_EXT | VIDEO_EXT | IMAGE_EXT:
+        raise Unsupported("foto, audio o video dentro de otro archivo: envíelo aparte")
     mime = mime or mimetypes.guess_type(name)[0] or ""
     tmp_dir = Path(settings.DATA_DIR) / "tmp"
     tmp_dir.mkdir(parents=True, exist_ok=True)
@@ -130,4 +131,4 @@ def extract_member(name: str, data: bytes, mime: str, depth: int) -> list[Segmen
 
 
 # Registro: el orden importa solo si dos extractores declaran la misma extensión
-from senses import texto, documentos, oficina, correo, imagen, audio, comprimidos  # noqa: E402,F401
+from senses import texto, documentos, oficina, correo, comprimidos  # noqa: E402,F401

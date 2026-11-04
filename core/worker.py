@@ -29,7 +29,7 @@ async def _process_step() -> dict:
 
 
 async def _audio_step() -> dict:
-    # De uno en uno: Whisper transcribe un audio a la vez
+    # De uno en uno: un audio largo se transcribe por tramos (core/medios.py)
     return await processor.process_pending(limit=1, queue="audio")
 
 
