@@ -149,6 +149,16 @@ class WhenTest(unittest.TestCase):
         with self.assertRaisesRegex(Ambiguous, "no cae viernes"):
             parse("recuérdame el viernes 10 a las 3 de la tarde pagar", NOW)
 
+    def test_abreviaturas_del_chat(self):
+        for texto, cuando, tarea in [
+            ("recuerdame mñn a las 10 am llamar a kelvar", datetime(2026, 10, 8, 10, 0), "llamar a kelvar"),
+            ("recuerdame en 2 hrs enviar la cotizacion", datetime(2026, 10, 7, 12, 30), "enviar la cotizacion"),
+            ("recuerdame manana a las 9 am revisar caja x fa", datetime(2026, 10, 8, 9, 0), "revisar caja"),
+        ]:
+            with self.subTest(texto=texto):
+                p = parse(texto, NOW)
+                self.assertEqual((p.when, p.task), (cuando, tarea))
+
     def test_sin_fecha(self):
         self.assertIsNone(parse("recuérdame comprar leche", NOW))
         self.assertIsNone(parse("recuérdame el 31 de febrero algo", NOW))

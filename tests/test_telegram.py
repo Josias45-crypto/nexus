@@ -46,7 +46,7 @@ class FakeTelegram:
         if method == "sendMessage":
             self.sent.append((str(body["chat_id"]), body["text"]))
             self.markups.append(body.get("reply_markup"))
-            return httpx.Response(200, json={"ok": True, "result": {}})
+            return httpx.Response(200, json={"ok": True, "result": {"message_id": 100 + len(self.sent)}})
         if method == "sendChatAction":
             self.actions.append((str(body["chat_id"]), body["action"]))
             return httpx.Response(200, json={"ok": True, "result": True})
@@ -65,6 +65,8 @@ class FakeNexus:
         self.botones: list[str] = []
         self.uploads: list[dict] = []
         self.archivos: list[dict] = []
+        self.acuses: list[str] = []
+        self.fallos: list[dict] = []
         self.espera = espera
 
     async def __call__(self, request: httpx.Request) -> httpx.Response:
@@ -89,7 +91,11 @@ class FakeNexus:
         if p == "/outbox":
             return httpx.Response(200, json=[{"id": 1, "chat_id": None, "text": "⏰ Recordatorio: algo"}])
         if p == "/outbox/1/delivered":
+            self.acuses.append(body.get("acuse"))
             return httpx.Response(200, json={"ok": True})
+        if p.endswith("/fallo"):
+            self.fallos.append(body)
+            return httpx.Response(200, json={"intentos": 1, "reintento_s": 15})
         return httpx.Response(404, json={"detail": "no"})
 
 
@@ -140,6 +146,7 @@ class TelegramTest(unittest.TestCase):
         self.assertTrue(grande["grande"] and grande["archivos"] == [], "el de más de 20 MB no se baja")
         self.assertTrue(any("20 MB" in t for t in to_owner))
         self.assertTrue(any("Recordatorio" in t for t in to_owner), "no repartió el buzón")
+        self.assertTrue(self.nx.acuses and self.nx.acuses[0].isdigit(), "entregado solo con el message_id de Telegram")
         self.assertFalse(any(TOKEN in line for line in logs), "el token apareció en el registro")
         self.assertFalse(any("Cuándo entrega" in line for line in logs), "el contenido apareció en el registro")
         self.assertIn((str(OWNER), "typing"), self.tg.actions, "no mostró 'escribiendo...'")
@@ -160,6 +167,22 @@ class TelegramTest(unittest.TestCase):
         self.assertIn("answerCallbackQuery", self.tg.calls)
         self.assertIn("editMessageReplyMarkup", self.tg.calls, "no quitó los botones")
         self.assertIn("Cancelado, jefe: llamar a Piter.", [t for _, t in self.tg.sent])
+
+    def test_429_de_telegram_se_reintenta_con_su_espera(self):
+        self.make([])
+        original = self.tg.__call__
+
+        def con_429(request):
+            if request.url.path.endswith("/sendMessage"):
+                return httpx.Response(429, json={"ok": False, "error_code": 429, "description": "Too Many Requests: retry after 7",
+                                                 "parameters": {"retry_after": 7}})
+            return original(request)
+
+        self.channel._http = httpx.AsyncClient(transport=httpx.MockTransport(con_429))
+        enviados = asyncio.run(self.bot.deliver_outbox())
+        self.assertEqual(enviados, 0)
+        self.assertEqual(self.nx.acuses, [], "sin acuse no se marca entregado")
+        self.assertEqual(self.nx.fallos, [{"error": "429", "reintentar_en": 7.0}])
 
     def test_album_una_sola_respuesta(self):
         """Las fotos de un álbum llegan como mensajes separados con el mismo media_group_id."""
@@ -189,9 +212,9 @@ class TelegramTest(unittest.TestCase):
             return await primero, r2
 
         primero, (r2, r3) = asyncio.run(go())
-        self.assertEqual(self.nx.turnos, [["hola"], ["te cuento algo", "¿me ayudas?"]])
+        self.assertEqual(self.nx.turnos, [["hola", "te cuento algo", "¿me ayudas?"]], "la ráfaga se espera y va junta")
         self.assertEqual((r2, r3), ([], []), "los seguidos se responden juntos, no por separado")
-        self.assertEqual(len(primero), 2, "una respuesta por tanda")
+        self.assertEqual(len(primero), 1, "una sola respuesta para la ráfaga")
 
 
 if __name__ == "__main__":

@@ -42,3 +42,5 @@ tests/muestra_ver_oir.md
 tests/muestra_web.md
 tests/muestra_web/
 .version-anterior
+tests/tiempo_real.md
+tests/simulador/salida/
