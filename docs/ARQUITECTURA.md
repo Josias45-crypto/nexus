@@ -25,10 +25,8 @@ flowchart LR
     OUT[Buzón de salida<br/>outbox]
   end
   subgraph Modelos
-    OL[Ollama local<br/>chat + embeddings]
-    WH[faster-whisper<br/>en el proceso]
-    TS[Tesseract OCR]
-    CL[OpenRouter<br/>chat]
+    OL[Ollama local<br/>embeddings]
+    CL[OpenRouter zdr<br/>chat · visión · transcripción]
   end
   DB[(SQLite<br/>data/nexus.db)]
   RAW[(Originales<br/>data/raw)]
@@ -38,7 +36,7 @@ flowchart LR
   API --> INB --> RAW
   INB --> DB
   WK --> SEN --> MEM --> DB
-  SEN --> WH & TS
+  SEN -->|fotos, escaneos, audios<br/>core/medios.py| CL
   MEM -->|embeddings| OL
   API --> ASK --> MEM
   ASK -->|chat| CL
@@ -109,11 +107,12 @@ SSH, nunca abriendo puertos a internet.
 |---|---|
 | Chat: `/ask`, digestión, saludo matutino, fechas difíciles de recordatorios | OpenRouter (`providers/openrouter.py`), solo proveedores sin retención ([MODO_NUBE.md](MODO_NUBE.md)) |
 | Embeddings | Ollama local |
-| Audio y video | faster-whisper dentro de `core` |
-| OCR y visión | Tesseract y Ollama local |
+| Fotos y PDF escaneados | OpenRouter, modelo de visión (`NEXUS_OPENROUTER_MODEL_VISION`), solo zdr; una vez por archivo (`core/medios.py`) |
+| Audios y notas de voz | OpenRouter, `/audio/transcriptions` (`NEXUS_OPENROUTER_MODEL_AUDIO`), solo zdr |
+| Videos | No se analizan: solo se guardan |
 
 No hay telemetría. Lo que sale a internet: el chat (preguntas, fragmentos de memoria que sirven
-para responder y textos a resumir) hacia OpenRouter, descargas de modelos y la API de Telegram.
+para responder y textos a resumir), las fotos, páginas escaneadas y audios hacia OpenRouter, descargas de modelos y la API de Telegram.
 
 ## Datos
 

@@ -22,8 +22,9 @@ memoria y los originales viven en la máquina.
 FastAPI, SQLite (FTS5 + sqlite-vec, WAL), chat por OpenRouter (providers/openrouter.py, hoy
 deepseek/deepseek-v4-flash; potente anthropic/claude-sonnet-5.5 con respaldo
 deepseek/deepseek-v4-pro solo si está caído, 429 o no existe; solo proveedores zdr y
-data_collection=deny), Ollama 0.35.1 solo para
-embeddings (nomic-embed-text), faster-whisper small (CPU), Tesseract OCR, Docker Compose
+data_collection=deny; visión NEXUS_OPENROUTER_MODEL_VISION, hoy qwen/qwen3.5-9b; transcripción
+NEXUS_OPENROUTER_MODEL_AUDIO, hoy openai/whisper-large-v3-turbo), Ollama 0.35.1 solo para
+embeddings (nomic-embed-text), Docker Compose
 (profiles channels y whatsapp). Carpetas: core/, senses/, providers/, channels/, config/, profiles/, tests/, docs/.
 
 ## Visión: Isabelle
@@ -48,7 +49,7 @@ renombran al final.
 4. Embeddings sin Ollama (fuera Ollama).
 5. Web.
 6. Servidor.
-Hasta su fase, audio, visión y embeddings siguen locales y sin interruptores.
+Hasta la Fase 4, los embeddings siguen locales (Ollama) y sin interruptores.
 
 ## Propósito
 Asistente PARA EL DUEÑO de un negocio (primer caso: ventas), usado sobre todo por Telegram. El
@@ -97,18 +98,28 @@ núcleo es genérico; lo propio del rubro vive en profiles/*.toml.
   «Olvida eso» (core/olvido.py): candidatos numerados, confirmación solo con «sí», cascada
   (original y su espejo en backups/raw, trozos, FTS, vectores, resúmenes, ficha, charla, resumen,
   recordatorios), tabla olvidos sin contenido. Preguntas pendientes en core/pendientes.py.
+- Fase 3: ver y oír por OpenRouter con zdr (core/medios.py, tabla medios): cada foto, PDF escaneado
+  o audio se analiza una sola vez (huella sha256) y lo repetido se reutiliza sin IA; solo «vuelve a
+  mirar…» vuelve a llamarla. Fotos: JSON validado (datos solo si están en el texto) y comentario
+  verificado (0,8; cifras y nombres del análisis, sin suponer) con «Leí …; ¿es correcto?»; la
+  respuesta «se llama Max» queda ligada al medio. PDF escaneados: hasta [medios].pdf_paginas_max
+  (20) y si hay más pregunta con el costo. Audios: tramos de 5 min hasta [medios].audio_max_min
+  (15), filtro de alucinaciones, «no lo escuché bien» si queda dudoso; una nota de voz corta se
+  atiende como si la hubiera escrito. Videos solo se guardan. Álbum: una respuesta. Telegram de más
+  de 20 MB: lo dice. Sin Whisper local ni Tesseract (imagen de 1,03 GB a 563 MB).
 
 ## Cómo probar
-`python3 tests/e2e.py --audio <wav> --audio-phrase <palabra> --chaos` (20 casos, instancia
+`python3 tests/e2e.py --audio <wav> --audio-phrase <palabra> --chaos` (23 casos, instancia
 aislada; la memoria real no se toca; usa OpenRouter real y --chaos simula OpenRouter inalcanzable).
 Para no tocar la imagen de los contenedores reales: `docker build -t nexus-core:prueba .` y
 `NEXUS_E2E_IMAGE=nexus-core:prueba python3 tests/e2e.py --chaos`. Unitarias dentro del contenedor (ver tests/test_senses.py).
 Antes de probar cambios de código: `docker compose build core`. También: `tests/eval_ventas.py`
 (medir antes y después en /ask), `tests/informe.py` (estado de la instalación real),
-`tests/muestra_conversaciones.py` (15 charlas para juzgar el tono), `tests/muestra_iniciativa.py` (una semana de saludos), `tests/muestra_busqueda_olvido.py` y `tests/comparar_modelos.py`.
+`tests/muestra_conversaciones.py` (15 charlas para juzgar el tono), `tests/muestra_iniciativa.py` (una semana de saludos), `tests/muestra_busqueda_olvido.py`, `tests/muestra_ver_oir.py` y `tests/comparar_modelos.py`.
 
 ## Reglas que no cambian
-- Embeddings, audio, OCR y visión nunca salen de la máquina (hasta sus fases).
+- Los embeddings nunca salen de la máquina (hasta la Fase 4). Fotos, escaneos y audios solo a
+  proveedores zdr + data_collection=deny; los videos no salen.
 - Las citas las arma el código (core/citations.py), nunca el modelo.
 - Nunca leer, imprimir ni registrar tokens o keys. No ejecutar /reindex sobre la base real sin OK.
 

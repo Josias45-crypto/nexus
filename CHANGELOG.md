@@ -33,6 +33,28 @@ AAAA-MM-DD.
 - Lenguaje natural: «pospón el 2 una hora», «¿qué tengo pendiente?»; «en 90 segundos».
 - `NEXUS_REMINDER_MAX_TRIES` se quita; `NEXUS_REMINDER_RETRY_MIN` queda solo para pruebas.
 
+### Agregado (Fase 3: ver y oír)
+- Fotos, PDF escaneados y audios por OpenRouter con zdr y `data_collection=deny`
+  (`core/medios.py`): visión `NEXUS_OPENROUTER_MODEL_VISION` (qwen/qwen3.5-9b, ~0,0001 USD por
+  foto) y transcripción `NEXUS_OPENROUTER_MODEL_AUDIO` (openai/whisper-large-v3-turbo, ~0,0002 USD
+  por minuto) con el mismo cliente, reintentos, tope diario y registro en `/usage`
+  (`openrouter-vision`, `openrouter-audio`).
+- Procesar una sola vez: tabla `medios` ligada al original por su huella; lo repetido y lo
+  reindexado no llaman a la IA; solo «vuelve a mirar la foto» lo analiza de nuevo.
+- Isabelle comenta cada foto (1 a 3 frases, como mucho una pregunta, verificado por código) y pide
+  confirmar las cifras leídas; lo ilegible lo dice; «se llama Max» queda ligado al medio; un álbum
+  es una sola respuesta. PDF escaneados: hasta 20 páginas sin preguntar, luego avisa el costo.
+- Notas de voz: se atienden como si él las hubiera escrito (recordatorios con las mismas reglas,
+  sin duplicar la nota); filtro de alucinaciones de Whisper; «No lo escuché bien, ¿me lo repite?»
+  si queda vacía o dudosa; tope de 15 min por audio en `[medios]` de `profiles/isabelle.toml`.
+- Videos y videos redondos solo se guardan. Telegram de más de 20 MB: lo dice y sugiere la web.
+- `POST /conversar/archivo` recibe una lista (álbum) con la leyenda; migración no destructiva
+  (tabla `medios`). «Olvida eso» también borra el análisis.
+
+### Quitado (Fase 3)
+- Whisper local (faster-whisper), Tesseract OCR, `NEXUS_VISION_MODEL`, `NEXUS_WHISPER_*`,
+  `NEXUS_OCR*` y el volumen `whisper_models`: la imagen `nexus-core` bajó de 1,03 GB a 563 MB.
+
 ### Agregado (Fase 2E: búsqueda en internet y «olvida eso»)
 - Búsqueda en internet por OpenRouter (plugin `web`, buscador Exa, ~0,008 USD por búsqueda):
   primero el cerebro, luego el saber general avisado y solo después internet (dato reciente o

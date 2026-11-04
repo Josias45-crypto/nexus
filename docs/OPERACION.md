@@ -9,17 +9,18 @@ y `docker stats`.
 
 | Componente | Disco | RAM |
 |---|---|---|
-| Imagen `nexus-core` (Python, Tesseract, PyAV, faster-whisper) | 1,03 GB | 49 MB en reposo · 775 MB de pico (Whisper y OCR durante el e2e) con audio y OCR |
+| Imagen `nexus-core` (Python, PyAV, Pillow; sin Whisper ni Tesseract desde la Fase 3) | 563 MB (antes 1,03 GB) | no se volvió a medir: ya no carga Whisper ni OCR en memoria |
 | Imagen `ollama/ollama:0.35.1` (trae librerías de GPU aunque no se usen) | 9,4 GB | — |
 | Modelo de embeddings de Ollama (`nomic-embed-text`) | 274 MB | menos de 1 GB (no se volvió a medir sin el modelo de chat) |
-| Modelo de voz Whisper `small` (se descarga al primer audio) | 486 MB | incluido en `nexus-core` |
 | Canal de Telegram (misma imagen que `core`) | — | ~50 MB |
 
 **Mínimo razonable:** 4 núcleos, 8 GB de RAM y 15 GB de disco libre más tus datos. El servidor
 previsto (8 vCPU, 16 GB) sobra.
 
-Tiempos en CPU (laptop): una pregunta tarda de 5 a 25 s; un audio de 1 min, unos 20 s; una
-página escaneada con OCR, unos segundos; la digestión de un documento largo, 1 a 2 min.
+Tiempos (laptop): una pregunta tarda de 5 a 25 s; una foto, unos 10 s con su comentario; una nota
+de voz corta, 3 a 5 s (por OpenRouter); la digestión de un documento largo, 1 a 2 min. El volumen
+`whisper_models` de versiones anteriores ya no se usa (se puede borrar a mano con
+`docker volume rm nexus_whisper_models`).
 
 ## Instalar
 

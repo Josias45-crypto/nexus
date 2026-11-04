@@ -10,15 +10,22 @@ responde tus preguntas **citando de dónde sale cada dato**. También te escribe
 recordatorios y saludos de mañana (con tu agenda) y de noche, sin hostigar.
 
 Empieza vacío y aprende día a día. La inteligencia vive en lo que acumula, no en el modelo: el
-chat va por OpenRouter (el modelo se cambia con una variable) y la memoria, los embeddings, el
-audio y el OCR corren en tu máquina, en Docker.
+chat, la visión de fotos y la transcripción de audios van por OpenRouter (cada modelo se cambia
+con una variable) y la memoria, los originales y los embeddings viven en tu máquina, en Docker.
 
 ## Estado real
 
 ### Qué funciona (probado de extremo a extremo)
 
-- **Entiende** texto, PDF (también escaneados, con OCR), Word, Excel, PowerPoint, EPUB, correos
-  `.eml`, `.zip`, fotos (OCR), audio y video ([formatos](docs/FORMATOS.md)).
+- **Entiende** texto, PDF, Word, Excel, PowerPoint, EPUB, correos `.eml` y `.zip` sin IA
+  ([formatos](docs/FORMATOS.md)).
+- **Ve y oye** (Fase 3, por OpenRouter con zdr): comenta cada foto con naturalidad y como mucho una
+  pregunta («¡qué ternura! ¿cómo se llama?»; «se llama Max» queda ligado a la foto); de boletas,
+  facturas y capturas extrae los datos y pide confirmar las cifras («Leí S/ 450.00; ¿es
+  correcto?»); lee PDF escaneados (hasta 20 páginas sin preguntar; si hay más, avisa el costo);
+  transcribe notas de voz y las atiende como si las hubieras escrito; un álbum es una sola
+  respuesta. Cada archivo se analiza **una sola vez** (huella sha256): si llega repetido lo dice
+  sin volver a llamar a la IA, y solo lo vuelve a mirar si se lo pides. Los videos solo se guardan.
 - **Responde con fuentes**: "Rosa debe 120 soles [1]" → `[1] ventas.xlsx, hoja Ventas, fila 12`.
   Las citas las arma el código, no el modelo. Si no lo sabe, dice "No tengo información sobre
   eso en mi memoria."; si la pregunta nombra algo (un cliente, un código, una cifra) que no está
@@ -76,7 +83,7 @@ docker compose --profile channels up -d    # bot de Telegram (ver abajo)
 ```
 
 Pon tu clave en `OPENROUTER_API_KEYS` dentro de `.env`. La primera vez descarga Ollama y el
-modelo de embeddings (`nomic-embed-text`); el modelo de voz se descarga con el primer audio.
+modelo de embeddings (`nomic-embed-text`).
 
 Abre <http://localhost:8000>: escribe y pulsa **Recordar** para enseñarle, o **Preguntar**.
 Arrastra archivos a la página. El botón **Bandeja** muestra el estado de cada uno.
@@ -101,7 +108,10 @@ Arrastra archivos a la página. El botón **Bandeja** muestra el estado de cada 
 | «¿qué tengo pendiente?», «ya lo hice», «cancela el 3», «pospón el 2 una hora» | Lista con estado, marca hecho, cancela (pide confirmación) o pospone |
 | «analiza a fondo…», «piénsalo bien…», «dame tu opinión…» | Usa el modelo potente (`NEXUS_OPENROUTER_MODEL_DEEP`) y avisa que cuesta más |
 | «¿qué puedes hacer?» | La ayuda, en lenguaje natural |
-| archivo, foto, nota de voz | Se guarda el original y se procesa; Isabelle acusa recibo |
+| foto, álbum, PDF escaneado | Lo mira al llegar y lo comenta; cifras leídas: «¿es correcto?» |
+| nota de voz | La transcribe y la atiende como si la hubiera escrito («recuérdame…» crea el recordatorio) |
+| video, otros archivos | Se guarda el original; los videos no se analizan, los documentos se leen sin IA |
+| «vuelve a mirar la foto» | Única forma de que vuelva a analizar un original (nueva llamada) |
 | «ok ok», «gracias», «hasta mañana» | Cierra la charla sin otra pregunta |
 
 Más detalles (horas que entiende, WhatsApp): [docs/CANALES.md](docs/CANALES.md).
@@ -130,7 +140,8 @@ valor por defecto. Las más usadas:
 | `NEXUS_PROFILE` | `general` | Perfil de rubro (`profiles/*.toml`) |
 | `NEXUS_TZ_OFFSET` | `-5` | Zona horaria para "hoy", recordatorios y resumen |
 | `NEXUS_MAX_DISTANCE` / `NEXUS_FTS_MARGIN` | `0.78` / `0.04` | Qué tan parecido debe ser un recuerdo para usarlo |
-| `NEXUS_OCR` / `NEXUS_VISION_MODEL` | `on` / vacío | OCR de imágenes; descripción de fotos opcional |
+| `NEXUS_OPENROUTER_MODEL_VISION` | `qwen/qwen3.5-9b` | Visión: fotos y páginas escaneadas (~0,0001 USD por foto) |
+| `NEXUS_OPENROUTER_MODEL_AUDIO` | `openai/whisper-large-v3-turbo` | Transcripción de audios (~0,0002 USD por minuto) |
 | `NEXUS_BACKUP_HOURS` / `NEXUS_BACKUP_HOST_DIR` | `24` / `./backups` | Respaldos automáticos y dónde guardarlos |
 | `TELEGRAM_BOT_TOKEN` / `TELEGRAM_ALLOWED_IDS` | vacío | Bot de Telegram y quién puede usarlo |
 
@@ -139,7 +150,9 @@ Cambiar de modelo: edita `NEXUS_OPENROUTER_MODEL` y `docker compose up -d`.
 ## Privacidad
 
 - Todo se guarda en tu máquina; no hay telemetría.
-- Embeddings, audio, OCR y visión nunca salen de ella.
+- Los embeddings nunca salen de ella (hasta la Fase 4). Fotos, páginas escaneadas y audios viajan a
+  OpenRouter solo a proveedores con retención cero (`zdr`) y `data_collection=deny`; el original
+  queda siempre en tu máquina. Los videos no salen.
 - `data/`, `backups/` y `.env` están en `.gitignore`. Tokens y keys solo viven en `.env`.
 - Los puertos escuchan solo en `127.0.0.1`; para acceso remoto usa Tailscale o SSH.
 
@@ -155,9 +168,10 @@ Cambiar de modelo: edita `NEXUS_OPENROUTER_MODEL` y `docker compose up -d`.
 ## Pruebas
 
 ```bash
-python3 tests/e2e.py                       # 22 casos en una instancia aislada temporal
+python3 tests/e2e.py                       # 23 casos en una instancia aislada temporal
 python3 tests/muestra_iniciativa.py        # una semana simulada de saludos (OpenRouter real)
 python3 tests/muestra_busqueda_olvido.py   # 10 charlas de búsqueda y «olvida eso» (3 búsquedas reales)
+python3 tests/muestra_ver_oir.py           # 10 casos de fotos, PDF, notas de voz y video (OpenRouter real)
 python3 tests/e2e.py --chaos --audio voz.wav --audio-phrase "una palabra del audio"
 python3 tests/eval_ventas.py --label prueba    # 21 notas y 17 preguntas de ventas (aislada)
 python3 tests/informe.py                   # qué funciona hoy en TU instalación (instancia real)
@@ -182,7 +196,7 @@ NEXUS pasará a llamarse **Isabelle**: una secretaria personal en Telegram, sin 
 
 1. Limpieza y chat solo por OpenRouter (hecho).
 2. Isabelle: personalidad, conversación sin comandos, recordatorios con botones.
-3. Ver y oír: comentar fotos, audios y documentos.
+3. Ver y oír: comentar fotos, audios y documentos (hecho).
 4. Embeddings sin Ollama.
 5. Web: chat minimalista, subida de archivos, vista de lo guardado y contraseña.
 6. Servidor: VPS (Ubuntu 24.04, 16 GB, 8 vCPU) solo por Tailscale y SSH con llave, con respaldos
@@ -206,7 +220,7 @@ docker compose down                      # detener (conserva datos y modelos)
 |---|---|
 | [ARQUITECTURA](docs/ARQUITECTURA.md) | Diagrama, recorrido de un archivo y de una pregunta, datos |
 | [API](docs/API.md) | Todas las rutas con ejemplos |
-| [FORMATOS](docs/FORMATOS.md) | Qué lee, qué no, OCR, límites, cómo agregar un formato |
+| [FORMATOS](docs/FORMATOS.md) | Qué lee, qué no, ver y oír, límites, cómo agregar un formato |
 | [OPERACION](docs/OPERACION.md) | Recursos, actualizar, respaldar, restaurar, servidor, problemas |
 | [CANALES](docs/CANALES.md) | Telegram, WhatsApp, comandos y horas que entiende |
 | [PERFILES](docs/PERFILES.md) | Crear un perfil para otro rubro |
