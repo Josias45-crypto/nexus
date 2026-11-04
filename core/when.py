@@ -86,7 +86,12 @@ RE_TIMES = [
 RE_DAY_HOUR = re.compile(
     rf"\b(hoy|ma[nñ]ana|{_DAY})\s+(?=\d{{1,2}}(?!\d)(?!\s*(?:de\s+(?:{_MONTH})|/)))", re.I
 )
-RE_NOON = re.compile(r"\b(?:al\s+|a\s+|el\s+)?mediod[ií]a\b", re.I)
+# "el viernes 14 a las 3": el número tras el día de la semana es el día del mes (hay otra hora)
+RE_DIA_SEMANA_NUM = re.compile(
+    rf"\b(?:el\s+)?({_DAY})\s+(\d{{1,2}})(?!\d)(?!\s*(?:de\s+(?:{_MONTH})|/|:))"
+    r"(?=.*\b(?:a\s+las?|al?\s+mediod[ií]a|a\s+medianoche)\b)", re.I
+)
+RE_NOON = re.compile(r"(?<!del )\b(?:al\s+|a\s+|el\s+)?mediod[ií]a\b", re.I)  # «las 12 del mediodía» lo lee RE_TIMES
 RE_MIDNIGHT = re.compile(r"\b(?:a\s+la\s+|a\s+|la\s+)?medianoche\b", re.I)
 # Restos que delatan una hora mal entendida: no se adivina
 RE_LEFTOVER = re.compile(
@@ -157,7 +162,7 @@ def _clock(m: re.Match) -> _Clock:
             if suf == "delanoche" and hour == 12:
                 return _Clock(0, minute, True, midnight=True)
             return _Clock(hour % 12 + 12, minute, True)
-        if suf == "delmediodia":
+        if suf in ("delmediodia", "delmediodía"):
             return _Clock(12, minute, True)
         return _Clock(hour % 12, minute, True)  # am, de la mañana/madrugada
     if hour == 0 or hour > 12:
@@ -240,6 +245,14 @@ def parse(text: str, now: datetime) -> Parsed | None:
         # Al minuto, salvo "en 90 segundos": ahí la hora exacta
         exacto = target.replace(microsecond=0) if delta.seconds % 60 else target.replace(second=0, microsecond=0)
         return Parsed(exacto, _task(rest), True)
+
+    if m := RE_DIA_SEMANA_NUM.search(rest):  # «el viernes 14 a las 3 de la tarde»
+        n, nombre = int(m.group(2)), m.group(1).lower()
+        fecha = next((f for f in (_future_date(now.date(), now.month, n),
+                                  _future_date(now.date(), now.month % 12 + 1, n)) if f), None)
+        if fecha is None or fecha.weekday() != WEEKDAYS[nombre]:
+            raise Ambiguous(f"¿Qué día exactamente? El {n} no cae {nombre}.")
+        rest = f"{rest[:m.start()]} el {fecha.day}/{fecha.month} {rest[m.end():]}"
 
     clock, rest = _parse_time(rest)
     clock = _con_contexto(clock, text)
