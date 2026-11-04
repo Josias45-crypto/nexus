@@ -142,5 +142,10 @@ class NexusClient:
     async def outbox(self, channel: str) -> list[dict]:
         return await self._req("GET", "/outbox", params={"channel": channel})
 
-    async def delivered(self, msg_id: int) -> None:
-        await self._req("POST", f"/outbox/{msg_id}/delivered")
+    async def delivered(self, msg_id: int, acuse: str) -> None:
+        """Entregado, con el acuse de la plataforma (message_id)."""
+        await self._req("POST", f"/outbox/{msg_id}/delivered", json={"acuse": acuse})
+
+    async def fallo(self, msg_id: int, error: str, reintentar_en: float | None = None) -> None:
+        """No se pudo entregar: el núcleo lo reintenta con espera creciente."""
+        await self._req("POST", f"/outbox/{msg_id}/fallo", json={"error": error, "reintentar_en": reintentar_en})

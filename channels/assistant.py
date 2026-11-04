@@ -27,6 +27,7 @@ TYPING_EVERY = 4  # Telegram borra "escribiendo..." a los 5 s
 PAUSA_BASE, PAUSA_POR_CARACTER, PAUSA_MAX = 0.6, 0.015, 3.5
 FALLO = "⚠️ Algo falló de mi lado. Inténtelo de nuevo en un momento."
 ALBUM_ESPERA = 1.5  # segundos para juntar las fotos de un álbum (llegan como mensajes separados)
+RAFAGA_ESPERA = 1.2  # segundos que espera antes de responder: junta una ráfaga («oye» «una cosa» «¿…?»)
 
 
 class Assistant:
@@ -40,6 +41,7 @@ class Assistant:
         self._albumes: dict[tuple[str, str], list[Incoming]] = {}
         self._tareas: set[asyncio.Task] = set()
         self.max_descarga: int | None = None  # bytes que el canal deja bajar (Telegram: 20 MB)
+        self.rafaga_s = RAFAGA_ESPERA
 
     def authorized(self, msg: Incoming) -> bool:
         return msg.user_id in self.allowed
@@ -75,6 +77,8 @@ class Assistant:
         if lock.locked():
             return []  # quien tiene el candado lo responde junto con lo suyo
         async with lock:
+            if self.rafaga_s:  # los que lleguen en este rato van en la misma respuesta
+                await asyncio.sleep(self.rafaga_s)
             return await self._vaciar(chat)
 
     async def _vaciar(self, chat: str) -> list[str]:
@@ -159,25 +163,37 @@ class Assistant:
     # ---------- salida (proactiva) ----------
 
     async def deliver_outbox(self) -> int:
-        """Envía lo pendiente del buzón; solo confirma lo que se entregó."""
+        """Envía lo pendiente del buzón. Solo cuenta como entregado con el acuse de la plataforma
+        (message_id); si falla (429, 400, chat bloqueado, sin red) se informa al núcleo, que lo
+        reintenta con espera creciente (o la que pidió Telegram)."""
         sent = 0
         for m in await self.nexus.outbox(self.channel.name):
             targets = [m["chat_id"]] if m["chat_id"] else self.channel.owners()
+            acuses = []
             try:
                 for chat in targets:
-                    await self.channel.send(chat, m["text"], m.get("botones"))
-            except PermanentSendError as exc:
-                log.warning("Aviso %s descartado: %s", m["id"], exc)
-            except Exception as exc:
-                log.warning("No se pudo entregar el aviso %s (%s); se reintenta", m["id"], type(exc).__name__)
+                    acuses.append(await self.channel.send(chat, m["text"], m.get("botones")))
+            except PermanentSendError as exc:  # p. ej. fuera de la ventana de WhatsApp: cada hora
+                log.warning("Aviso %s no entregable por ahora: %s", m["id"], exc)
+                await self.nexus.fallo(m["id"], f"permanente: {exc}"[:200], 3600)
                 continue
-            await self.nexus.delivered(m["id"])
+            except Exception as exc:
+                codigo = getattr(exc, "codigo", None) or type(exc).__name__
+                log.warning("No se pudo entregar el aviso %s (%s); se reintenta", m["id"], codigo)
+                await self.nexus.fallo(m["id"], str(codigo), getattr(exc, "retry_after", None))
+                continue
+            acuse = ",".join(str(a) for a in acuses if a)
+            if not acuse:
+                log.warning("Aviso %s sin acuse de la plataforma; se reintenta", m["id"])
+                await self.nexus.fallo(m["id"], "sin acuse")
+                continue
+            await self.nexus.delivered(m["id"], acuse)
             if m.get("kind") == "reminder":
                 log.info("Recordatorio %s entregado por %s", m.get("ref_id"), self.channel.name)
             sent += 1
         return sent
 
-    async def run(self, outbox_every: float = 15) -> None:
+    async def run(self, outbox_every: float = 5) -> None:
         """Bucle principal: atiende mensajes (cada uno en su tarea, así los que llegan mientras
         Isabelle piensa entran a la cola) y reparte el buzón en paralelo."""
 

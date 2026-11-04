@@ -46,8 +46,9 @@ class Channel(ABC):
         """Mensajes entrantes (de cualquier usuario: el asistente filtra a los autorizados)."""
 
     @abstractmethod
-    async def send(self, chat_id: str, text: str, buttons: Buttons | None = None) -> None:
-        """Envía un texto (con botones si el canal los admite). Lanza excepción si no se pudo."""
+    async def send(self, chat_id: str, text: str, buttons: Buttons | None = None) -> str:
+        """Envía un texto (con botones si el canal los admite) y devuelve el acuse de la plataforma
+        (p. ej. el message_id). Lanza excepción si no se pudo."""
 
     @abstractmethod
     def owners(self) -> list[str]:

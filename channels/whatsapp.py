@@ -64,7 +64,7 @@ class WhatsAppChannel(Channel):
         while True:
             yield await self.queue.get()
 
-    async def send(self, chat_id: str, text: str, buttons: Buttons | None = None) -> None:
+    async def send(self, chat_id: str, text: str, buttons: Buttons | None = None) -> str:
         # WhatsApp (apagado) aún no muestra botones: el jefe puede escribir «cancela el n.º X»
         try:
             r = await self._http.post(
@@ -82,6 +82,10 @@ class WhatsAppChannel(Channel):
                     "fuera de la ventana de 24 h de WhatsApp (el dueño debe escribir primero)"
                 )
             raise RuntimeError(f"WhatsApp respondió HTTP {r.status_code} (código {code})")
+        try:
+            return str(r.json()["messages"][0]["id"])  # el acuse de Meta
+        except (ValueError, KeyError, IndexError, TypeError):
+            return ""
 
     def _downloader(self, media_id: str):
         async def download() -> bytes:

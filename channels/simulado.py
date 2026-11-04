@@ -37,10 +37,11 @@ class SimChannel(Channel):
         while True:
             yield await self.queue.get()
 
-    async def send(self, chat_id: str, text: str, buttons: Buttons | None = None) -> None:
+    async def send(self, chat_id: str, text: str, buttons: Buttons | None = None) -> str:
         self.sent.append((chat_id, text))
         self.buttons = buttons
         self.botones_de.append(buttons)
+        return f"sim-{len(self.sent)}"  # el acuse, como el message_id de Telegram
 
     def buttons_for(self, contains: str) -> Buttons | None:
         """Los botones del último mensaje enviado que contiene `contains`."""

@@ -48,7 +48,13 @@ MAX_TEXT = 4000  # Telegram corta en 4096
 
 
 class TelegramError(Exception):
-    """Error sin datos sensibles (ni token ni URL)."""
+    """Error sin datos sensibles (ni token ni URL). `codigo` es el HTTP de Telegram (429, 400, 403...)
+    y `retry_after` los segundos que Telegram pide esperar en un 429."""
+
+    def __init__(self, mensaje: str, codigo: int | None = None, retry_after: float | None = None):
+        super().__init__(mensaje)
+        self.codigo = codigo
+        self.retry_after = retry_after
 
 
 class TelegramChannel(Channel):
@@ -74,7 +80,9 @@ class TelegramChannel(Channel):
             raise TelegramError(f"{method}: respuesta inválida (HTTP {r.status_code})") from None
         if not data.get("ok"):
             # 'description' es un texto de Telegram (no contiene el token)
-            raise TelegramError(f"{method}: HTTP {r.status_code} {data.get('description', '')}".strip())
+            espera = (data.get("parameters") or {}).get("retry_after")
+            raise TelegramError(f"{method}: HTTP {r.status_code} {data.get('description', '')}".strip(),
+                                data.get("error_code") or r.status_code, float(espera) if espera else None)
         return data["result"]
 
     # ---------- Channel ----------
@@ -82,15 +90,19 @@ class TelegramChannel(Channel):
     def owners(self) -> list[str]:
         return self._owners
 
-    async def send(self, chat_id: str, text: str, buttons: Buttons | None = None) -> None:
+    async def send(self, chat_id: str, text: str, buttons: Buttons | None = None) -> str:
+        """Envía (en trozos de hasta MAX_TEXT) y devuelve el acuse: los message_id de Telegram."""
         partes = [text[i : i + MAX_TEXT] for i in range(0, max(len(text), 1), MAX_TEXT)]
+        ids = []
         for n, parte in enumerate(partes, 1):
             extra = {}
             if buttons and n == len(partes):  # los botones van en el último trozo
                 extra["reply_markup"] = {"inline_keyboard": [
                     [{"text": b["texto"], "callback_data": b["dato"][:64]} for b in fila] for fila in buttons
                 ]}
-            await self._call("sendMessage", chat_id=chat_id, text=parte, **extra)
+            r = await self._call("sendMessage", chat_id=chat_id, text=parte, **extra)
+            ids.append(str((r or {}).get("message_id") or ""))
+        return ",".join(i for i in ids if i)
 
     async def button_done(self, msg: Incoming) -> None:
         """Confirma el clic (quita el relojito) y borra los botones: no se pueden pulsar dos veces."""
@@ -233,7 +245,7 @@ async def amain() -> None:
     log.info("Bot @%s conectado; %d usuario(s) autorizado(s)", me.get("username"), len(allowed))
     bot = TelegramAssistant(channel, nexus, set(allowed))
     try:
-        await bot.run(outbox_every=float(os.getenv("NEXUS_CHANNEL_OUTBOX_SECONDS", "15")))
+        await bot.run(outbox_every=float(os.getenv("NEXUS_CHANNEL_OUTBOX_SECONDS", "5")))
     finally:
         await channel.close()
         await nexus.close()
