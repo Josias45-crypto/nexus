@@ -8,6 +8,10 @@ OPENROUTER_MODEL = os.getenv("NEXUS_OPENROUTER_MODEL", "").strip()
 OPENROUTER_MODEL_DEEP = os.getenv("NEXUS_OPENROUTER_MODEL_DEEP", "").strip()
 # Respaldo del modelo potente: solo si está caído, limitado (429) o no existe
 OPENROUTER_MODEL_DEEP_RESPALDO = os.getenv("NEXUS_OPENROUTER_MODEL_DEEP_RESPALDO", "").strip()
+# Ver y oír (Fase 3), también por OpenRouter con zdr: visión para fotos y PDF escaneados;
+# transcripción (endpoint /audio/transcriptions) para audios y notas de voz
+OPENROUTER_MODEL_VISION = os.getenv("NEXUS_OPENROUTER_MODEL_VISION", "").strip()
+OPENROUTER_MODEL_AUDIO = os.getenv("NEXUS_OPENROUTER_MODEL_AUDIO", "").strip()
 # Tope de gasto diario en USD (vacío = sin tope). Al alcanzarlo, el chat avisa y espera a mañana.
 DAILY_BUDGET_USD = float(os.getenv("NEXUS_DAILY_BUDGET_USD", "").strip() or 0) or None
 # Perfil de rubro: profiles/<NEXUS_PROFILE>.toml
@@ -40,22 +44,11 @@ DIGEST_MIN_CHARS = int(os.getenv("NEXUS_DIGEST_MIN_CHARS", "1200"))
 # Documentos grandes: tamaño de cada sección y máximo de secciones a resumir (0 = sin límite)
 DIGEST_SECTION_CHARS = int(os.getenv("NEXUS_DIGEST_SECTION_CHARS", "6000"))
 DIGEST_MAX_SECTIONS = int(os.getenv("NEXUS_DIGEST_MAX_SECTIONS", "12"))
-# Sentidos (senses/): todo local. OCR con Tesseract; describir fotos con un modelo de visión
-# de Ollama es opcional y está apagado (vacío). Ver docs/FORMATOS.md
-OCR_ENABLED = os.getenv("NEXUS_OCR", "on").lower() == "on"
-OCR_LANGS = os.getenv("NEXUS_OCR_LANGS", "spa+eng")
-OCR_MAX_PAGES = int(os.getenv("NEXUS_OCR_MAX_PAGES", "50"))
-OCR_TIMEOUT = int(os.getenv("NEXUS_OCR_TIMEOUT", "120"))
-VISION_MODEL = os.getenv("NEXUS_VISION_MODEL", "").strip()
 # Comprimidos (.zip): máximo de archivos y de MB descomprimidos que se leen
 ARCHIVE_MAX_FILES = int(os.getenv("NEXUS_ARCHIVE_MAX_FILES", "200"))
 ARCHIVE_MAX_MB = int(os.getenv("NEXUS_ARCHIVE_MAX_MB", "200"))
 # Texto máximo que se indexa por elemento (el original siempre se guarda entero)
 MAX_TEXT_CHARS = int(os.getenv("NEXUS_MAX_TEXT_CHARS", "2000000"))
-WHISPER_MODEL =os.getenv("NEXUS_WHISPER_MODEL", "small")
-WHISPER_LANG = os.getenv("NEXUS_WHISPER_LANG", "es")
-WHISPER_THREADS = int(os.getenv("NEXUS_WHISPER_THREADS", "4"))
-WHISPER_DIR = os.getenv("NEXUS_WHISPER_DIR", "/models/whisper")
 TZ_OFFSET = int(os.getenv("NEXUS_TZ_OFFSET", "-5"))
 # Recordatorios: insistencia fija de 20 min x 3 (core/reminders.py). Variable SOLO para pruebas:
 # el e2e la acelera (admite decimales); en uso real no se define.
