@@ -155,11 +155,18 @@ const Red=(()=>{
   const movil=matchMedia('(max-width: 700px)').matches;
   const FPS=movil?24:30,PASO=1000/FPS;
   const COLOR={text:'#7fd4ff',document:'#3fb6ff',image:'#8fa8ff',audio:'#5ce1e6',video:'#6f8cff',concept:'#c9ecff'};
-  let W=0,H=0,R=0,dpr=1,nodos=new Map(),enlaces=[],estrellas=[],destellos=[],t0=performance.now(),ultimo=0,activo=true,vuelta=0;
-  function hash(s){let h=2166136261;for(let i=0;i<s.length;i++){h^=s.charCodeAt(i);h=Math.imul(h,16777619)}return (h>>>0)/4294967296}
+  let W=0,H=0,R=0,dpr=1,nodos=new Map(),enlaces=[],estrellas=[],polvo=[],destellos=[],t0=performance.now(),ultimo=0,activo=true,vuelta=0;
+  function hash(s){let h=2166136261;for(let i=0;i<s.length;i++){h^=s.charCodeAt(i);h=Math.imul(h,16777619)}
+    h^=h>>>16;h=Math.imul(h,2246822507);h^=h>>>13;h=Math.imul(h,3266489909);h^=h>>>16;return (h>>>0)/4294967296}
+  function azar(semilla){let a=semilla>>>0;return()=>{a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);
+    t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
   function medir(){dpr=Math.min(devicePixelRatio||1,2);W=innerWidth;H=innerHeight;R=Math.min(W,H)*(movil?.46:.42);
     cv.width=W*dpr;cv.height=H*dpr;cx.setTransform(dpr,0,0,dpr,0,0);
-    estrellas=Array.from({length:movil?90:170},(_,i)=>({x:hash('x'+i)*W,y:hash('y'+i)*H,r:hash('r'+i)*1.1+.2,f:hash('f'+i)*6.28}));
+    const rnd=azar(20261104);
+    estrellas=Array.from({length:movil?90:170},()=>({x:rnd()*W,y:rnd()*H,r:rnd()*1.1+.2,f:rnd()*6.28}));
+    // Polvo de galaxia (ambiente, no son datos): tres brazos en espiral que giran despacio
+    polvo=Array.from({length:movil?260:520},()=>{const r=Math.pow(rnd(),.7)*.98+.02,brazo=Math.floor(rnd()*3);
+      return {r,a:brazo*2.094+r*4.2+(rnd()-.5)*(.9-.5*r),z:rnd()}});
     if(quieto)dibujar(performance.now())}
   // Posición en un brazo de espiral: los más nuevos cerca del centro, el tipo da el brazo
   function ubicar(n,orden){const h=hash(n.id),brazo=Math.floor(hash(n.id+'b')*3);
@@ -174,9 +181,10 @@ const Red=(()=>{
   function destello(id,fuerza=1){destellos.push({id,t:performance.now(),f:fuerza});if(quieto){dibujar(performance.now());setTimeout(()=>dibujar(performance.now()),1600)}}
   function dibujar(t){
     cx.clearRect(0,0,W,H);
-    const g=cx.createRadialGradient(W/2,H/2,0,W/2,H/2,R*1.25);g.addColorStop(0,'rgba(40,110,255,.20)');g.addColorStop(.45,'rgba(20,60,170,.08)');g.addColorStop(1,'rgba(2,4,13,0)');
+    const g=cx.createRadialGradient(W/2,H/2,0,W/2,H/2,R*1.25);g.addColorStop(0,'rgba(60,140,255,.32)');g.addColorStop(.45,'rgba(20,60,170,.08)');g.addColorStop(1,'rgba(2,4,13,0)');
     cx.fillStyle=g;cx.fillRect(0,0,W,H);
     for(const s of estrellas){const a=quieto?.5:.35+.35*Math.sin(t/1400+s.f);cx.fillStyle=`rgba(170,210,255,${a})`;cx.fillRect(s.x,s.y,s.r,s.r)}
+    for(const p of polvo){const [x,y]=pos(p,t);const s=1+p.z*1.2;cx.fillStyle=`rgba(110,185,255,${.22+.45*p.z*(1-p.r*.55)})`;cx.fillRect(x,y,s,s)}
     const P=new Map();for(const n of nodos.values())P.set(n.id,pos(n,t));
     const vivos=new Map();destellos=destellos.filter(d=>t-d.t<1800);
     for(const d of destellos)vivos.set(d.id,Math.max(vivos.get(d.id)||0,(1-(t-d.t)/1800)*d.f));
@@ -187,7 +195,7 @@ const Red=(()=>{
       cx.beginPath();cx.moveTo(a[0],a[1]);cx.lineTo(b[0],b[1]);cx.stroke()}
     for(const n of nodos.values()){const [x,y]=P.get(n.id);const v=vivos.get(n.id)||0;const nuevo=Math.max(0,1-(t-n.t)/4000);
       const r=(n.type==='concept'?1.4:2.1+Math.min(2,(n.trozos||0)/20))*n.z+3*v+2*nuevo;
-      if(v>.02||nuevo>.02){cx.fillStyle=`rgba(120,200,255,${.25*(v+nuevo)})`;cx.beginPath();cx.arc(x,y,r*4,0,6.283);cx.fill()}
+      const halo=.10+.3*(v+nuevo);cx.fillStyle=`rgba(80,180,255,${halo})`;cx.beginPath();cx.arc(x,y,r*(3.5+3*v),0,6.283);cx.fill()
       cx.fillStyle=v>.05||nuevo>.05?'#ffffff':(COLOR[n.type]||COLOR.document);
       cx.globalAlpha=.55+.45*n.z;cx.beginPath();cx.arc(x,y,r,0,6.283);cx.fill();cx.globalAlpha=1}
     if(vuelta>0){const k=(t-vuelta)/1400;if(k<1){cx.strokeStyle=`rgba(63,182,255,${.35*(1-k)})`;cx.lineWidth=1.5;
@@ -276,7 +284,7 @@ async function detalle(id){const det=$('det');det.innerHTML='';
     if(['failed','unsupported','empty'].includes(d.status)){det.append(el('div','m',`${d.status}: ${d.error||''}`));
       const re=el('button','t','Reintentar');re.onclick=async()=>{re.disabled=true;
         const r=await fetch('/requeue/'+d.id,{method:'POST',credentials:'same-origin'});re.textContent=r.ok?'reencolado':'no se pudo'};det.append(re)}
-    const a=el('a',null,'descargar el original');a.href=`/guardado/${d.id}/original`;a.setAttribute('download','');det.append(el('p')).append(a);
+    const a=el('a',null,'descargar el original');a.href=`/guardado/${d.id}/original`;a.setAttribute('download','');const pa=el('p');pa.append(a);det.append(pa);
     if(d.vista){const im=el('img');im.alt='';im.src=`/guardado/${d.id}/vista`;det.append(im)}
     const an=d.analisis;
     if(an){if(an.descripcion){det.append(el('h3',null,'lo que vi'));det.append(el('div',null,an.descripcion))}

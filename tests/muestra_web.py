@@ -17,7 +17,6 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
-from tests import fixtures  # noqa: E402
 from tests.e2e import E2E_NAME, E2E_PORT, ISOLATED_ENV, Api, event_id, isolated_instance, wait_status  # noqa: E402
 
 PLAYWRIGHT = "mcr.microsoft.com/playwright/python:v1.49.0-noble"
@@ -42,11 +41,11 @@ with sync_playwright() as p:
     def entrar(ctx):
         pg = ctx.new_page(); pg.goto(url + "/login"); pg.fill("#c", clave); pg.click("#b")
         pg.wait_for_url(url + "/"); return pg
-    ctx = b.new_context(viewport={"width": 1280, "height": 800}, device_scale_factor=1)
+    ctx = b.new_context(viewport={"width": 1280, "height": 800}, device_scale_factor=1, bypass_csp=True)
     pg = entrar(ctx)
     time.sleep(4); pg.screenshot(path=f"{salida}/chat.png")
     pg.fill("#txt", "¿Cuánto me debe Rosa?"); pg.press("#txt", "Enter")
-    pg.wait_for_function("document.querySelectorAll('.isa').length >= 4", timeout=60000); time.sleep(0.6)
+    pg.wait_for_function("document.querySelectorAll('.isa').length >= 4", timeout=90000); time.sleep(2.5)
     pg.screenshot(path=f"{salida}/chat_respuesta.png")
     pg.add_style_tag(content="#chat,#top{display:none!important}"); time.sleep(1.5)
     pg.screenshot(path=f"{salida}/neuronas.png")
@@ -70,7 +69,13 @@ def main() -> int:
         api = Api(url)
         for nota in NOTAS:
             wait_status(api, event_id(api.ok("POST", "/inbox/text", {"text": nota, "source": "muestra"})), 180)
-        foto = fixtures.image_with_text(["BOLETA B001-4517", "Impresora Epson L3250", "TOTAL S/ 450.00"])
+        foto = subprocess.run(  # Pillow está en la imagen, no en el anfitrión
+            ["docker", "exec", E2E_NAME, "python", "-c",
+             "import sys; from PIL import Image, ImageDraw, ImageFont; import io;"
+             "img = Image.new('RGB', (900, 300), 'white'); d = ImageDraw.Draw(img); f = ImageFont.load_default(size=40);"
+             "[d.text((40, 30 + 80 * i), t, fill='black', font=f) for i, t in enumerate(['BOLETA B001-4517', 'Impresora Epson L3250', 'TOTAL S/ 450.00'])];"
+             "b = io.BytesIO(); img.save(b, 'PNG'); sys.stdout.buffer.write(b.getvalue())"],
+            capture_output=True, check=True).stdout
         r = api.upload("boleta.png", foto, "image/png")
         api.ok("POST", "/conversar/archivo", {"archivos": [{"id": r["id"], "filename": "boleta.png", "kind": r["kind"],
                                                             "duplicate": False}], "channel": "web", "chat_id": "web"})
@@ -82,7 +87,10 @@ def main() -> int:
                         "import sys; from core import auth; auth.fijar_clave(sys.stdin.read().strip())"],
                        input=clave, text=True, check=True, capture_output=True)
         r = subprocess.run(["docker", "run", "--rm", "--network", "host", "-i", "-v", f"{CAPTURAS}:/salida",
-                            "--user", "root", PLAYWRIGHT, "python", "-", f"http://127.0.0.1:{E2E_PORT}", clave, "/salida"],
+                            "--user", "root", PLAYWRIGHT, "sh", "-c",
+                            # la imagen trae los navegadores; el paquete de Python, misma versión
+                            f"pip install -q --break-system-packages playwright==1.49.0 >/dev/null && "
+                            f"python3 - http://127.0.0.1:{E2E_PORT} {clave} /salida"],
                            input=NAVEGADOR, capture_output=True, text=True, timeout=600)
         if r.returncode != 0:
             raise SystemExit("el navegador falló: " + r.stderr[-800:])
