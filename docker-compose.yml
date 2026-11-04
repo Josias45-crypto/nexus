@@ -1,35 +1,4 @@
 services:
-  ollama:
-    image: ollama/ollama:0.35.1
-    container_name: nexus-ollama
-    volumes:
-      - ollama_models:/root/.ollama
-    healthcheck:
-      test: ["CMD", "ollama", "list"]
-      interval: 15s
-      timeout: 10s
-      retries: 10
-      start_period: 20s
-    restart: unless-stopped
-
-  # Descarga el modelo de embeddings si falta (Ollama solo se usa para embeddings; el chat va
-  # por OpenRouter). Sin internet arranca igual si ya está.
-  ollama-models:
-    image: ollama/ollama:0.35.1
-    container_name: nexus-ollama-models
-    environment:
-      OLLAMA_HOST: ollama:11434
-      EMBED_MODEL: ${NEXUS_EMBED_MODEL:-nomic-embed-text}
-    entrypoint: ["/bin/sh", "-c"]
-    command:
-      - >-
-        ollama show "$$EMBED_MODEL" >/dev/null 2>&1 && echo "modelo $$EMBED_MODEL listo" ||
-        { echo "descargando $$EMBED_MODEL..."; ollama pull "$$EMBED_MODEL"; }
-    depends_on:
-      ollama:
-        condition: service_healthy
-    restart: "no"
-
   core:
     build: .
     container_name: nexus-core
@@ -47,11 +16,6 @@ services:
       retries: 3
       start_period: 30s
     stop_grace_period: 30s
-    depends_on:
-      ollama:
-        condition: service_healthy
-      ollama-models:
-        condition: service_completed_successfully
     restart: unless-stopped
 
   # Canal de Telegram (opcional): docker compose --profile channels up -d
@@ -86,6 +50,3 @@ services:
         condition: service_healthy
     profiles: ["whatsapp"]
     restart: on-failure:3
-
-volumes:
-  ollama_models:
