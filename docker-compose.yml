@@ -10,7 +10,7 @@ services:
       - ${NEXUS_BACKUP_HOST_DIR:-./backups}:/backups
       - ./profiles:/app/profiles:ro
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=5)"]
+      test: ["CMD", "python", "-m", "core.auth", "salud"]  # /health con el token interno
       interval: 30s
       timeout: 10s
       retries: 3
@@ -27,6 +27,8 @@ services:
     env_file: .env
     environment:
       NEXUS_API_URL: http://core:8000
+    volumes:
+      - ./data/interno:/data/interno:ro  # token interno para hablar con el núcleo
     depends_on:
       core:
         condition: service_healthy
@@ -43,6 +45,8 @@ services:
     env_file: .env
     environment:
       NEXUS_API_URL: http://core:8000
+    volumes:
+      - ./data/interno:/data/interno:ro  # token interno para hablar con el núcleo
     ports:
       - "127.0.0.1:8081:8081"
     depends_on:

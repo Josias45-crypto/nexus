@@ -1,6 +1,25 @@
-"""Cliente HTTP de la API de NEXUS para los canales."""
+"""Cliente HTTP de la API de NEXUS para los canales.
+
+La API exige sesión salvo con el token interno (cabecera X-Nexus-Token): se toma de
+NEXUS_INTERNAL_TOKEN o del archivo que crea el núcleo (data/interno/token, montado en solo
+lectura en el contenedor del canal). Nunca se registra.
+"""
+
+import os
+from pathlib import Path
 
 import httpx
+
+TOKEN_ARCHIVO = Path(os.getenv("NEXUS_DATA_DIR", "/data")) / "interno" / "token"
+
+
+def token_interno() -> str:
+    if t := os.getenv("NEXUS_INTERNAL_TOKEN", "").strip():
+        return t
+    try:
+        return TOKEN_ARCHIVO.read_text().strip()
+    except OSError:
+        return ""
 
 
 class NexusError(Exception):
@@ -12,7 +31,8 @@ class NexusClient:
         self, base_url: str, timeout: float = 600, transport: httpx.AsyncBaseTransport | None = None
     ):
         self.base_url = base_url.rstrip("/")
-        self._http = httpx.AsyncClient(base_url=self.base_url, timeout=timeout, transport=transport)
+        self._http = httpx.AsyncClient(base_url=self.base_url, timeout=timeout, transport=transport,
+                                       headers={"X-Nexus-Token": token_interno()})
 
     async def close(self) -> None:
         await self._http.aclose()
