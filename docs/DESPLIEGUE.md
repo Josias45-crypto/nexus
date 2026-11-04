@@ -4,7 +4,8 @@ El VPS ya corre otro bot (Carla, con systemd y el puerto 8000). Isabelle convive
 
 - proyecto de compose fijo `isabelle` (contenedores `isabelle-core-1`, `isabelle-telegram-1`; sin
   nombres fijos ni volúmenes con nombre: todo vive en `~/isabelle/data` y `~/isabelle/backups`);
-- el núcleo publica **solo en 127.0.0.1** y en `NEXUS_PORT=8100` (no choca con el 8000 de Carla);
+- el núcleo publica **solo en 127.0.0.1** (`NEXUS_BIND`, por defecto) y en `NEXUS_PORT=8100` (no
+  choca con el 8000 de Carla); publicar por HTTP es opcional y con riesgos (paso 7b);
 - **no se abre ningún puerto nuevo**: la web se usa por túnel SSH; el bot de Telegram no recibe
   conexiones (long polling);
 - límites de memoria (núcleo 1 GB, bot 256 MB), `restart: unless-stopped`, healthchecks y logs de
@@ -124,6 +125,51 @@ ssh -N -L 8100:127.0.0.1:8100 isabelle@VPS
 ```
 
 y abre <http://localhost:8100>. El túnel solo vive mientras esa terminal esté abierta.
+
+## 7b. Opcional: publicar la web por HTTP (sin túnel)
+
+El modo por defecto (127.0.0.1 + túnel SSH) es el seguro. Si necesitas entrar desde un navegador
+sin túnel (por ejemplo, desde el celular), se puede publicar el puerto directamente:
+
+```bash
+cd ~/isabelle
+echo "NEXUS_BIND=0.0.0.0" >> .env          # junto a NEXUS_PORT=8100
+docker compose --profile channels up -d    # recrea el núcleo con el puerto publicado
+sudo ss -ltnp | grep 8100                  # ahora: 0.0.0.0:8100
+```
+
+Abre `http://IP-DEL-VPS:8100`. El login muestra **«Conexión sin cifrar»** y la cookie de sesión va
+sin `Secure` (por HTTP el navegador no la devolvería), pero sigue con HttpOnly y SameSite=Strict.
+`NEXUS_COOKIE_SECURE` (`auto` por defecto: según la conexión o el `X-Forwarded-Proto` de un proxy
+con TLS; `on` o `off` para forzarlo).
+
+**Riesgos de este modo:**
+
+- La contraseña y la cookie de sesión viajan **sin cifrar**: en un wifi público, en la red del
+  trabajo o en el camino, alguien puede leerlas y entrar con tu sesión (todo lo guardado, la
+  charla y los originales). Úsalo solo desde redes de confianza.
+- El puerto queda expuesto a internet y lo encuentran los escáneres. Tras cada fallo la espera
+  crece (1, 2, 4… s, hasta 15 min) y el intento se registra (sin la contraseña), pero usa una
+  contraseña larga (16 caracteres o más): `docker compose exec core python -m core.auth`.
+- **Docker publica el puerto aunque `ufw` no lo permita** (sus reglas de iptables van antes que
+  las de ufw): no cuentes con ufw para cerrarlo; ciérralo volviendo al modo seguro. Si el
+  proveedor del VPS tiene un firewall propio (panel web), ese sí puede limitarlo a tus IP.
+- Mejor alternativa si lo usas a menudo: HTTPS con un proxy (Caddy o nginx con un dominio) que
+  escuche en 443 y reenvíe a `127.0.0.1:8100`, dejando `NEXUS_BIND` en 127.0.0.1; la cookie
+  pasa sola a `Secure` por `X-Forwarded-Proto: https` y desaparece el aviso.
+
+**Volver al modo seguro:**
+
+```bash
+cd ~/isabelle
+sed -i '/^NEXUS_BIND=/d' .env              # o NEXUS_BIND=127.0.0.1
+docker compose --profile channels up -d
+sudo ss -ltnp | grep 8100                  # de nuevo solo 127.0.0.1:8100
+docker compose exec core python -m core.auth   # contraseña nueva: cierra todas las sesiones
+```
+
+Cambiar la contraseña al volver es lo prudente: cualquier sesión que se haya visto pasar por HTTP
+deja de servir.
 
 ## 8. Actualizar y volver atrás
 

@@ -33,6 +33,13 @@ AAAA-MM-DD.
 - Lenguaje natural: «pospón el 2 una hora», «¿qué tengo pendiente?»; «en 90 segundos».
 - `NEXUS_REMINDER_MAX_TRIES` se quita; `NEXUS_REMINDER_RETRY_MIN` queda solo para pruebas.
 
+### Agregado (web por HTTP opcional)
+- `NEXUS_BIND` (por defecto 127.0.0.1) en el puerto publicado; con 0.0.0.0 la web se sirve por HTTP.
+- La cookie de sesión lleva `Secure` solo por HTTPS (`NEXUS_COOKIE_SECURE=auto|on|off`; `auto`
+  mira el esquema o `X-Forwarded-Proto`), siempre con HttpOnly y SameSite=Strict.
+- `/login` avisa «Conexión sin cifrar» por HTTP. Riesgos y vuelta al modo seguro en
+  `docs/DESPLIEGUE.md` (paso 7b).
+
 ### Agregado (preparación del VPS compartido)
 - `docker-compose.yml`: proyecto fijo `isabelle` sin `container_name` ni volúmenes con nombre;
   puerto del núcleo por `NEXUS_PORT` (por defecto 8000), siempre en 127.0.0.1; límites de memoria

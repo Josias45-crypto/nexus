@@ -126,6 +126,8 @@ núcleo es genérico; lo propio del rubro vive en profiles/*.toml.
   siempre 127.0.0.1), límites 1 GB / 256 MB, logs 10 MB x 3, web por túnel SSH,
   scripts/respaldo_remoto.sh. En la laptop, la instalación previa es el proyecto «nexus»
   (docker compose -p nexus ...).
+- Web por HTTP opcional: NEXUS_BIND=0.0.0.0 (por defecto 127.0.0.1); cookie Secure según
+  NEXUS_COOKIE_SECURE (auto: esquema o X-Forwarded-Proto); /login avisa «Conexión sin cifrar».
 
 ## Cómo probar
 `python3 tests/e2e.py --audio <wav> --audio-phrase <palabra> --chaos` (24 casos, instancia
