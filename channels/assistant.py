@@ -4,8 +4,9 @@
 - Cola con un candado por chat: si el jefe escribe varios mensajes seguidos mientras Isabelle
   prepara una respuesta, se responden todos juntos en una sola (POST /conversar con la lista).
 - "escribiendo..." visible mientras piensa y una pausa humana según el largo de la respuesta.
-- Sin comandos: todo texto va a /conversar; los archivos se guardan y se acusa recibo; los
-  botones van a /conversar/boton y después se quitan del mensaje.
+- Sin comandos: todo texto va a /conversar; los archivos se suben y van a /conversar/archivo, donde
+  Isabelle los mira o los escucha y responde; un álbum (varias fotos juntas) espera ALBUM_ESPERA s y
+  se responde una sola vez. Los botones van a /conversar/boton y después se quitan del mensaje.
 - Una respuesta con «seguir» (el aviso antes de buscar en internet) sale aparte y enseguida se
   pide y envía la continuación (POST /conversar/seguir).
 - deliver_outbox() reparte lo que Isabelle quiere decir por su cuenta (avisos, resumen matutino).
@@ -25,6 +26,7 @@ TYPING_EVERY = 4  # Telegram borra "escribiendo..." a los 5 s
 # Pausa humana: base + por carácter, con tope, descontando lo que ya tardó en pensar
 PAUSA_BASE, PAUSA_POR_CARACTER, PAUSA_MAX = 0.6, 0.015, 3.5
 FALLO = "⚠️ Algo falló de mi lado. Inténtelo de nuevo en un momento."
+ALBUM_ESPERA = 1.5  # segundos para juntar las fotos de un álbum (llegan como mensajes separados)
 
 
 class Assistant:
@@ -35,7 +37,9 @@ class Assistant:
         self.pausa = pausa
         self._locks: dict[str, asyncio.Lock] = {}
         self._pendientes: dict[str, list[str]] = {}
+        self._albumes: dict[tuple[str, str], list[Incoming]] = {}
         self._tareas: set[asyncio.Task] = set()
+        self.max_descarga: int | None = None  # bytes que el canal deja bajar (Telegram: 20 MB)
 
     def authorized(self, msg: Incoming) -> bool:
         return msg.user_id in self.allowed
@@ -50,9 +54,20 @@ class Assistant:
             return []
         chat = msg.chat_id
         lock = self._locks.setdefault(chat, asyncio.Lock())
+        if msg.download is not None and msg.grupo:  # álbum: el primero espera a los demás
+            clave = (chat, msg.grupo)
+            primero = clave not in self._albumes
+            self._albumes.setdefault(clave, []).append(msg)
+            if not primero:
+                return []
+            await asyncio.sleep(ALBUM_ESPERA)
+            grupo = self._albumes.pop(clave)
+            async with lock:
+                enviados = await self._atender(chat, self._archivos(grupo))
+                return enviados + await self._vaciar(chat)
         if msg.button or msg.download is not None:
             async with lock:  # en orden con la conversación
-                enviados = await self._atender(chat, self._boton(msg) if msg.button else self._archivo(msg))
+                enviados = await self._atender(chat, self._boton(msg) if msg.button else self._archivos([msg]))
                 return enviados + await self._vaciar(chat)
         if not msg.text.strip():
             return []
@@ -81,11 +96,21 @@ class Assistant:
             except Exception as exc:
                 log.debug("No se pudieron quitar los botones (%s)", type(exc).__name__)
 
-    async def _archivo(self, msg: Incoming) -> dict:
-        data = await msg.download()
-        name = msg.filename or ("nota_de_voz.ogg" if msg.is_voice else "archivo")
-        r = await self.nexus.upload(data, name, msg.mime or "application/octet-stream", self.channel.name)
-        return await self.nexus.archivo(name, r.get("kind") or "", bool(r.get("duplicate")), msg.chat_id)
+    async def _archivos(self, msgs: list[Incoming]) -> dict:
+        """Sube los archivos que llegaron juntos y pide una sola respuesta. Los que pasan del límite
+        de descarga del canal no se bajan: Isabelle lo dice."""
+        items, grande = [], False
+        for msg in msgs:
+            if self.max_descarga and (msg.size or 0) > self.max_descarga:
+                grande = True
+                continue
+            data = await msg.download()
+            name = msg.filename or ("nota_de_voz.ogg" if msg.is_voice else "archivo")
+            r = await self.nexus.upload(data, name, msg.mime or "application/octet-stream", self.channel.name)
+            items.append({"id": r["id"], "filename": name, "kind": r.get("kind") or "", "duplicate": bool(r.get("duplicate"))})
+        leyenda = " ".join(m.text.strip() for m in msgs if m.text and m.text.strip())
+        return await self.nexus.archivo(items, self.channel.name, msgs[0].chat_id, leyenda,
+                                        any(m.is_voice for m in msgs), grande)
 
     async def _atender(self, chat: str, trabajo) -> list[str]:
         """Espera la respuesta con "escribiendo..." visible, hace la pausa humana y la envía."""

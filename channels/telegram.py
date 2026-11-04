@@ -168,7 +168,7 @@ class TelegramChannel(Channel):
             info, filename, mime, voice = attachment
             return Incoming(
                 **base, text=text, filename=filename, mime=mime, is_voice=voice,
-                size=info.get("file_size"), download=self._downloader(info),
+                size=info.get("file_size"), download=self._downloader(info), grupo=m.get("media_group_id"),
             )
         if text:
             return Incoming(**base, text=text)
@@ -191,11 +191,13 @@ class TelegramChannel(Channel):
 
 
 class TelegramAssistant(Assistant):
-    async def _archivo(self, msg):
-        if (msg.size or 0) > MAX_DOWNLOAD:
-            return {"texto": "⚠️ Telegram solo me deja descargar archivos de hasta 20 MB."}
+    def __init__(self, *args, **kw):
+        super().__init__(*args, **kw)
+        self.max_descarga = MAX_DOWNLOAD  # más que eso, Isabelle lo dice y sugiere la web
+
+    async def _archivos(self, msgs):
         try:
-            return await super()._archivo(msg)
+            return await super()._archivos(msgs)
         except TelegramError as exc:
             return {"texto": f"⚠️ No pude descargar el archivo de Telegram ({exc})."}
 

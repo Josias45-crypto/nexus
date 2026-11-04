@@ -6,7 +6,7 @@ Autoprueba (la usa tests/e2e.py contra la instancia aislada):
 Conversación natural, sin comandos (Isabelle responde por POST /conversar).
 
 Pasos sueltos, cada uno en un proceso nuevo (e2e reinicia el contenedor entre pedir y confirmar):
-    python -m channels.simulado --step pedir|confirmar|entregar|caos|boton90|saludo_ajuste|saludo|internet_olvido --tag X
+    python -m channels.simulado --step pedir|confirmar|entregar|caos|boton90|saludo_ajuste|saludo|internet_olvido|ver --tag X
 """
 
 import argparse
@@ -61,14 +61,32 @@ class SimChannel(Channel):
     def text(self, text: str, user: str = OWNER) -> Incoming:
         return Incoming(self.name, chat_id=user, user_id=user, text=text)
 
-    def file(self, data: bytes, filename: str, mime: str, voice: bool = False) -> Incoming:
+    def file(self, data: bytes, filename: str, mime: str, voice: bool = False, text: str = "",
+             grupo: str | None = None) -> Incoming:
         async def download() -> bytes:
             return data
 
         return Incoming(
-            self.name, chat_id=OWNER, user_id=OWNER, filename=filename, mime=mime,
-            is_voice=voice, size=len(data), download=download,
+            self.name, chat_id=OWNER, user_id=OWNER, text=text, filename=filename, mime=mime,
+            is_voice=voice, size=len(data), download=download, grupo=grupo,
         )
+
+
+def boleta_png(tag: str) -> bytes:
+    """Foto sintética de una boleta con texto, cifra y fecha (Pillow, ya está en la imagen)."""
+    import io
+
+    from PIL import Image, ImageDraw, ImageFont
+
+    lineas = ["BOLETA DE VENTA", f"B001-{tag[-6:]}", "Cliente: Bodega Marlen", "TOTAL: S/ 450.00", "Vence: 28/11/2026"]
+    font = ImageFont.load_default(size=40)
+    img = Image.new("RGB", (900, 80 * len(lineas) + 60), "white")
+    draw = ImageDraw.Draw(img)
+    for i, linea in enumerate(lineas):
+        draw.text((40, 30 + 80 * i), linea, fill="black", font=font)
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return buf.getvalue()
 
 
 class Check:
@@ -243,6 +261,26 @@ async def step(url: str, tag: str, name: str) -> int:
         check("olvidé" in r and "7 días" in r, "«sí» lo borra y lo dice", r)
         hits = await nexus._req("GET", "/search", params={"q": f"Brontal{tag}", "k": 5})
         check(not any(f"Brontal{tag}" in h.get("content", "") for h in hits), "ya no está en la memoria", str(hits)[:200])
+    elif name == "ver":  # Fase 3: UNA llamada real de visión; el repetido y la pregunta usan lo guardado
+        async def enviar(inc: Incoming) -> str:
+            return "\n".join(await bot.handle(inc))
+
+        foto = boleta_png(tag)
+        r = await enviar(ch.file(foto, f"boleta{tag}.png", "image/png"))
+        check("450" in r and "¿es correcto?" in r and "/" not in r.replace("S/", "").replace("28/11/2026", ""),
+              "comenta la foto y pide confirmar la cifra leída", r)
+        check(r.count("?") == 1, "como máximo una pregunta", r)
+        r = await enviar(ch.text("sí"))
+        check("confirmado" in r, "«sí» confirma lo leído", r)
+        r = await enviar(ch.file(foto, f"otra{tag}.png", "image/png"))
+        check("ya me la había mostrado" in r or "ya la tengo guardada" in r.lower(), "el repetido se reconoce sin IA", r)
+        r = await enviar(ch.text("¿cuánto era el total de la boleta de la Bodega Marlen?"))
+        check("450" in r, "la pregunta usa lo guardado", r)
+        r = await enviar(ch.file(b"\x00\x00\x00\x18ftypmp42" + tag.encode(), f"video{tag}.mp4", "video/mp4"))
+        check("no los veo" in r or "solo los guardo" in r, "el video solo se guarda", r)
+        uso = await nexus._req("GET", "/usage")
+        vision = sum(m["peticiones"] for d in uso["dias"] for m in d["por_modelo"] if m["proveedor"] == "openrouter-vision")
+        check(vision == 1, "una sola llamada de visión", str(vision))
     elif name == "caos":  # OpenRouter inalcanzable: una nota se guarda y una pregunta avisa en una línea
         r = "\n".join(await bot.handle(ch.text(f"recuerda esto: nota durante el caos Vendral{tag}")))
         check(any(w in r.lower() for w in ("guardado", "anotado")), "guarda la nota sin OpenRouter", r)
@@ -257,7 +295,7 @@ def main() -> int:
     p = argparse.ArgumentParser()
     p.add_argument("--url", default="http://localhost:8000")
     p.add_argument("--tag", default=str(int(time.time())))
-    p.add_argument("--step", choices=["pedir", "confirmar", "entregar", "caos", "boton90", "saludo_ajuste", "saludo", "internet_olvido"])
+    p.add_argument("--step", choices=["pedir", "confirmar", "entregar", "caos", "boton90", "saludo_ajuste", "saludo", "internet_olvido", "ver"])
     args = p.parse_args()
     logging.basicConfig(level=logging.WARNING)
     if args.step:

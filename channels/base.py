@@ -22,6 +22,7 @@ class Incoming:
     is_voice: bool = False
     size: int | None = None
     download: Callable[[], Awaitable[bytes]] | None = field(default=None, repr=False)
+    grupo: str | None = None  # álbum: las fotos enviadas juntas comparten este id y se responden juntas
     # Botón pulsado: su dato ("rec:cancelar:12"), el mensaje que lo traía y el id del clic
     button: str | None = None
     message_id: str | None = None

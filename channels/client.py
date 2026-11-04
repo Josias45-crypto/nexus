@@ -48,10 +48,14 @@ class NexusClient:
             "POST", "/conversar/boton", json={"dato": dato, "channel": channel, "chat_id": chat_id}
         )
 
-    async def archivo(self, filename: str, kind: str, duplicate: bool, chat_id: str) -> dict:
+    async def archivo(self, archivos: list[dict], channel: str, chat_id: str, leyenda: str = "",
+                      voz: bool = False, grande: bool = False) -> dict:
+        """Archivos ya subidos (/inbox/file) que llegaron juntos: Isabelle los mira y responde una vez.
+        archivos: [{"id", "filename", "kind", "duplicate"}]; grande: alguno no se pudo bajar."""
         return await self._req(
             "POST", "/conversar/archivo",
-            json={"filename": filename, "kind": kind, "duplicate": duplicate, "chat_id": chat_id},
+            json={"archivos": archivos, "channel": channel, "chat_id": chat_id, "leyenda": leyenda,
+                  "voz": voz, "grande": grande},
         )
 
     async def ask(self, question: str) -> dict:
