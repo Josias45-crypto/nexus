@@ -134,11 +134,20 @@ class BotonIn(BaseModel):
     chat_id: str = Field(min_length=1, max_length=80)
 
 
-class ArchivoIn(BaseModel):
+class ArchivoItem(BaseModel):
+    id: str = Field(min_length=1, max_length=64)  # el de /inbox/file
     filename: str = Field(max_length=300)
     kind: str = Field(max_length=20)
     duplicate: bool = False
+
+
+class ArchivoIn(BaseModel):
+    archivos: list[ArchivoItem] = Field(default_factory=list, max_length=20)  # un álbum: varios
+    channel: str = Field(min_length=1, max_length=40)
     chat_id: str = Field(min_length=1, max_length=80)
+    leyenda: str = Field("", max_length=4000)  # el texto que vino con el archivo
+    voz: bool = False
+    grande: bool = False  # el canal no pudo bajarlo (Telegram: más de 20 MB)
 
 
 @app.post("/conversar")
@@ -166,8 +175,13 @@ async def conversar_boton(req: BotonIn):
 
 
 @app.post("/conversar/archivo")
-def conversar_archivo(req: ArchivoIn):
-    return conversa.archivo(req.filename, req.kind, req.duplicate, req.chat_id)
+async def conversar_archivo(req: ArchivoIn):
+    """Archivos que acaban de llegar por el chat: fotos, audios y PDF escaneados se analizan aquí
+    (una sola vez) y Isabelle los comenta; un álbum es una sola respuesta."""
+    if not req.archivos and not req.grande:
+        raise HTTPException(422, "Faltan los archivos.")
+    return await conversa.archivos([a.model_dump() for a in req.archivos], req.channel, req.chat_id,
+                                   req.leyenda, req.voz, req.grande)
 
 
 @app.get("/charla")

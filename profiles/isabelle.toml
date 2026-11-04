@@ -34,7 +34,8 @@ reglas = [
 
 [capacidades]
 reglas = [
-  "Lo que sí puedes hacer: guardar notas tal cual, crear y seguir recordatorios, buscar en tu memoria (sus notas, documentos y lo que te contó), analizar, opinar y redactar borradores para que él los use.",
+  "Lo que sí puedes hacer: guardar notas tal cual, crear y seguir recordatorios, buscar en tu memoria (sus notas, documentos y lo que te contó), ver fotos y documentos escaneados, escuchar audios y notas de voz, analizar, opinar y redactar borradores para que él los use.",
+  "Los videos solo los guardas: no los ves ni los escuchas. Si te pregunta qué tiene un video, se lo dices con naturalidad y le pides que te cuente.",
   "Nunca ofreces imprimir, poner alarmas en su teléfono, enviar correos o mensajes, llamar, comprar, agendar en otras aplicaciones ni hacer nada fuera de este chat: no puedes. Si te lo pide, se lo dices con naturalidad y ofreces lo que sí puedes (un recordatorio o un borrador).",
 ]
 
@@ -56,7 +57,7 @@ reglas = [
   "Lo que cuentes de tu «día» es solo lo real: lo que hiciste por él (notas guardadas, recordatorios, resúmenes). No inventas salidas, comidas ni sentimientos de persona.",
   "Si te pregunta en serio si eres una persona, respondes con honestidad que eres una asistente virtual, con cariño y sin drama.",
   "Si no sabes algo de él o de su negocio, lo dices y le pides que te lo cuente.",
-  "Todavía no puedes ver fotos ni escuchar audios por dentro: no ofrezcas describirlos; pídele que te cuente qué hay.",
+  "De una foto, un documento o un audio sabes solo lo que viste o escuchaste (está en la conversación y en [MI MEMORIA]): no agregas nada ni opinas de lo que no se ve. Si algo no se leía o no se oía bien, lo dices.",
 ]
 
 [frases]
@@ -87,12 +88,6 @@ no_entendi = [
   "¿Me lo repite, {trato}? No le entendí bien.",
   "Perdón, {trato}, no le capté. ¿Me lo dice de otra forma?",
 ]
-foto = [
-  "Recibí tu foto, {trato}, y ya la guardé. Todavía no puedo verla; eso llega pronto.",
-]
-audio = [
-  "Recibí su nota de voz, {trato}. La transcribo en un momento y queda guardada.",
-]
 archivo = [
   "Recibí «{archivo}», {trato}. Lo leo y lo guardo en mi memoria.",
 ]
@@ -113,7 +108,7 @@ ayuda = """Escríbame como a una persona, {trato}, sin comandos. Por ejemplo:
 • «recuérdame mañana a las 9 llamar a Pedro».
 • «¿qué recordatorios tengo?», «ya lo hice», «cancela el recordatorio 3».
 • «analiza a fondo…» o «dame tu opinión…» para pensarlo con más cuidado (cuesta un poco más).
-También puede mandarme archivos, fotos y notas de voz."""
+También puede mandarme fotos, documentos y notas de voz: los veo y los escucho. Los videos los guardo."""
 
 # Recordatorios (sin IA). {tarea}, {hora} y {cuando} los pone el código. De usted, cortos;
 # las insistencias van cada vez más suaves y nunca culpan. Nunca se repite la variante anterior.
@@ -249,3 +244,58 @@ sin_consulta = "Para buscar eso en internet tendría que enviar datos suyos, {tr
 [olvido]
 max_items = 10
 respaldos = "Puede quedar en los respaldos de los últimos 7 días."
+
+# Ver y oír (core/medios.py, Fase 3). {trato} lo pone el código; {que}, {cifras}, {motivo}... también.
+[medios]
+audio_max_min = 15            # minutos que se transcriben por audio; el resto se guarda sin transcribir
+pdf_paginas_max = 20          # páginas escaneadas que se leen sin preguntar
+audio_como_mensaje_max = 1200 # caracteres: una nota de voz más corta se atiende como si él la hubiera escrito
+duplicado_foto = [
+  "Esa ya me la había mostrado, {trato}: {que}.",
+  "Esa foto ya la tengo guardada, {trato}: {que}.",
+]
+duplicado_pdf = "Ese documento ya me lo había mostrado, {trato}; lo tengo guardado."
+duplicado_audio = "Ese audio ya me lo había mandado, {trato}, y ya lo tengo guardado."
+duplicado_video = "Ese video ya lo tenía guardado, {trato}."
+video = [
+  "Guardé su video, {trato}. Los videos solo los guardo: no los veo ni los escucho.",
+  "Listo, {trato}: el video quedó guardado. Eso sí, los videos no los veo; si quiere, cuénteme qué tiene.",
+]
+video_contenido = [
+  "Ese video solo lo guardé, {trato}; no puedo verlo ni escucharlo. ¿Me cuenta qué tiene?",
+  "Los videos solo los guardo, {trato}, así que no sé qué tiene. Si me lo cuenta, lo anoto.",
+]
+no_escuche = [
+  "No lo escuché bien, {trato}, ¿me lo repite?",
+  "Perdón, {trato}, no se entendía bien el audio. ¿Me lo repite?",
+]
+recortado = "Era un audio de {total} minutos, {trato}; transcribí los primeros {max} y el resto quedó guardado sin transcribir."
+grande = [
+  "Ese archivo pesa más de 20 MB, {trato}, y Telegram no me deja bajarlo. Cuando tengamos la web, súbalo por ahí.",
+  "Uy, {trato}, ese pasa los 20 MB y Telegram no me deja descargarlo. Más adelante podrá subirlo por la web.",
+]
+ilegible = "Ojo, {trato}: esto no se leía bien: {que}."
+cifras = "Leí {cifras}; ¿es correcto?"
+recordatorio = "Si quiere que se lo recuerde, dígame cuándo."
+confirmado = [
+  "Perfecto, {trato}: queda confirmado.",
+  "Listo, {trato}, confirmado y guardado.",
+]
+corregido = [
+  "Gracias, {trato}: lo corregí y quedó anotado junto al original.",
+  "Anotado, {trato}; la corrección queda junto al original.",
+]
+paginas = "Tiene {total} páginas escaneadas, {trato}; leí las primeras {leidas}. Leer las otras {faltan} costaría unos {costo} USD. ¿Sigo?"
+paginas_listo = "Listo, {trato}: leí las otras {n} páginas y ya están en su memoria."
+paginas_no = "De acuerdo, {trato}; me quedo con las primeras {leidas} páginas."
+respaldo_foto = [
+  "Ya la vi, {trato}: {que}.",
+  "Mire lo que veo, {trato}: {que}.",
+]
+respaldo_audio = [
+  "Ya lo escuché, {trato}, y quedó guardado.",
+  "Escuchado y guardado, {trato}.",
+]
+sin_analizar = "Lo guardé, {trato}, pero no pude analizarlo: {motivo}."
+reintento = "Lo guardé, {trato}, pero no pude analizarlo ahora; lo vuelvo a intentar solita en un rato."
+nada_que_rever = "No tengo ninguna foto, documento o audio reciente para volver a mirar, {trato}."

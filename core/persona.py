@@ -26,7 +26,7 @@ ARCHIVO = "isabelle.toml"
 SECCIONES = ("identidad", "trato", "caracter", "especialidades", "capacidades", "estilo", "honestidad", "frases")
 RECORDATORIOS = ("previo", "hora", "insistencia1", "insistencia2", "insistencia3", "retrasado", "creado",
                  "hecho", "pospuesto", "cancelado", "cuando")
-FRASES = ("guardado", "cierre", "gracias", "despedida", "noche", "no_entendi", "foto", "audio", "archivo", "duplicado",
+FRASES = ("guardado", "cierre", "gracias", "despedida", "noche", "no_entendi", "archivo", "duplicado",
           "sin_memoria", "profundo", "ayuda")
 
 

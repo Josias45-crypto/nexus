@@ -17,21 +17,26 @@ Cada turno (uno o varios mensajes seguidos del jefe, que el canal junta):
 Solo se pide confirmación al borrar algo o cuando la hora de un recordatorio es dudosa.
 Niveles de respuesta: primero la memoria (con fuentes que arma el código); si no hay dato, el
 conocimiento general del modelo, avisando que no sale de la memoria. Internet: Fase 2E.
+Archivos (Fase 3, archivos()): fotos y PDF escaneados se analizan al llegar y ella los comenta;
+una nota de voz corta se atiende como si él la hubiera escrito; los videos solo se guardan.
 Nunca se registra el contenido de los mensajes: solo la acción, el nivel y los tamaños.
 """
 
 import asyncio
+import contextvars
 import json
 import logging
 import re
 import unicodedata
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta
+from pathlib import Path
 
-from core import ask, charla, citations, clock, filtro, inbox, iniciativa, internet, olvido, pendientes, persona, questions, reminders, when
+from core import ask, charla, citations, clock, filtro, inbox, iniciativa, internet, medios, olvido, pendientes, persona, processor, questions, reminders, when
 from core.db import connect
 from core.search import relevant, search
 from providers.openrouter import ChatUnavailable, get_client
+from senses import Unsupported, documentos
 
 log = logging.getLogger("nexus.conversa")
 
@@ -46,6 +51,8 @@ RE_DETALLE = re.compile(r"\b(detallad[oa]|con (mas |mucho )?detalle|completo|ext
 TEMPERATURA = {"guardado": 0.8, "charlar": 0.8, "opinar": 0.8, "analizar": 0.3}
 
 _en_curso = 0
+# Lo que dice una nota de voz ya está guardado con su audio: «guardar» no lo duplica como nota
+_nota_de_voz: contextvars.ContextVar[bool] = contextvars.ContextVar("nota_de_voz", default=False)
 
 
 def ocupado() -> bool:
@@ -118,6 +125,15 @@ RE_HECHO = re.compile(r"^(listo )?(ya )?(lo )?(hice|hecho|termine|cumpli|ya esta
 RE_CANCELAR = re.compile(r"\b(cancela|cancelar|cancelame|borra|borrar|elimina|eliminar)\b.*?\b(\d{1,6})\b")
 RE_LISTA = re.compile(r"\b(que|cuales|mis|ver) recordatorios\b|\brecordatorios (tengo|pendientes|hay)\b|\bque tengo pendiente\b")
 RE_AYUDA = re.compile(r"^(ayuda|help|que puedes hacer|que sabes hacer|como funcionas|como te uso)( isabelle)?$")
+# «Vuelve a mirar la foto», «léela de nuevo», «escucha otra vez el audio»: lo único que hace mirar
+# otra vez un original ya analizado
+RE_REVER = re.compile(
+    r"\b(?:vuelve|volver) a (?:ver|mirar|leer|revisar|escuchar|oir|analizar)(?:la|lo)?\b"
+    r"|\b(?:mira|mirala|miralo|revisa|revisala|revisalo|lee|leela|leelo|escucha|escuchala|escuchalo|analiza|analizala"
+    r"|analizalo)\b(?:\s+\w+){0,3}\s+(?:otra vez|de nuevo|nuevamente)\b")
+RE_TIPO_MEDIO = {"foto": "foto", "imagen": "foto", "boleta": "foto", "factura": "foto", "captura": "foto",
+                 "documento": "pdf", "pdf": "pdf", "escaneo": "pdf", "audio": "audio", "nota de voz": "audio"}
+RE_VIDEO = re.compile(r"\b(?:que|de que)\b.*\bvideo\b|\bvideo\b.*\b(?:dice|tiene|hay|sale|salia|muestra|trata|contiene|habla)\b")
 RE_PROFUNDO = re.compile(
     r"\b(analiza(lo|la)? a fondo|analisis a fondo|piensa(lo|la)? bien|pienselo bien|piensalo a fondo"
     r"|dame tu opinion|cual es tu opinion|tu opinion sincera|que opinas a fondo)\b"
@@ -447,6 +463,10 @@ async def _reglas(textos: list[str], channel: str, chat_id: str, anterior: str |
             return _cancelar(r, channel, chat_id, confirmar=True)
     if r := olvido.pedir(texto, channel, chat_id):  # «olvida eso», «borra lo de Rosa»
         return Respuesta(r, "olvido")
+    if RE_REVER.search(p):  # «vuelve a mirar la foto»: lo único que hace mirar otra vez el original
+        return await _rever(p, channel, chat_id)
+    if RE_VIDEO.search(p) and medios.ultimo("video"):
+        return Respuesta(medios.frase("video_contenido"), "archivo")
     if m := RE_GUARDAR.match(texto):
         resto = m.group("resto").strip()
         if not resto and anterior:
@@ -515,6 +535,8 @@ async def interpretar(texto: str, previos: list[dict]) -> dict | None:
 
 
 async def _guardar(texto: str, channel: str) -> Respuesta:
+    if _nota_de_voz.get():  # ya está guardada con su audio y su transcripción
+        return Respuesta(persona.frase("guardado"), "guardar")
     r = await asyncio.to_thread(inbox.save, texto.encode("utf-8"), "nota.txt", "text/plain", channel, kind="text")
     return Respuesta(persona.frase("duplicado" if r.get("duplicate") else "guardado"), "guardar")
 
@@ -801,6 +823,10 @@ async def _turno(textos, channel, chat_id, previos, anterior) -> Respuesta:
         return r
     if r := olvido.resolver(texto, channel, chat_id):  # lista de candidatos o «¿confirma que olvide…?»
         return Respuesta(r, "olvido")
+    if r := await _resolver_paginas(texto, channel, chat_id):  # «¿sigo con las otras páginas?»
+        return r
+    if r := await _resolver_medio(texto, channel, chat_id):  # «¿cómo se llama?» -> «se llama Max»
+        return r
     if e := _espera(channel, chat_id):
         if r := await _resolver_espera(e, texto, channel, chat_id):
             return r
@@ -886,19 +912,193 @@ async def boton(dato: str, channel: str, chat_id: str) -> dict:
     return r.dict()
 
 
-def archivo(filename: str, kind: str, duplicate: bool, chat_id: str) -> dict:
-    """Respuesta al recibir un archivo (comentarlo de verdad llega en la Fase 3)."""
-    if duplicate:
-        texto = persona.frase("duplicado")
-    elif kind == "image":
-        texto = persona.frase("foto")
-    elif kind == "audio":
-        texto = persona.frase("audio")
+# ---------- archivos: ver y oír (Fase 3) ----------
+
+# Una nota de voz suele empezar llamándola («Isabelle, recuérdame…»): se quita para que las reglas
+# la entiendan igual que si él la hubiera escrito
+RE_LLAMADO = re.compile(r"^\s*(?:(?:oye|hola|ey|mira|este)[\s,]+)?isab[eé]l(?:le|la|a)?[\s,.:;!¡-]+", re.I)
+QUE_ENVIO = {"image": "una foto", "audio": "un audio", "video": "un video", "document": "un archivo", "text": "un archivo"}
+ESPERA_MEDIO_MIN = 30
+
+
+def _evento(event_id: str) -> dict | None:
+    with connect() as conn:
+        r = conn.execute("SELECT id, kind, filename, raw_path, mime, status, error FROM events WHERE id = ?",
+                         (event_id,)).fetchone()
+    return dict(r) if r else None
+
+
+def _escaneado(ev: dict) -> bool:
+    """Un PDF con páginas sin texto: se mira al llegar. Los demás documentos los lee el worker."""
+    if Path(ev["raw_path"]).suffix.lower() != ".pdf":
+        return False
+    try:
+        return bool(documentos.escaneadas(documentos.textos(Path(ev["raw_path"]))))
+    except Unsupported:
+        return False
+
+
+async def archivos(items: list[dict], channel: str, chat_id: str, leyenda: str = "", voz: bool = False,
+                   grande: bool = False) -> dict:
+    """Uno o varios archivos que acaban de llegar por el chat (un álbum es una sola respuesta).
+    items: [{"id", "filename", "kind", "duplicate"}] de /inbox/file. Fotos, audios y PDF escaneados
+    se analizan aquí mismo (una sola vez: si el archivo ya había llegado se reutiliza lo guardado)."""
+    global _en_curso
+    iniciativa.al_escribir(channel, chat_id)
+    if grande:  # Telegram no deja bajar más de 20 MB: de ese no hay nada guardado
+        charla.agregar("jefe", "[Intentó enviar un archivo de más de 20 MB]", chat_id)
+    if not items:
+        r = Respuesta(medios.frase("grande"), "archivo")
     else:
-        texto = persona.frase("archivo", archivo=filename)
-    texto = persona.dosificar(texto)
-    que = "una foto (todavía no puedes verla: no adivines qué tiene)" if kind == "image" else "un archivo"
-    iniciativa.al_escribir(None, chat_id)
-    charla.agregar("jefe", f"[Envió {que}: {filename}]", chat_id)
-    charla.agregar("isabelle", texto, chat_id, "archivo")
-    return Respuesta(texto, "archivo").dict()
+        _en_curso += 1
+        charla.pausar()
+        try:
+            previos = charla.recientes(charla.RECIENTES, chat_id)
+            anterior = next((m["texto"] for m in reversed(previos) if m["rol"] == "jefe"), None)
+            for n, it in enumerate(items):
+                extra = f" {leyenda}" if leyenda and n == 0 else ""
+                charla.agregar("jefe", f"[Envió {QUE_ENVIO.get(it['kind'], 'un archivo')}: {it['filename']}]{extra}", chat_id)
+            r = await _archivos(items, channel, chat_id, leyenda, voz, previos=previos, anterior=anterior)
+            if grande:
+                r.texto = f"{r.texto}\n\n{medios.frase('grande')}"
+        except ChatUnavailable as exc:
+            r = Respuesta(str(exc), "aviso")
+        finally:
+            _en_curso -= 1
+    if r.accion != "aviso":
+        r.texto = persona.dosificar(r.texto)
+    charla.agregar("isabelle", sin_avisos(r.texto) or r.texto, chat_id, r.accion)
+    log.info("Archivos: %d, acción %s, %d caracteres", len(items), r.accion, len(r.texto))
+    return r.dict()
+
+
+async def _archivos(items, channel, chat_id, leyenda, voz, previos=None, anterior=None, rever=False) -> Respuesta:
+    vistos, otros, partes, uso = [], [], [], None
+    for it in items:
+        ev = _evento(it["id"])
+        if not ev:
+            continue
+        es_medio = medios.es_medio(ev) and (ev["kind"] != "document" or await asyncio.to_thread(_escaneado, ev))
+        if es_medio and not rever:
+            ev = await processor.procesar_uno(it["id"]) or ev  # ChatUnavailable sube: queda pendiente
+        m = medios.get(it["id"]) if es_medio else None
+        if m:
+            vistos.append((it, ev, m))
+        else:
+            otros.append((it, ev, es_medio))
+    nuevos = [(it, ev, m) for it, ev, m in vistos if not it.get("duplicate")]
+    if vistos and not nuevos and not otros:  # todo repetido: se reutiliza lo guardado, sin IA
+        return Respuesta(medios.duplicado(vistos[0][2]), "archivo")
+    fotos = [m for _, _, m in nuevos if m["tipo"] in ("foto", "pdf")]
+    audios = [(it, m) for it, _, m in nuevos if m["tipo"] == "audio"]
+    videos = [m for _, _, m in nuevos if m["tipo"] == "video"]
+    if fotos:
+        pendiente_pag = next((m for m in fotos if medios.paginas_pendientes(m)), None)
+        texto, uso = await medios.comentar(fotos, leyenda, con_datos=not pendiente_pag, preguntar=not pendiente_pag)
+        partes.append(texto)
+        ids = [m["event_id"] for m in fotos]
+        if pendiente_pag:
+            faltan = medios.paginas_pendientes(pendiente_pag)
+            leidas = len(pendiente_pag["partes"])
+            partes.append(medios.frase("paginas", total=leidas + faltan, leidas=leidas, faltan=faltan,
+                                       costo=f"{medios.costo_paginas(pendiente_pag, faltan):.3f}".replace(".", ",")))
+            pendientes.guardar(channel, chat_id, "paginas", {"id": pendiente_pag["event_id"], "leidas": leidas}, ESPERA_MEDIO_MIN)
+        elif "?" in texto:
+            pendientes.guardar(channel, chat_id, "medio", {"ids": ids, "cifras": bool(medios.importantes(fotos))}, ESPERA_MEDIO_MIN)
+    for it, m in audios:
+        r = await _audio(it, m, channel, chat_id, previos or [], anterior, rever)
+        partes.append(r.texto)
+        uso = r.llm or uso
+        if r.botones:  # un recordatorio dictado trae sus botones
+            return Respuesta("\n\n".join(partes), r.accion, r.nivel, botones=r.botones, llm=uso)
+    if videos:
+        partes.append(medios.frase("video"))
+    for it, ev, es_medio in otros:
+        if ev["status"] == "unsupported":
+            partes.append(medios.frase("sin_analizar", motivo=(ev["error"] or "").split(". El original")[0].rstrip(".").lower()))
+        elif es_medio:  # falló el análisis: el worker lo reintenta
+            partes.append(medios.frase("reintento"))
+        elif it.get("duplicate"):
+            partes.append(persona.frase("duplicado"))
+        else:
+            partes.append(persona.frase("archivo", archivo=it["filename"]))
+    return Respuesta("\n\n".join(p for p in partes if p) or persona.frase("guardado"), "archivo", llm=uso)
+
+
+async def _audio(it: dict, m: dict, channel: str, chat_id: str, previos: list, anterior, rever: bool) -> Respuesta:
+    """Un audio o nota de voz ya transcrito. Si es corto se atiende como si él lo hubiera escrito
+    (guardar, preguntar, recordatorios...); si es largo, ella lo comenta. Si no se entendió, lo dice."""
+    recorte = ""
+    if (m["duracion_s"] or 0) > (m["transcrito_s"] or 0) + 1:
+        recorte = medios.frase("recortado", total=round(m["duracion_s"] / 60), max=round(m["transcrito_s"] / 60))
+    if m["estado"] != "analizado" or not m["texto"]:
+        return Respuesta("\n\n".join(p for p in (medios.frase("no_escuche"), recorte) if p), "archivo")
+    if rever or len(m["texto"]) > medios.config()["audio_como_mensaje_max"]:
+        texto, uso = await medios.comentar([m])
+        return Respuesta("\n\n".join(p for p in (texto, recorte) if p), "archivo", llm=uso)
+    charla.agregar("jefe", f"[Nota de voz] {m['texto']}", chat_id)
+    texto = RE_LLAMADO.sub("", m["texto"]) if len(RE_LLAMADO.sub("", m["texto"]).split()) >= 2 else m["texto"]
+    marca = _nota_de_voz.set(True)
+    try:
+        r = await _turno([texto[:1].upper() + texto[1:]], channel, chat_id, previos, anterior)
+    finally:
+        _nota_de_voz.reset(marca)
+    if recorte:
+        r.texto = f"{r.texto}\n\n{recorte}"
+    return r
+
+
+async def _rever(p: str, channel: str, chat_id: str) -> Respuesta:
+    """«Vuelve a mirar la foto»: el único caso en que se vuelve a mirar un original ya analizado."""
+    tipo = next((t for w, t in RE_TIPO_MEDIO.items() if re.search(rf"\b{w}\b", p)), None)
+    m = medios.ultimo(tipo) if tipo else medios.ultimo()
+    if not m or m["tipo"] == "video":
+        return Respuesta(medios.frase("nada_que_rever"), "archivo")
+    ev = await processor.procesar_uno(m["event_id"], forzar=True)
+    it = {"id": m["event_id"], "filename": (ev or {}).get("filename", ""), "kind": (ev or {}).get("kind", ""), "duplicate": False}
+    return await _archivos([it], channel, chat_id, "", False, rever=True)
+
+
+async def _resolver_medio(texto: str, channel: str, chat_id: str) -> Respuesta | None:
+    """Su respuesta a la pregunta de Isabelle sobre una foto («¿cómo se llama?» -> «se llama Max») o
+    a «leí 450 soles; ¿es correcto?». Queda ligada al medio. Si el mensaje no responde eso, se
+    descarta la pregunta y el mensaje sigue normal."""
+    d = pendientes.tomar(channel, chat_id, "medio")
+    if not d:
+        return None
+    p = plano(texto)
+    if (not p or "?" in texto or "¿" in texto or len(p.split()) > 25 or RE_RECORDATORIO.match(texto) or RE_GUARDAR.match(texto)
+            or RE_CIERRE.match(p) or RE_SALUDO.match(p) or RE_DESPEDIDA.search(p) or internet.pedida(texto)
+            or olvido.RE_PEDIDO.match(p) or RE_REVER.search(p)):
+        return None
+    if d.get("cifras"):
+        c = confirmacion(texto)
+        if c == "si":
+            medios.confirmar(d["ids"])
+            return Respuesta(medios.frase("confirmado"), "archivo")
+        if c == "no" or re.search(r"\d", texto):  # «no, son 480»: la corrección queda junto al original
+            await medios.anotar(d["ids"], texto)
+            return Respuesta(medios.frase("corregido"), "archivo")
+        return None
+    await medios.anotar(d["ids"], texto)
+    r = await _hablar("guardado", texto, chat_id, False)
+    r.accion = "archivo"
+    return r
+
+
+async def _resolver_paginas(texto: str, channel: str, chat_id: str) -> Respuesta | None:
+    """«¿Sigo con las otras páginas?» (PDF escaneado de más de [medios].pdf_paginas_max páginas)."""
+    d = pendientes.tomar(channel, chat_id, "paginas")
+    if not d:
+        return None
+    c = confirmacion(texto)
+    if c == "no":
+        return Respuesta(medios.frase("paginas_no", leidas=d["leidas"]), "archivo")
+    if c != "si":
+        return None
+    ev = _evento(d["id"])
+    if not ev or not medios.get(d["id"]):
+        return Respuesta(medios.frase("nada_que_rever"), "archivo")
+    n = await medios.mas_paginas(d["id"], Path(ev["raw_path"]))
+    await processor.procesar_uno(d["id"], rehacer=True)  # trozos nuevos desde lo guardado, sin volver a mirar
+    return Respuesta(medios.frase("paginas_listo", n=n), "archivo")
