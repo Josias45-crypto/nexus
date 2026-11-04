@@ -41,7 +41,7 @@ class NexusClient:
         try:
             r = await self._http.request(method, path, **kw)
         except httpx.TransportError as exc:
-            raise NexusError(f"Isabelle no responde ({type(exc).__name__}).") from exc
+            raise NexusError("Se me cortó la conexión un momento, jefe. Inténtelo de nuevo en un ratito.") from exc
         if r.status_code >= 400:
             try:
                 detail = r.json().get("detail")

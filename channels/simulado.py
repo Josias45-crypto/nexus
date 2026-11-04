@@ -285,7 +285,7 @@ async def step(url: str, tag: str, name: str) -> int:
         r = "\n".join(await bot.handle(ch.text(f"recuerda esto: nota durante el caos Vendral{tag}")))
         check(any(w in r.lower() for w in ("guardado", "anotado")), "guarda la nota sin OpenRouter", r)
         r = "\n".join(await bot.handle(ch.text(f"¿Hacia dónde fluye el río Ondarel{tag}?")))
-        check("\n" not in r.strip() and "OpenRouter" in r and "guardado" in r,
+        check("\n" not in r.strip() and "conexión" in r and "guardado" in r and "OpenRouter" not in r,
               "responde una sola línea clara", r)
     await nexus.close()
     return 1 if check.failures else 0

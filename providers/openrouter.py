@@ -56,18 +56,32 @@ PAUSE_MIN, PAUSE_MAX = 30, 1800  # pausa del trabajo de fondo tras un fallo (cre
 DATA_POLICY = {"zdr": True, "data_collection": "deny"}
 WEB_PLUGIN = {"id": "web", "engine": "exa", "max_results": 5}
 
-SAVED = "Lo que me envíe queda guardado y lo proceso después."
+# Lo que el jefe lee: en la voz de Isabelle, sin nombres técnicos. El detalle técnico (proveedor,
+# código HTTP, variable de .env) queda en ultimo_fallo y solo se le cuenta si dice «dime qué pasó».
+SAVED = "Lo que me mande queda guardado y lo veo apenas pueda."
 MESSAGES = {
-    "sin_saldo": f"⚠ Me quedé sin saldo en OpenRouter. {SAVED}",
-    "limite": f"⏳ OpenRouter me está limitando ahora mismo. {SAVED}",
-    "clave": f"⚠ OpenRouter rechazó la clave (revisa OPENROUTER_API_KEYS en .env). {SAVED}",
-    "caido": f"⚠ No pude conectar con OpenRouter. {SAVED}",
-    "sin_config": f"⚠ Falta configurar OpenRouter (OPENROUTER_API_KEYS y NEXUS_OPENROUTER_MODEL en .env). {SAVED}",
-    "sin_vision": f"⚠ Falta configurar el modelo de visión (NEXUS_OPENROUTER_MODEL_VISION en .env). {SAVED}",
-    "sin_audio": f"⚠ Falta configurar el modelo de transcripción (NEXUS_OPENROUTER_MODEL_AUDIO en .env). {SAVED}",
-    "sin_embed": f"⚠ Falta configurar los embeddings (NEXUS_EMBED_MODEL y NEXUS_EMBED_DIM en .env). {SAVED}",
+    "sin_saldo": f"⚠ Jefe, se acabó el saldo de mi cuenta de trabajo; apenas la recargue, sigo. {SAVED}",
+    "limite": f"⏳ Tengo mucha cola ahora mismo, jefe; déjeme un ratito y reintento. {SAVED}",
+    "clave": f"⚠ No me deja entrar a mi cuenta de trabajo, jefe; hay que revisar el acceso. {SAVED}",
+    "caido": f"⚠ Se me cortó la conexión, jefe; déjeme reintentar. {SAVED}",
+    "sin_config": f"⚠ Todavía no tengo todo listo para responder, jefe; falta terminar de configurarme. {SAVED}",
+    "sin_vision": f"⚠ Por ahora no puedo mirar fotos, jefe; falta configurarlo. {SAVED}",
+    "sin_audio": f"⚠ Por ahora no puedo escuchar audios, jefe; falta configurarlo. {SAVED}",
+    "sin_embed": f"⚠ Por ahora no puedo ordenar mi memoria, jefe; falta configurarlo. {SAVED}",
 }
-NO_CREDIT_ALERT = "⚠ OpenRouter se quedó sin saldo. Recarga créditos; mientras tanto todo queda guardado."
+# Para «dime qué pasó» (y los registros): el detalle técnico de cada motivo
+DETALLE = {
+    "sin_saldo": "OpenRouter respondió 402: la cuenta se quedó sin saldo (recargar créditos en openrouter.ai).",
+    "limite": "OpenRouter respondió 429: límite de peticiones; se reintenta con espera creciente.",
+    "clave": "OpenRouter rechazó la clave (401/403): revisar OPENROUTER_API_KEYS en .env.",
+    "caido": "No hubo respuesta de OpenRouter (red caída, tiempo agotado o error 5xx); se reintenta con espera creciente.",
+    "sin_config": "Falta OPENROUTER_API_KEYS o NEXUS_OPENROUTER_MODEL en .env.",
+    "sin_vision": "Falta NEXUS_OPENROUTER_MODEL_VISION en .env.",
+    "sin_audio": "Falta NEXUS_OPENROUTER_MODEL_AUDIO en .env.",
+    "sin_embed": "Falta NEXUS_EMBED_MODEL o NEXUS_EMBED_DIM en .env, o el modelo devolvió otra dimensión.",
+    "presupuesto": "Se alcanzó el tope diario NEXUS_DAILY_BUDGET_USD; mañana se reanuda.",
+}
+NO_CREDIT_ALERT = "⚠ Jefe, se acabó el saldo de mi cuenta de trabajo; cuando la recargue, sigo. Mientras tanto todo queda guardado."
 
 
 class ChatUnavailable(Exception):
@@ -145,6 +159,7 @@ class OpenRouter:
         self._paused_until = 0.0
         self._alert_stale = True  # al primer éxito se borra un aviso de 402 ya resuelto
         self.last: dict = {"modelo": model, "ok": None, "error": None}
+        self.ultimo_fallo: dict | None = None  # {"cuando", "motivo", "detalle"} para «dime qué pasó»
 
     # ---------- estado ----------
 
@@ -227,11 +242,17 @@ class OpenRouter:
         pause = min(PAUSE_MAX, PAUSE_MIN * 2 ** (self._failures - 1))
         self._paused_until = time.monotonic() + pause
         self.last = {"modelo": self.model, "ok": False, "error": str(err)}
+        self._anotar_fallo(err.reason, f"{DETALLE[err.reason]} ({err}; pausa de {pause} s)")
         log.warning("OpenRouter no disponible (%s); trabajo de fondo en pausa %d s", err, pause)
         if err.reason == "sin_saldo" and self.ledger:
             self._alert_stale = True
             self._safe(self.ledger.alert_once, "sin_saldo", NO_CREDIT_ALERT)
         return ChatUnavailable(err.reason, MESSAGES[err.reason])
+
+    def _anotar_fallo(self, motivo: str, detalle: str) -> None:
+        from datetime import datetime, timezone
+
+        self.ultimo_fallo = {"cuando": datetime.now(timezone.utc).isoformat(), "motivo": motivo, "detalle": detalle}
 
     def _safe(self, fn, *args) -> None:
         try:
@@ -242,11 +263,13 @@ class OpenRouter:
     def _listo(self, model: str, falta: str = "sin_config") -> None:
         """Lanza ChatUnavailable si falta la clave o el modelo, o si ya se alcanzó el tope del día."""
         if not self._key or not model:
+            self._anotar_fallo(falta, DETALLE[falta])
             raise ChatUnavailable("sin_config", MESSAGES[falta])
         if self._over_budget():
             log.warning("Presupuesto diario alcanzado (%s USD): no gasto más hoy", self.budget)
+            self._anotar_fallo("presupuesto", f"{DETALLE['presupuesto']} (tope {self.budget} USD)")
             raise ChatUnavailable(
-                "presupuesto", f"⏸ Llegué al tope de hoy ({self.budget} USD). {SAVED.replace('después', 'mañana')}"
+                "presupuesto", f"⏸ Por hoy llegué al tope de gasto que me puso, jefe; mañana sigo. {SAVED}"
             )
 
     def _exito(self, info: dict) -> None:
@@ -334,6 +357,7 @@ class OpenRouter:
         Lanza ChatUnavailable si OpenRouter no responde o si la dimensión no es NEXUS_EMBED_DIM."""
         self._listo(self.embed_model, "sin_embed")
         if not self.embed_dim:
+            self._anotar_fallo("sin_embed", DETALLE["sin_embed"])
             raise ChatUnavailable("sin_config", MESSAGES["sin_embed"])
         pre = self.prefijo(consulta)
         out: list[list[float]] = []
@@ -348,6 +372,7 @@ class OpenRouter:
             if len(vecs) != len(lote) or any(len(v) != self.embed_dim for v in vecs):
                 log.error("Embeddings: %d vectores de %s dimensiones; se esperaban %d de %d",
                           len(vecs), {len(v) for v in vecs}, len(lote), self.embed_dim)
+                self._anotar_fallo("sin_embed", DETALLE["sin_embed"])
                 raise ChatUnavailable("sin_config", MESSAGES["sin_embed"])
             for v in vecs:
                 norma = sum(x * x for x in v) ** 0.5 or 1.0
