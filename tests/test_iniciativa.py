@@ -229,7 +229,7 @@ class RedaccionTest(Base):
             with self.subTest(salida=salida):
                 with db.connect() as c:
                     c.execute("DELETE FROM iniciativa")
-                self.ia.textos = [salida]
+                self.ia.textos = [salida, salida]  # un nombre inventado se regenera una vez: insiste
                 self.en(0, 7, 30)
                 self.assertEqual(self.paso(), {"manana": "respaldo"})
                 self.assertEqual(self.fila(0, "manana")["detalle"], motivo)

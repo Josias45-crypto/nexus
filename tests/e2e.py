@@ -672,7 +672,7 @@ class Suite:
              "tests.test_openrouter", "tests.test_questions", "tests.test_chunker", "tests.test_senses",
              "tests.test_verify", "tests.test_reminders_flow", "tests.test_conversa", "tests.test_charla",
              "tests.test_filtro", "tests.test_recordatorios", "tests.test_persona", "tests.test_iniciativa", "tests.test_busqueda_olvido",
-             "tests.test_medios", "tests.test_embeddings", "tests.test_web"],
+             "tests.test_medios", "tests.test_embeddings", "tests.test_web", "tests.test_nombres"],
             capture_output=True, text=True, timeout=120,
         )
         if r.returncode != 0:
