@@ -33,7 +33,7 @@ import re
 import unicodedata
 from datetime import date, datetime, time, timedelta
 
-from core import briefing, charla, clock, nombres, outbox, persona, when
+from core import briefing, charla, clock, nombres, outbox, persona, personaje, when
 from core.db import connect
 from providers.openrouter import get_client
 
@@ -421,6 +421,8 @@ def verificar(texto: str, tipo: str, ctx: str, previos: list[str]) -> str | None
             return f"cifra {w}"
     if malos := nombres.inventados(t, [ctx]):  # «Buenos días, señor Joaquín»: nombre de persona inventado
         return f"nombre {malos[0]}"
+    if rotos := personaje.problemas(t):  # «soy una IA», «estoy llegando a la oficina»
+        return rotos[0]
     for m in RE_NOMBRE.finditer(t):
         antes = t[: m.start()].rstrip()
         if not antes or antes[-1] in ".!?¿¡:\"«":

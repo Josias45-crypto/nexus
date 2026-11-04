@@ -637,6 +637,14 @@ def web_historial(n: int = Query(40, ge=1, le=200)):
     return web.historial(n)
 
 
+@app.get("/web/apariencia")
+def web_apariencia():
+    """La foto que el jefe dijo que es Isabelle (autorretrato) y lo que se ve en ella, o null."""
+    from core import personaje
+
+    return personaje.apariencia()
+
+
 @app.get("/web/panel")
 def web_panel():
     """Panel esencial: días de vida, elementos y gasto de hoy."""

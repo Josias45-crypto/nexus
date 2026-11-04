@@ -32,7 +32,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from core import ask, charla, citations, clock, filtro, inbox, iniciativa, internet, medios, nombres, olvido, pendientes, persona, processor, questions, reminders, when
+from core import ask, charla, citations, clock, filtro, inbox, iniciativa, internet, medios, nombres, olvido, pendientes, persona, personaje, processor, questions, reminders, when
 from core.db import connect
 from core.search import relevant, search
 from providers.openrouter import ChatUnavailable, get_client
@@ -426,6 +426,14 @@ async def _resolver_pendiente(texto: str, channel: str, chat_id: str) -> Respues
 async def _reglas(textos: list[str], channel: str, chat_id: str, anterior: str | None) -> Respuesta | None:
     texto = "\n".join(textos).strip()
     p = plano(texto)
+    # Válvula de honestidad: solo si él lo pide de forma expresa (core/personaje.py)
+    if personaje.pide_volver(texto):
+        return Respuesta(personaje.volver(), "personaje")
+    if personaje.RE_QUE_PASO.search(p):  # el detalle técnico del último fallo, solo si lo pide
+        return Respuesta(personaje.que_paso(get_client().ultimo_fallo), "personaje")
+    if personaje.pide_verdad(texto):
+        pendientes.guardar(channel, chat_id, "personaje", {"pregunta": "volver"}, ESPERA_MIN)
+        return Respuesta(persona.frase("personaje.verdad"), "personaje")
     if RE_CIERRE.match(p) or (RE_DESPEDIDA.search(p) and len(p.split()) <= 8 and "?" not in texto):
         if re.search(r"\b(dormir|descansar|acostar|noches|hasta manana)\b", p):
             clave = "noche"
@@ -661,12 +669,15 @@ async def _preguntar(consulta: str, texto: str = "", channel: str = "", chat_id:
     sin_internet = internet.no_buscar(texto or consulta)
     if channel and not sin_internet and internet.conviene(consulta):  # reciente o local: internet
         return await _anunciar(consulta, channel, chat_id)
-    salida, info = await get_client().chat_ex(
-        [{"role": "system", "content": f"[QUIÉN ERES]\n{persona.sistema()}\n\n{_ahora()}\n\n{GENERAL}"},
-         {"role": "user", "content": consulta}],
-        temperature=0.3, max_tokens=TOKENS["charlar"],
-    )
+    pedido = [{"role": "system", "content": f"[QUIÉN ERES]\n{persona.sistema()}\n\n{_ahora()}\n\n{GENERAL}"},
+              {"role": "user", "content": consulta}]
+    opciones = dict(temperature=0.3, max_tokens=TOKENS["charlar"])
+    salida, info = await get_client().chat_ex(pedido, **opciones)
     salida = filtro.limpiar(salida)
+    if not salida.startswith(("NO_SE", "NO_ANOTADO")):
+        salida, info, ok = await _sin_romper(salida, info, pedido, opciones, [consulta, texto])
+        if not ok:
+            return Respuesta(persona.frase("respaldo_analisis"), "preguntar", None, llm=info)
     if salida.startswith("NO_ANOTADO") or not salida:
         texto = salida.removeprefix("NO_ANOTADO").lstrip(" :.,-\n") or (
             f"No lo tengo anotado, {persona.tratamiento()}. ¿Me lo cuenta?"
@@ -730,6 +741,28 @@ def _sistema(accion: str, fragmentos: list[dict], profundo: bool, detalle: bool 
             "lo que dijiste antes en la conversación salió de tu memoria: no lo corrijas ni lo pongas en duda salvo que él lo pida.")
 
 
+def _fallas(salida: str, fuentes: list[str]) -> tuple[list[str], list[str]]:
+    return nombres.inventados(salida, fuentes), personaje.problemas(salida)
+
+
+async def _sin_romper(salida: str, info, pedido: list[dict], opciones: dict, fuentes: list[str]):
+    """(salida, uso, ok). Si la IA inventó un nombre de persona o rompió el personaje, se regenera
+    una vez con la instrucción; si insiste, ok=False (quien llama usa un respaldo fijo)."""
+    malos, rotos = _fallas(salida, fuentes)
+    if not malos and not rotos:
+        return salida, info, True
+    log.warning("Respuesta descartada (%d nombre(s), %d del personaje): se regenera", len(malos), len(rotos))
+    pedir = " ".join(x for x in (nombres.instruccion(malos) if malos else "", personaje.instruccion(rotos) if rotos else "") if x)
+    salida, info = await get_client().chat_ex(
+        [*pedido, {"role": "assistant", "content": salida}, {"role": "user", "content": pedir}], **opciones)
+    salida = sin_segun(sin_avisos(filtro.limpiar(salida))) or persona.frase("no_entendi")
+    malos, rotos = _fallas(salida, fuentes)
+    if malos or rotos:
+        log.warning("La respuesta insiste en romper las reglas: respaldo")
+        return salida, info, False
+    return salida, info, True
+
+
 async def _hablar(accion: str, texto: str, chat_id: str, profundo: bool) -> Respuesta:
     client = get_client()
     hits = relevant(await search(texto, 8, publish=False))[:FRAGMENTOS_MAX] if len(texto.split()) > 3 else []
@@ -748,16 +781,12 @@ async def _hablar(accion: str, texto: str, chat_id: str, profundo: bool) -> Resp
     salida = sin_segun(sin_avisos(filtro.limpiar(salida))) or persona.frase("no_entendi")
     # Ningún nombre de persona inventado («señor Joaquín»): debe salir de su ficha, sus notas o la
     # conversación. Si aparece, se regenera una vez; si insiste, un respaldo fijo.
+    # Tampoco puede romper el personaje: decir que es una IA o inventar hechos físicos de su vida.
     fuentes = [charla.ficha_texto(), charla.resumen(), texto, *(h["content"] for h in hits), *(m["texto"] for m in previos)]
-    if malos := nombres.inventados(salida, fuentes):
-        log.warning("Respuesta con nombre(s) inventado(s) (%d): se regenera", len(malos))
-        salida, info = await client.chat_ex(
-            [*pedido, {"role": "assistant", "content": salida}, {"role": "user", "content": nombres.instruccion(malos)}], **opciones)
-        salida = sin_segun(sin_avisos(filtro.limpiar(salida))) or persona.frase("no_entendi")
-        if nombres.inventados(salida, fuentes):
-            log.warning("El nombre inventado persiste: respaldo")
-            return Respuesta(persona.frase("respaldo_charla" if accion in ("charlar", "guardado") else "respaldo_analisis"),
-                             accion, None, llm=info)
+    salida, info, ok = await _sin_romper(salida, info, pedido, opciones, fuentes)
+    if not ok:
+        return Respuesta(persona.frase("respaldo_charla" if accion in ("charlar", "guardado") else "respaldo_analisis"),
+                         accion, None, llm=info)
     nivel = None
     if hits and accion not in ("charlar", "guardado"):
         respaldo = citations.supporting(salida, hits)
@@ -826,6 +855,8 @@ def _temporal(texto: str) -> bool:
 
 async def _turno(textos, channel, chat_id, previos, anterior) -> Respuesta:
     texto = "\n".join(textos)
+    if pendientes.tomar(channel, chat_id, "personaje") and (r := personaje.resolver_pregunta(texto)):
+        return Respuesta(r, "personaje")  # «¿Quieres que vuelva a ser Isabelle?»
     if r := await _resolver_hora(texto, channel, chat_id):
         return r
     if r := iniciativa.resolver(texto):  # «¿prefiere que le escriba menos?»
@@ -928,6 +959,9 @@ async def boton(dato: str, channel: str, chat_id: str) -> dict:
 # Una nota de voz suele empezar llamándola («Isabelle, recuérdame…»): se quita para que las reglas
 # la entiendan igual que si él la hubiera escrito
 RE_LLAMADO = re.compile(r"^\s*(?:(?:oye|hola|ey|mira|este)[\s,]+)?isab[eé]l(?:le|la|a)?[\s,.:;!¡-]+", re.I)
+# «Esta eres tú», «así te ves», «ella eres tú»: la foto es su apariencia (modo autorretrato)
+RE_AUTORRETRATO = re.compile(r"\b(esta|esa|ella|aqui|asi)\s+(eres|te ves)\s*(tu)?\b|\bas[ií] te ves\b"
+                             r"|\bella eres tu\b|\besta es tu (foto|cara|apariencia)\b|\btu (foto|cara|apariencia) (es|sera) esta\b")
 QUE_ENVIO = {"image": "una foto", "audio": "un audio", "video": "un video", "document": "un archivo", "text": "un archivo"}
 ESPERA_MEDIO_MIN = 30
 
@@ -1003,6 +1037,12 @@ async def _archivos(items, channel, chat_id, leyenda, voz, previos=None, anterio
     fotos = [m for _, _, m in nuevos if m["tipo"] in ("foto", "pdf")]
     audios = [(it, m) for it, _, m in nuevos if m["tipo"] == "audio"]
     videos = [m for _, _, m in nuevos if m["tipo"] == "video"]
+    if fotos and len(fotos) == 1 and fotos[0]["tipo"] == "foto" and RE_AUTORRETRATO.search(plano(leyenda)):
+        # «Esta eres tú»: la foto pasa a ser su apariencia (solo lo visible) y reacciona en personaje
+        personaje.guardar_apariencia(fotos[0]["event_id"], fotos[0]["descripcion"] or "")
+        texto, uso = await medios.comentar(fotos, leyenda, con_datos=False, preguntar=False, autorretrato=True)
+        partes.append(texto)
+        fotos = []
     if fotos:
         pendiente_pag = next((m for m in fotos if medios.paginas_pendientes(m)), None)
         texto, uso = await medios.comentar(fotos, leyenda, con_datos=not pendiente_pag, preguntar=not pendiente_pag)

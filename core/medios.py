@@ -27,7 +27,7 @@ import re
 import unicodedata
 from pathlib import Path
 
-from core import clock, iniciativa, memory, persona
+from core import clock, iniciativa, memory, persona, personaje
 from core.chunker import Segment
 from core.db import connect
 from providers.embeddings import get_embedder
@@ -66,7 +66,8 @@ VER = """Mira la imagen y responde SOLO un JSON, en español:
  "datos": [{"tipo": "monto|fecha|plazo|nombre|numero|otro", "valor": "tal cual aparece en la imagen", "que": "qué es, en 2 a 5 palabras"}],
  "ilegible": "qué partes no se leen bien (vacío si todo se lee)"}
 En "datos" van solo los datos clave (totales, fechas, vencimientos, nombres, números de documento), como mucho 8.
-No inventes ni completes nada que no se vea. Si una cifra o palabra no se lee bien, ponla en "ilegible" y no en "datos"."""
+No inventes ni completes nada que no se vea. Si una cifra o palabra no se lee bien, ponla en "ilegible" y no en "datos".
+Si hay personas, describe solo lo visible (cabello, ropa, gesto, lugar): nunca digas quiénes son ni las identifiques."""
 
 COMENTAR = """[TU TAREA]
 Él te acaba de enviar {que}. Coméntalo como una persona real por WhatsApp: de 1 a 3 frases, natural y
@@ -547,6 +548,8 @@ def verificar(texto: str, ctx: str, max_preguntas: int, nombres: list[str] | Non
         return "preguntas"
     if iniciativa.RE_VIDA.search(t):
         return "vida propia"
+    if rotos := personaje.problemas(t):
+        return rotos[0]
     palabras = set(plano(ctx).split())
     for m in iniciativa.RE_ESPECULA.finditer(t):
         nuevas = [w for w in plano(m.group("resto")).split() if w not in iniciativa.VACIAS and w not in palabras]
@@ -581,7 +584,8 @@ def _respaldo(ms: list[dict]) -> str:
     return frase("respaldo_foto", que=desc[:1].lower() + desc[1:]) if desc else frase("respaldo_audio")
 
 
-async def comentar(ms: list[dict], leyenda: str = "", con_datos: bool = True, preguntar: bool = True) -> tuple[str, dict | None]:
+async def comentar(ms: list[dict], leyenda: str = "", con_datos: bool = True, preguntar: bool = True,
+                   autorretrato: bool = False) -> tuple[str, dict | None]:
     """El comentario de Isabelle sobre uno o varios medios ya analizados (un álbum es una sola
     respuesta). Una llamada al modelo diario, verificada; si no pasa, hasta COMENTARIO_INTENTOS y luego
     un respaldo fijo.
@@ -595,8 +599,8 @@ async def comentar(ms: list[dict], leyenda: str = "", con_datos: bool = True, pr
     ctx = visto + ("\n" + leyenda if leyenda else "")
     sistema = (f"[QUIÉN ERES]\n{persona.sistema()}\n\n[LO QUE {'ESCUCHÉ' if oye else 'VI'}]\n{visto}"
                + (f"\n\n[LO QUE ÉL ESCRIBIÓ CON EL ARCHIVO]\n{leyenda}" if leyenda else "")
-               + "\n\n" + COMENTAR.format(que=que, verbo="ESCUCHÉ" if oye else "VI",
-                                          preguntas=preguntas))
+               + "\n\n" + (f"[TU TAREA]\n{persona.get()['personaje']['autorretrato']}" if autorretrato else
+                             COMENTAR.format(que=que, verbo="ESCUCHÉ" if oye else "VI", preguntas=preguntas)))
     texto, uso, motivo = "", None, None
     for _ in range(COMENTARIO_INTENTOS):
         salida, uso = await get_client().chat_ex(

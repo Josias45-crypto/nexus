@@ -106,7 +106,9 @@ def sistema() -> str:
     partes = [" ".join(p["identidad"]["descripcion"].split())]
     for s in SECCIONES[1:-1]:
         partes += [f"- {r}" for r in p[s]["reglas"]]
-    return "\n".join(partes)
+    from core import personaje  # su vida, su apariencia y si está fuera del personaje
+
+    return "\n".join(partes) + "\n\n" + personaje.bloques()
 
 
 def breve() -> str:

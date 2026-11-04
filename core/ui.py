@@ -56,7 +56,8 @@ PAGE = r"""<!doctype html>
 html,body{overflow:hidden}
 canvas#red{position:fixed;inset:0;width:100vw;height:100vh;display:block;z-index:0}
 #top{position:fixed;top:0;right:0;left:0;display:flex;justify-content:flex-end;gap:18px;padding:14px 18px;z-index:3;font-size:14px}
-#top .yo{margin-right:auto;letter-spacing:.3em;font-weight:300;color:var(--mut)}
+#top .yo{margin-right:auto;letter-spacing:.3em;font-weight:300;color:var(--mut);display:flex;align-items:center;gap:10px}
+#cara{width:30px;height:30px;border-radius:50%;object-fit:cover;opacity:.85;box-shadow:0 0 12px var(--glow)}
 #panel{position:fixed;top:44px;right:18px;z-index:3;font-size:13px;text-align:right;line-height:1.7;text-shadow:0 0 6px #000}
 #panel b{color:var(--txt);font-weight:500}
 #chat{position:fixed;left:0;right:0;bottom:0;top:52px;display:flex;flex-direction:column;z-index:2;pointer-events:none}
@@ -78,7 +79,7 @@ canvas#red{position:fixed;inset:0;width:100vw;height:100vh;display:block;z-index
 body.arrastra #soltar{display:flex}
 </style></head><body>
 <canvas id="red" aria-hidden="true"></canvas>
-<nav id="top"><span class="yo">ISABELLE</span><button class="t" id="vpanel" title="Panel">·</button>
+<nav id="top"><span class="yo"><img id="cara" alt="" hidden>ISABELLE</span><button class="t" id="vpanel" title="Panel">·</button>
 <a href="/guardado">lo guardado</a><button class="t" id="salir">salir</button></nav>
 <div id="panel" hidden></div>
 <div id="chat"><div id="log" aria-live="polite"></div>
@@ -148,6 +149,7 @@ $('vpanel').onclick=async()=>{const p=$('panel');p.hidden=!p.hidden;if(p.hidden)
     for(const [k,v] of [['días de vida',d.dias_de_vida],['elementos',d.elementos],['gasto de hoy','$'+d.gasto_hoy_usd.toFixed(4)]]){
       const l=document.createElement('div');l.append(k+' ');const b=document.createElement('b');b.textContent=v;l.append(b);p.append(l)}
   }catch(e){p.textContent=e.message}};
+api('/web/apariencia').then(a=>{if(a&&a.event_id){const c=$('cara');c.src=`/guardado/${a.event_id}/vista`;c.title=a.descripcion||'';c.hidden=false}}).catch(()=>{});
 api('/web/historial?n=30').then(h=>{if(!h.length)linea('Escríbeme como a una persona, o arrastra un archivo aquí.','sys');
   for(const m of h)linea(m.texto,m.rol==='jefe'?'jefe':'isa')}).catch(()=>{});
 
