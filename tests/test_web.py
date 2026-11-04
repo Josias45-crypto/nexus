@@ -104,6 +104,37 @@ class SesionTest(Base):
         self.assertEqual(r.headers["x-content-type-options"], "nosniff")
 
 
+class HttpTest(Base):
+    def test_por_http_la_cookie_no_lleva_secure_y_el_login_avisa(self):
+        auth.fijar_clave(CLAVE)
+        r = self.c.post("/login", data={"clave": CLAVE})
+        cookie = r.headers["set-cookie"]
+        self.assertNotIn("Secure", cookie)
+        self.assertIn("HttpOnly", cookie)
+        self.assertIn("samesite=strict", cookie.lower())
+        self.assertIn("Conexión sin cifrar", self.c.get("/login").text)
+
+    def test_por_https_lleva_secure_y_no_avisa(self):
+        auth.fijar_clave(CLAVE)
+        https = TestClient(app, base_url="https://testserver")
+        self.assertIn("Secure", https.post("/login", data={"clave": CLAVE}).headers["set-cookie"])
+        self.assertNotIn("Conexión sin cifrar", https.get("/login").text)
+        # Tras un proxy con TLS (X-Forwarded-Proto: https), igual
+        r = self.c.post("/login", data={"clave": CLAVE}, headers={"x-forwarded-proto": "https"})
+        self.assertIn("Secure", r.headers["set-cookie"])
+        self.assertNotIn("Conexión sin cifrar", self.c.get("/login", headers={"x-forwarded-proto": "https"}).text)
+
+    def test_variable_fuerza_el_modo(self):
+        from config import settings
+
+        auth.fijar_clave(CLAVE)
+        with mock.patch.object(settings, "COOKIE_SECURE", "on"):
+            self.assertIn("Secure", self.c.post("/login", data={"clave": CLAVE}).headers["set-cookie"])
+        with mock.patch.object(settings, "COOKIE_SECURE", "off"):
+            r = self.c.post("/login", data={"clave": CLAVE}, headers={"x-forwarded-proto": "https"})
+            self.assertNotIn("Secure", r.headers["set-cookie"])
+
+
 class GuardadoTest(Base):
     def guardar(self, data: bytes, nombre: str, mime: str) -> str:
         return inbox.save(data, nombre, mime, "web")["id"]
