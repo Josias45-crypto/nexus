@@ -31,7 +31,7 @@ from core import clock, iniciativa, memory, persona
 from core.chunker import Segment
 from core.db import connect
 from providers.embeddings import get_embedder
-from providers.openrouter import get_client
+from providers.openrouter import ChatUnavailable, get_client
 from senses import Unsupported, documentos, extract
 
 log = logging.getLogger("nexus.medios")
@@ -360,6 +360,33 @@ def limpiar_transcripcion(segmentos: list[dict]) -> tuple[list[dict], bool]:
     return buenos, dudosa
 
 
+def _sonido(palabra: str) -> str:
+    """Cómo suena en español (para comparar): sin tildes, b = v, ll = y, z = s, sin h."""
+    p = plano(palabra).replace(" ", "")
+    for a, b in (("ll", "y"), ("v", "b"), ("z", "s"), ("h", "")):
+        p = p.replace(a, b)
+    return p
+
+
+def corregir_vocabulario(texto: str, vocabulario: list[str]) -> str:
+    """Escribe como en el vocabulario del negocio las palabras que suenan igual: «IGB» -> «IGV»
+    (en español la b y la v suenan igual). Solo palabras de 3 letras o más y de sonido idéntico."""
+    sonidos = {_sonido(t): t for t in vocabulario if len(_sonido(t)) >= 3}
+    if not sonidos:
+        return texto
+
+    def cambio(m: re.Match) -> str:
+        w = m.group(0)
+        t = sonidos.get(_sonido(w))
+        if not t or plano(w) == plano(t) and (w == t or not t.isupper()):
+            return w  # no suena igual, o es la misma palabra (solo cambia la mayúscula inicial)
+        if t.isupper() or t[0].isupper():
+            return t  # siglas y nombres (IGV, SUNAT, Yape) tal como se escriben
+        return t[0].upper() + t[1:] if w[0].isupper() else t  # «Voleta» -> «Boleta»
+
+    return re.sub(r"[A-Za-zÁÉÍÓÚÑáéíóúñü]{3,}", cambio, texto)
+
+
 def ventanas(segmentos: list[dict]) -> list[dict]:
     """Ventanas de ~600 caracteres con su marca de tiempo (para citar «min 01:23»)."""
     out, texto, inicio, fin = [], "", None, 0.0
@@ -378,8 +405,9 @@ async def _analizar_audio(path: Path) -> dict:
     max_s = float(config()["audio_max_min"]) * 60
     tramos, total = await asyncio.to_thread(_tramos_opus, path, max_s)
     segmentos, costo, desde = [], 0.0, 0.0
+    vocab = config().get("vocabulario") or []
     for data, dur in tramos:
-        r, info = await get_client().transcribir(data, "ogg")
+        r, info = await get_client().transcribir(data, "ogg", vocabulario=vocab)
         costo += info.get("costo_usd") or 0
         segs = r.get("segments") or [{"start": 0.0, "end": dur, "text": r.get("text") or ""}]
         for s in segs:
@@ -387,6 +415,7 @@ async def _analizar_audio(path: Path) -> dict:
                               "end": desde + float(s.get("end") or 0)})
         desde += dur
     buenos, dudosa = limpiar_transcripcion(segmentos)
+    buenos = [{**s, "text": corregir_vocabulario(s["text"], vocab)} for s in buenos]
     log.info("Audio: %.0f s (%.0f transcritos), %d tramo(s), %d segmento(s) descartado(s)%s",
              total, desde, len(tramos), len(segmentos) - len(buenos), ", dudoso" if dudosa else "")
     partes = [] if dudosa else ventanas(buenos)
@@ -464,11 +493,16 @@ async def anotar(ids: list[str], texto: str) -> None:
         if not m:
             continue
         notas = m["notas"] + [{"texto": texto, "fecha": clock.now_utc().isoformat()}]
-        contenido = f"Lo que el jefe dijo sobre {_que(m)}: {texto}"
-        vec = (await embedder.embed_documents([contenido]))[0]
-        with connect() as conn:
+        with connect() as conn:  # primero la nota: si los embeddings fallan, no se pierde
             conn.execute("UPDATE medios SET notas = ?, updated_at = ? WHERE event_id = ?",
                          (json.dumps(notas, ensure_ascii=False), clock.now_utc().isoformat(), eid))
+        contenido = f"Lo que el jefe dijo sobre {_que(m)}: {texto}"
+        try:
+            vec = (await embedder.embed_documents([contenido]))[0]
+        except ChatUnavailable:  # el trozo sale de las notas al rearmar el medio (reindexar)
+            log.warning("Embeddings no disponibles: la nota del medio queda sin trozo por ahora")
+            continue
+        with connect() as conn:
             pos = conn.execute("SELECT COALESCE(MAX(position), -1) + 1 FROM chunks WHERE event_id = ?", (eid,)).fetchone()[0]
             memory.insert_chunk(conn, eid, pos, contenido, vec, {"nota_del_jefe": True})
 

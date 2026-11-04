@@ -250,6 +250,9 @@ respaldos = "Puede quedar en los respaldos de los últimos 7 días."
 audio_max_min = 15            # minutos que se transcriben por audio; el resto se guarda sin transcribir
 pdf_paginas_max = 20          # páginas escaneadas que se leen sin preguntar
 audio_como_mensaje_max = 1200 # caracteres: una nota de voz más corta se atiende como si él la hubiera escrito
+# Palabras de su negocio: van como indicación a la transcripción y se corrigen las que suenan igual
+# («IGB» -> «IGV»: la b y la v suenan igual)
+vocabulario = ["IGV", "Yape", "Plin", "SUNAT", "boleta", "factura", "laptop", "impresora", "audífonos", "proveedor", "cotización"]
 duplicado_foto = [
   "Esa ya me la había mostrado, {trato}: {que}.",
   "Esa foto ya la tengo guardada, {trato}: {que}.",
