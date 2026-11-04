@@ -45,8 +45,19 @@ NEGATIVES = [
 ]
 
 
+def _token() -> str:
+    """La API exige sesión o el token interno (data/interno/token de la instancia real)."""
+    import os
+    from pathlib import Path
+
+    try:
+        return os.getenv("NEXUS_INTERNAL_TOKEN") or (Path(__file__).resolve().parent.parent / "data/interno/token").read_text().strip()
+    except OSError:
+        return ""
+
+
 def get(url: str):
-    with urllib.request.urlopen(url, timeout=120) as r:
+    with urllib.request.urlopen(urllib.request.Request(url, headers={"X-Nexus-Token": _token()}), timeout=120) as r:
         return json.load(r)
 
 

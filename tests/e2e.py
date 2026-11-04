@@ -65,13 +65,32 @@ class Fail(Exception):
     pass
 
 
-class Api:
-    def __init__(self, base: str):
-        self.base = base.rstrip("/")
+def token_interno() -> str:
+    """El token de la API (X-Nexus-Token): el de la instancia aislada, o el de la real en data/."""
+    if t := os.getenv("NEXUS_INTERNAL_TOKEN", "").strip():
+        return t
+    try:
+        return (REPO / "data" / "interno" / "token").read_text().strip()
+    except OSError:
+        return ""
 
-    def call(self, method: str, path: str, body=None, headers=None, raw=False):
+
+# La instancia aislada usa su propio token (la API entera exige sesión o este token)
+TOKEN_PRUEBA = uuid.uuid4().hex + uuid.uuid4().hex
+
+
+class Api:
+    def __init__(self, base: str, token: str | None = None):
+        self.base = base.rstrip("/")
+        self.token = token
+
+    def call(self, method: str, path: str, body=None, headers=None, raw=False, token: bool = True):
         data = None
         headers = dict(headers or {})
+        if token:
+            # Instancias aisladas (8001 e2e, 8002 caos): su token; la real: el de data/interno/token
+            aislada = self.base.rsplit(":", 1)[-1] in ("8001", "8002")
+            headers.setdefault("X-Nexus-Token", self.token or (TOKEN_PRUEBA if aislada else token_interno()))
         if isinstance(body, (dict, list)):
             data = json.dumps(body).encode()
             headers["Content-Type"] = "application/json"
@@ -230,7 +249,7 @@ def isolated_instance(extra_env: dict | None = None, image: str | None = None,
     cmd += [
         "-v", f"{work / 'data'}:/data", "-v", f"{work / 'backups'}:/backups",
         "-e", "NEXUS_DATA_DIR=/data", "-e", "NEXUS_BACKUP_DIR=/backups",
-        "-e", "NEXUS_BACKUP_HOURS=0",
+        "-e", "NEXUS_BACKUP_HOURS=0", "-e", f"NEXUS_INTERNAL_TOKEN={TOKEN_PRUEBA}",
     ]
     for key, value in (extra_env or {}).items():
         cmd += ["-e", f"{key}={value}"]
@@ -240,7 +259,8 @@ def isolated_instance(extra_env: dict | None = None, image: str | None = None,
         deadline = time.monotonic() + 90
         while True:
             try:
-                with urllib.request.urlopen(url + "/health", timeout=5):
+                req = urllib.request.Request(url + "/health", headers={"X-Nexus-Token": TOKEN_PRUEBA})
+                with urllib.request.urlopen(req, timeout=5):
                     break
             except (urllib.error.URLError, ConnectionError, OSError):
                 if time.monotonic() > deadline:
@@ -595,6 +615,48 @@ class Suite:
             raise Fail("oír: " + ((r.stdout + r.stderr)[-300:]))
         return f"{out.count('ok ')} comprobaciones de ver; oír: {r.stdout.strip().splitlines()[-1]}"
 
+    def t24_web(self):
+        """Fase 5 por HTTP de verdad: sin sesión todo es 401 (y la página redirige a /login), la
+        contraseña se crea por la terminal del contenedor, login con cookie HttpOnly y SameSite,
+        espera tras fallar, y «Lo guardado» descarga un HTML subido sin ejecutarlo."""
+        if not self.isolated:
+            raise Skip("solo en instancia aislada (crea una contraseña)")
+        sin = Api(self.api.base)
+        for ruta in ("/health", "/web/panel", "/guardado/lista", "/brain/graph", "/openapi.json"):
+            status, _ = sin.call("GET", ruta, token=False)
+            if status != 401:
+                raise Fail(f"{ruta} sin sesión -> HTTP {status}")
+        clave = "prueba-" + self.rid
+        r = subprocess.run(["docker", "exec", "-i", E2E_NAME, "python", "-c",
+                            "import sys; from core import auth; auth.fijar_clave(sys.stdin.read().strip())"],
+                           input=clave, capture_output=True, text=True, timeout=60)
+        if r.returncode != 0:
+            raise Fail("no se pudo crear la contraseña: " + r.stderr[-200:])
+        form = {"Content-Type": "application/x-www-form-urlencoded"}
+        status, _ = sin.call("POST", "/login", urllib.parse.urlencode({"clave": "mala"}).encode(), form, token=False)
+        status2, _ = sin.call("POST", "/login", urllib.parse.urlencode({"clave": clave}).encode(), form, token=False)
+        if (status, status2) != (401, 429):
+            raise Fail(f"fallo y espera: {status}, {status2}")
+        time.sleep(1.2)
+        req = urllib.request.Request(self.api.base + "/login", data=urllib.parse.urlencode({"clave": clave}).encode(),
+                                     headers=form, method="POST")
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            cookie = resp.headers.get("Set-Cookie", "")
+        if "HttpOnly" not in cookie or "samesite=strict" not in cookie.lower():
+            raise Fail(f"cookie sin HttpOnly/SameSite: {cookie[:80]!r}")
+        sesion = {"Cookie": cookie.split(";")[0]}
+        status, panel = sin.call("GET", "/web/panel", headers=sesion, token=False)
+        status_html, pagina = sin.call("GET", "/", headers={**sesion, "Accept": "text/html"}, raw=True, token=False)
+        if status != 200 or status_html != 200 or b"/brain/stream" not in pagina:
+            raise Fail(f"con sesión: panel {status}, página {status_html}")
+        eid = event_id(self.api.upload(f"pagina-{self.rid}.html", b"<script>alert(1)</script>", "text/html"))
+        req = urllib.request.Request(f"{self.api.base}/guardado/{eid}/original", headers=sesion)
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            tipo, disp, cuerpo = resp.headers.get("Content-Type"), resp.headers.get("Content-Disposition", ""), resp.read()
+        if tipo != "application/octet-stream" or not disp.startswith("attachment") or cuerpo != b"<script>alert(1)</script>":
+            raise Fail(f"descarga: {tipo}, {disp[:40]}")
+        return f"5 rutas en 401 sin sesión; 401 → 429 al fallar; cookie HttpOnly+SameSite; panel {panel['elementos']} elementos; HTML como descarga"
+
     def t12_unit(self):
         local = subprocess.run(
             [sys.executable, "-m", "unittest", "-q", "tests.test_when"],
@@ -610,7 +672,7 @@ class Suite:
              "tests.test_openrouter", "tests.test_questions", "tests.test_chunker", "tests.test_senses",
              "tests.test_verify", "tests.test_reminders_flow", "tests.test_conversa", "tests.test_charla",
              "tests.test_filtro", "tests.test_recordatorios", "tests.test_persona", "tests.test_iniciativa", "tests.test_busqueda_olvido",
-             "tests.test_medios", "tests.test_embeddings"],
+             "tests.test_medios", "tests.test_embeddings", "tests.test_web"],
             capture_output=True, text=True, timeout=120,
         )
         if r.returncode != 0:
@@ -804,6 +866,7 @@ TESTS = [
     ("21 saludo por iniciativa", "t21_saludo"),
     ("22 internet y olvido", "t22_internet_olvido"),
     ("23 ver y oír", "t23_ver_oir"),
+    ("24 web con sesión", "t24_web"),
 ]
 
 # Caso 23: nota de voz por el camino del bot (SimChannel -> Assistant -> API en el mismo proceso,

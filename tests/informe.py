@@ -8,8 +8,20 @@ RUN = uuid.uuid4().hex[:8]
 filas = []
 
 
+def _token() -> str:
+    """La API exige sesión o el token interno (data/interno/token de la instancia real)."""
+    import os
+    from pathlib import Path
+
+    try:
+        return os.getenv("NEXUS_INTERNAL_TOKEN") or (Path(__file__).resolve().parent.parent / "data/interno/token").read_text().strip()
+    except OSError:
+        return ""
+
+
 def call(path, data=None, timeout=180):
-    req = urllib.request.Request(BASE + path, method="POST" if data is not None else "GET")
+    req = urllib.request.Request(BASE + path, method="POST" if data is not None else "GET",
+                                 headers={"X-Nexus-Token": _token()})
     if data is not None:
         req.add_header("Content-Type", "application/json")
         req.data = json.dumps(data).encode()
