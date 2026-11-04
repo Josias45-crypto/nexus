@@ -172,6 +172,13 @@ CREATE TABLE IF NOT EXISTS olvidos (
     tipo TEXT NOT NULL              -- nota | archivo | ficha | charla | recordatorio | resumen
 );
 
+-- Sesiones de la web (core/auth.py): solo la huella (sha256) del token de la cookie
+CREATE TABLE IF NOT EXISTS sesiones (
+    huella TEXT PRIMARY KEY,
+    creada TEXT NOT NULL,
+    expira TEXT NOT NULL
+);
+
 -- Caché de embeddings por huella (sha256 del modelo y el texto): un texto repetido no se vuelve a
 -- pedir a OpenRouter. Es derivado: se puede borrar sin perder nada.
 CREATE TABLE IF NOT EXISTS embed_cache (
