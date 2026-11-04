@@ -6,14 +6,12 @@ httpx==0.28.1
 python-multipart==0.0.20
 sqlite-vec==0.1.6
 pypdf==5.1.0
-faster-whisper==1.1.1
+# audio: duración, recorte y paso a Opus antes de transcribir por OpenRouter (core/medios.py)
 av==18.1.0
 # pypdf la necesita para abrir PDF cifrados con AES
 cryptography==50.0.2
-# la importa faster_whisper/utils.py (descarga del modelo de Whisper)
-requests==2.34.2
-# la usan las pruebas (tests/fixtures.py); también llega con faster-whisper
+# la usan las pruebas (tests/fixtures.py: video sintético)
 numpy==2.5.3
-# imágenes y páginas escaneadas de PDF para el OCR (senses/)
+# fotos (rotar, achicar a JPEG) y páginas escaneadas de PDF para el modelo de visión (core/medios.py)
 pillow==12.3.0
 pypdfium2==5.14.0

@@ -38,7 +38,6 @@ services:
       - "127.0.0.1:8000:8000"
     volumes:
       - ./data:/data
-      - whisper_models:/models
       - ${NEXUS_BACKUP_HOST_DIR:-./backups}:/backups
       - ./profiles:/app/profiles:ro
     healthcheck:
@@ -90,4 +89,3 @@ services:
 
 volumes:
   ollama_models:
-  whisper_models:
