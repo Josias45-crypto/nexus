@@ -33,6 +33,12 @@ AAAA-MM-DD.
 - Lenguaje natural: «pospón el 2 una hora», «¿qué tengo pendiente?»; «en 90 segundos».
 - `NEXUS_REMINDER_MAX_TRIES` se quita; `NEXUS_REMINDER_RETRY_MIN` queda solo para pruebas.
 
+### Corregido
+- Isabelle llamó «señor Joaquín» al jefe. `nombre_jefe = "Josias"` en `[trato]` y regla de usar solo
+  los tratamientos aprobados; `core/nombres.py` rechaza todo nombre de persona (tras un título, en
+  vocativo o nombre de pila) que no salga de la ficha, las notas o la conversación: la charla y los
+  saludos regeneran una vez y, si insiste, usan un respaldo fijo.
+
 ### Agregado (Fase 5: web)
 - Chat transparente (solo letras y botones de texto) sobre una galaxia de neuronas en canvas con
   datos reales: notas, archivos y conceptos (máx. 300, los más recientes), conexiones por parecido

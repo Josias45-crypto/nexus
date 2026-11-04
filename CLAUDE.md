@@ -120,6 +120,8 @@ núcleo es genérico; lo propio del rubro vive en profiles/*.toml.
   fallar. La web es la misma conversación de Telegram (web.conversacion). Neuronas en canvas con
   /brain/graph + /brain/stream (galaxia, tope de FPS, pausa oculta, reduced-motion). «Lo guardado»
   descarga siempre como attachment y verifica que la ruta esté en data/raw.
+- Nombres: el jefe es Josias (trato.nombre_jefe). core/nombres.py: ningún nombre de persona fuera de
+  ficha, notas o conversación en la charla (_hablar) ni en los saludos; regenera una vez y luego respaldo.
 
 ## Cómo probar
 `python3 tests/e2e.py --audio <wav> --audio-phrase <palabra> --chaos` (24 casos, instancia
