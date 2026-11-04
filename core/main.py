@@ -33,10 +33,10 @@ log = logging.getLogger("nexus.api")
 
 @app.exception_handler(httpx.TransportError)
 async def model_unreachable(request: Request, exc: httpx.TransportError):
-    log.warning("Ollama (embeddings) no responde en %s (%s)", request.url.path, type(exc).__name__)
+    log.warning("Un servicio externo no responde en %s (%s)", request.url.path, type(exc).__name__)
     return JSONResponse(
         status_code=503,
-        content={"detail": "Ollama (embeddings) no responde. Reintenta en unos segundos."},
+        content={"detail": "OpenRouter no responde. Reintenta en unos segundos."},
     )
 
 
@@ -67,19 +67,6 @@ class TextIn(BaseModel):
     source: str = Field("api", max_length=40)
 
 
-async def _ollama_check() -> dict:
-    try:
-        async with httpx.AsyncClient(timeout=3) as client:
-            r = await client.get(f"{settings.OLLAMA_BASE_URL.rstrip('/')}/api/tags")
-            r.raise_for_status()
-        names = {m["name"] for m in r.json().get("models", [])}
-        m = settings.EMBED_MODEL
-        missing = [] if m in names or f"{m}:latest" in names else [m]
-        return {"ok": not missing, "modelos_faltantes": missing}
-    except Exception as exc:
-        return {"ok": False, "error": f"no responde ({type(exc).__name__})"}
-
-
 @app.get("/health")
 async def health():
     try:
@@ -91,10 +78,11 @@ async def health():
             status_code=503,
             content={"status": "error", "detail": f"Base de datos inaccesible ({type(exc).__name__})"},
         )
-    ollama = await _ollama_check()  # solo embeddings
+    vec = reindex.estado_vectores()  # embeddings por OpenRouter: ¿todos los trozos tienen vector?
     return {
-        "status": "ok" if ollama["ok"] else "degradado",
-        "ollama": ollama,
+        "status": "ok" if vec["completo"] else "degradado",
+        "embeddings": {"modelo": settings.EMBED_MODEL, "dimension": settings.EMBED_DIM,
+                       **{k: vec[k] for k in ("tabla", "trozos", "con_vector", "completo", "tabla_vieja")}},
         "llm_model": settings.OPENROUTER_MODEL,
         "llm": llm.status(),
     }
@@ -365,14 +353,24 @@ def requeue_one(event_id: str):
 
 
 @app.post("/reindex")
-async def reindex_endpoint(event_id: str | None = None, todos: bool = False):
-    """Regenera trozos, vectores y resúmenes desde los originales (uno o todos)."""
+async def reindex_endpoint(event_id: str | None = None, todos: bool = False, solo_vectores: bool = False):
+    """Regenera trozos, vectores y resúmenes desde los originales (uno o todos). Con solo_vectores,
+    solo calcula los vectores de los trozos actuales con el modelo de embeddings nuevo (en segundo
+    plano, con respaldo antes; GET /reindex muestra el progreso)."""
     try:
+        if solo_vectores:
+            return await reindex.solo_vectores()
         return await reindex.reindex(event_id, todos)
     except ValueError as exc:
         raise HTTPException(422, str(exc))
     except LookupError as exc:
         raise HTTPException(404, str(exc))
+
+
+@app.get("/reindex")
+def reindex_estado():
+    """Vectores de la tabla actual frente a los trozos, y el progreso del último reindexado."""
+    return reindex.estado_vectores()
 
 
 @app.get("/knowledge")

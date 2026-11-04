@@ -13,6 +13,9 @@
 - Ver y oír (Fase 3): ver() manda imágenes al modelo de visión (NEXUS_OPENROUTER_MODEL_VISION) y
   transcribir() usa el endpoint /audio/transcriptions (NEXUS_OPENROUTER_MODEL_AUDIO), los dos con la
   misma política de datos, reintentos, presupuesto y registro de uso que el chat.
+- Embeddings (Fase 4): embed() en lotes de EMBED_LOTE por /embeddings (NEXUS_EMBED_MODEL, con la
+  misma política de datos y reintentos), vectores normalizados y prefijos solo si el modelo los
+  pide. La caché por huella vive en providers/embeddings.py.
 - Si OpenRouter no responde, lanza ChatUnavailable con una línea clara para el dueño y pausa el
   trabajo de fondo con espera creciente (paused_for). Ante 402 avisa al dueño una sola vez.
 
@@ -34,6 +37,16 @@ log = logging.getLogger("nexus.llm")
 
 URL = "https://openrouter.ai/api/v1/chat/completions"
 URL_AUDIO = "https://openrouter.ai/api/v1/audio/transcriptions"
+URL_EMBED = "https://openrouter.ai/api/v1/embeddings"
+EMBED_LOTE = 64
+# Proveedores de Whisper que aceptan una indicación de vocabulario (provider.options.<slug>.prompt)
+STT_CON_PISTA = ("deepinfra", "groq")
+# Prefijos (documento, consulta) de los modelos que los necesitan; los demás (bge-m3...) van sin nada
+PREFIJOS = {
+    "intfloat/": ("passage: ", "query: "),
+    "nomic-ai/": ("search_document: ", "search_query: "),
+    "qwen/qwen3-embedding": ("", "Instruct: Dada una pregunta, encuentra la nota que la responde\nQuery: "),
+}
 TIMEOUT = 60
 TIMEOUT_AUDIO = 180  # un tramo de 5 min de audio
 RETRIES = 3  # reintentos tras el primer intento
@@ -52,6 +65,7 @@ MESSAGES = {
     "sin_config": f"⚠ Falta configurar OpenRouter (OPENROUTER_API_KEYS y NEXUS_OPENROUTER_MODEL en .env). {SAVED}",
     "sin_vision": f"⚠ Falta configurar el modelo de visión (NEXUS_OPENROUTER_MODEL_VISION en .env). {SAVED}",
     "sin_audio": f"⚠ Falta configurar el modelo de transcripción (NEXUS_OPENROUTER_MODEL_AUDIO en .env). {SAVED}",
+    "sin_embed": f"⚠ Falta configurar los embeddings (NEXUS_EMBED_MODEL y NEXUS_EMBED_DIM en .env). {SAVED}",
 }
 NO_CREDIT_ALERT = "⚠ OpenRouter se quedó sin saldo. Recarga créditos; mientras tanto todo queda guardado."
 
@@ -114,12 +128,14 @@ class OpenRouter:
     def __init__(
         self, key: str, model: str, budget_usd: float | None, ledger: Ledger | None = None,
         transport: httpx.AsyncBaseTransport | None = None, deep_model: str = "", deep_fallback: str = "",
-        vision_model: str = "", audio_model: str = "",
+        vision_model: str = "", audio_model: str = "", embed_model: str = "", embed_dim: int = 0,
     ):
         self._key = key
         self.model = model
         self.vision_model = vision_model
         self.audio_model = audio_model
+        self.embed_model = embed_model
+        self.embed_dim = embed_dim
         self.deep_model = deep_model
         self.deep_fallback = deep_fallback
         self.budget = budget_usd
@@ -149,6 +165,8 @@ class OpenRouter:
             "modelo_profundo_respaldo": self.deep_fallback or None,
             "modelo_vision": self.vision_model or None,
             "modelo_audio": self.audio_model or None,
+            "modelo_embeddings": self.embed_model or None,
+            "dimension_embeddings": self.embed_dim or None,
             "configurado": bool(self._key and self.model),
             "politica_datos": DATA_POLICY,
             "presupuesto_diario_usd": self.budget,
@@ -179,6 +197,9 @@ class OpenRouter:
             data = r.json()
             if url == URL_AUDIO:
                 if not isinstance(data["text"], str):
+                    raise TypeError
+            elif url == URL_EMBED:
+                if not all(isinstance(d["embedding"], list) for d in data["data"]):
                     raise TypeError
             else:
                 data["choices"][0]["message"]["content"]
@@ -301,14 +322,57 @@ class OpenRouter:
         return await self.chat_ex([{"role": "user", "content": contenido}], model=self.vision_model,
                                   temperature=0, max_tokens=max_tokens, proveedor="openrouter-vision")
 
-    async def transcribir(self, audio: bytes, formato: str, idioma: str = "es") -> tuple[dict, dict]:
+    def prefijo(self, consulta: bool) -> str:
+        """El prefijo que el modelo de embeddings necesita ("" si no necesita ninguno)."""
+        for inicio, (doc, preg) in PREFIJOS.items():
+            if self.embed_model.startswith(inicio):
+                return preg if consulta else doc
+        return ""
+
+    async def embed(self, textos: list[str], consulta: bool = False) -> list[list[float]]:
+        """Embeddings de los textos (normalizados, en el orden recibido), en lotes de EMBED_LOTE.
+        Lanza ChatUnavailable si OpenRouter no responde o si la dimensión no es NEXUS_EMBED_DIM."""
+        self._listo(self.embed_model, "sin_embed")
+        if not self.embed_dim:
+            raise ChatUnavailable("sin_config", MESSAGES["sin_embed"])
+        pre = self.prefijo(consulta)
+        out: list[list[float]] = []
+        for i in range(0, len(textos), EMBED_LOTE):
+            lote = [pre + t for t in textos[i : i + EMBED_LOTE]]
+            body = {"model": self.embed_model, "input": lote, "provider": DATA_POLICY}
+            try:
+                data = await self._post_retrying(body, URL_EMBED)
+            except _CallError as err:
+                raise self._fail(err) from None
+            vecs = [d["embedding"] for d in sorted(data["data"], key=lambda d: d.get("index", 0))]
+            if len(vecs) != len(lote) or any(len(v) != self.embed_dim for v in vecs):
+                log.error("Embeddings: %d vectores de %s dimensiones; se esperaban %d de %d",
+                          len(vecs), {len(v) for v in vecs}, len(lote), self.embed_dim)
+                raise ChatUnavailable("sin_config", MESSAGES["sin_embed"])
+            for v in vecs:
+                norma = sum(x * x for x in v) ** 0.5 or 1.0
+                out.append([x / norma for x in v])
+            u = data.get("usage") or {}
+            cost = u.get("cost")
+            self._exito({"proveedor": "openrouter-embeddings", "modelo": self.embed_model,
+                         "tokens_entrada": int(u.get("prompt_tokens") or u.get("total_tokens") or 0), "tokens_salida": 0,
+                         "costo_usd": float(cost) if isinstance(cost, (int, float)) else None})
+        return out
+
+    async def transcribir(self, audio: bytes, formato: str, idioma: str = "es",
+                          vocabulario: list[str] | tuple = ()) -> tuple[dict, dict]:
         """Transcribe un audio (endpoint /audio/transcriptions, verbose_json con segmentos y su
-        confianza). Devuelve (respuesta, uso). Lanza ChatUnavailable si no se puede."""
+        confianza). El vocabulario del negocio va como indicación a los proveedores de Whisper que
+        la aceptan. Devuelve (respuesta, uso). Lanza ChatUnavailable si no se puede."""
         self._listo(self.audio_model, "sin_audio")
+        politica = dict(DATA_POLICY)
+        if vocabulario:
+            pista = ", ".join(vocabulario)
+            politica["options"] = {slug: {"prompt": pista} for slug in STT_CON_PISTA}
         body = {
             "model": self.audio_model, "input_audio": {"data": base64.b64encode(audio).decode(), "format": formato},
             "language": idioma, "temperature": 0, "response_format": "verbose_json",
-            "timestamp_granularities": ["segment"], "provider": DATA_POLICY,
+            "timestamp_granularities": ["segment"], "provider": politica,
         }
         try:
             data = await self._post_retrying(body, URL_AUDIO)
@@ -341,6 +405,7 @@ def get_client() -> OpenRouter:
             settings.OPENROUTER_API_KEY, settings.OPENROUTER_MODEL, settings.DAILY_BUDGET_USD, usage,
             deep_model=settings.OPENROUTER_MODEL_DEEP, deep_fallback=settings.OPENROUTER_MODEL_DEEP_RESPALDO,
             vision_model=settings.OPENROUTER_MODEL_VISION, audio_model=settings.OPENROUTER_MODEL_AUDIO,
+            embed_model=settings.EMBED_MODEL, embed_dim=settings.EMBED_DIM,
         )
         if not (_client._key and _client.model):
             log.warning("Falta OPENROUTER_API_KEYS o NEXUS_OPENROUTER_MODEL en .env: el chat no responderá")

@@ -653,7 +653,7 @@ async def _resolver_web(texto: str, channel: str, chat_id: str) -> Respuesta | N
 
 async def _preguntar(consulta: str, texto: str = "", channel: str = "", chat_id: str = "") -> Respuesta:
     r = await ask.ask(consulta, contexto=_ahora())
-    if r.get("answer") != ask.NO_INFO:
+    if not (r.get("answer") or "").startswith(ask.NO_INFO):
         texto = r["answer"]
         if r.get("tipo") in ("memoria", "sobre") or r.get("llm"):
             texto = sin_segun(filtro.limpiar(texto) or texto)

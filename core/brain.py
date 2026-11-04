@@ -2,7 +2,7 @@
 
 import json
 
-from core.db import connect
+from core.db import VEC, connect
 
 MAX_NODES = 300
 SIMILAR_MAX_DISTANCE = 0.85
@@ -57,12 +57,12 @@ def graph() -> dict:
             if fc["event_id"] not in event_ids:
                 continue
             vec = conn.execute(
-                "SELECT embedding FROM vec_chunks WHERE rowid = ?", (fc["id"],)
+                f"SELECT embedding FROM {VEC} WHERE rowid = ?", (fc["id"],)
             ).fetchone()
             if not vec:
                 continue
             neighbours = conn.execute(
-                "SELECT v.distance, c.event_id FROM vec_chunks v"
+                f"SELECT v.distance, c.event_id FROM {VEC} v"
                 " JOIN chunks c ON c.id = v.rowid"
                 " WHERE v.embedding MATCH ? AND k = ? ORDER BY v.distance",
                 (vec["embedding"], KNN_POOL),

@@ -1,3 +1,4 @@
+import re
 import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
@@ -7,6 +8,10 @@ import sqlite_vec
 from config import settings
 
 DB_PATH = Path(settings.DATA_DIR) / "nexus.db"
+# Vectores: una tabla por modelo y dimensión (vec_baai_bge_m3_1024). Cambiar de modelo crea una tabla
+# nueva y la vieja queda hasta comprobar la nueva (POST /reindex?solo_vectores=true la llena).
+VEC = f"vec_{re.sub(r'[^a-z0-9]+', '_', settings.EMBED_MODEL.lower()).strip('_') or 'sin_modelo'}_{settings.EMBED_DIM}"
+VEC_VIEJA = "vec_chunks"  # la de nomic-embed-text (768) por Ollama, hasta la Fase 4
 
 SCHEMA = f"""
 CREATE TABLE IF NOT EXISTS events (
@@ -167,6 +172,14 @@ CREATE TABLE IF NOT EXISTS olvidos (
     tipo TEXT NOT NULL              -- nota | archivo | ficha | charla | recordatorio | resumen
 );
 
+-- Caché de embeddings por huella (sha256 del modelo y el texto): un texto repetido no se vuelve a
+-- pedir a OpenRouter. Es derivado: se puede borrar sin perder nada.
+CREATE TABLE IF NOT EXISTS embed_cache (
+    huella TEXT PRIMARY KEY,
+    vector BLOB NOT NULL,
+    created_at TEXT NOT NULL
+);
+
 -- Ver y oír (core/medios.py): el análisis de cada foto, PDF escaneado, audio o video, hecho UNA
 -- vez y ligado a su original (events.sha256 es la huella). Si llega repetido se reutiliza.
 -- estado: analizado | dudoso (audio que no se entendió) | guardado (video, sin analizar)
@@ -196,7 +209,7 @@ CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
     tokenize='unicode61 remove_diacritics 2'
 );
 
-CREATE VIRTUAL TABLE IF NOT EXISTS vec_chunks USING vec0(
+CREATE VIRTUAL TABLE IF NOT EXISTS {VEC} USING vec0(
     embedding float[{settings.EMBED_DIM}]
 );
 """
@@ -267,6 +280,8 @@ def _migrate_reminders(conn) -> None:
 
 
 def init_db() -> None:
+    if not settings.EMBED_MODEL or settings.EMBED_DIM <= 0:
+        raise RuntimeError("Falta NEXUS_EMBED_MODEL o NEXUS_EMBED_DIM en .env (modelo de embeddings de OpenRouter).")
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     with connect() as conn:
         # WAL: los lectores no bloquean al escritor (worker, API y respaldos a la vez).

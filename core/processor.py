@@ -7,7 +7,7 @@ from core import events, medios, memory
 from core.chunker import chunk_segments
 from core.db import connect
 from providers.embeddings import get_embedder
-from providers.openrouter import ChatUnavailable
+from providers.openrouter import ChatUnavailable, get_client
 from senses import Unsupported
 
 log = logging.getLogger("nexus.processor")
@@ -69,6 +69,8 @@ async def process_pending(limit: int = 10, queue: str | None = None) -> dict:
 
 
 async def _process_pending(limit: int, kinds: tuple[str, ...]) -> dict:
+    if wait := get_client().paused_for():  # OpenRouter falló hace poco (embeddings, visión...): la cola espera
+        return {"en_pausa_s": int(wait)}
     embedder = get_embedder()
     with connect() as conn:
         rows = conn.execute(

@@ -1,6 +1,5 @@
 import os
 
-OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://ollama:11434")
 # Chat: solo OpenRouter (providers/openrouter.py). Una key; el nombre de la variable se conserva.
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEYS", "").split(",")[0].strip()
 # Modelos por variable, sin valor en el código: uso diario y potente (solo cuando el jefe lo pide)
@@ -21,12 +20,15 @@ LOG_LEVEL = os.getenv("NEXUS_LOG_LEVEL", "INFO").upper()
 DATA_DIR = os.getenv("NEXUS_DATA_DIR", "/data")
 # Tamaño máximo por archivo o texto recibido (Telegram entrega a los bots hasta 20 MB)
 MAX_UPLOAD_MB = int(os.getenv("NEXUS_MAX_UPLOAD_MB", "50"))
-EMBED_MODEL = os.getenv("NEXUS_EMBED_MODEL", "nomic-embed-text")
-EMBED_DIM = 768
-# Recalibrado con datos reales (tests/calibrate.py). Un recuerdo se usa si su distancia es
-# <= MAX_DISTANCE, o <= MAX_DISTANCE + FTS_MARGIN cuando además coincide por palabras.
-MAX_DISTANCE = float(os.getenv("NEXUS_MAX_DISTANCE", "0.78"))
-FTS_MARGIN = float(os.getenv("NEXUS_FTS_MARGIN", "0.04"))
+# Embeddings (Fase 4): por OpenRouter con zdr, modelo y dimensión por variable (sin valor en el
+# código). La tabla de vectores lleva el modelo y la dimensión en su nombre (core/db.py: VEC).
+EMBED_MODEL = os.getenv("NEXUS_EMBED_MODEL", "").strip()
+EMBED_DIM = int(os.getenv("NEXUS_EMBED_DIM", "").strip() or 0)
+# Recalibrado en la Fase 4 con tests/eval_ventas.py para baai/bge-m3 (vectores normalizados, L2):
+# respuestas de una nota entre 0,66 y 0,90; preguntas sin respuesta desde 0,98. Un recuerdo se usa
+# si su distancia es <= MAX_DISTANCE, o <= MAX_DISTANCE + FTS_MARGIN si además coincide por palabras.
+MAX_DISTANCE = float(os.getenv("NEXUS_MAX_DISTANCE", "0.92"))
+FTS_MARGIN = float(os.getenv("NEXUS_FTS_MARGIN", "0.05"))
 # Un nombre propio o cifra de la pregunta que aparece en <= N trozos es "raro": esos trozos
 # entran siempre como candidatos de /ask, sin importar su distancia.
 RARE_MAX_DF = int(os.getenv("NEXUS_RARE_MAX_DF", "5"))
@@ -35,7 +37,7 @@ RARE_MAX_DF = int(os.getenv("NEXUS_RARE_MAX_DF", "5"))
 ASK_CANDIDATES = int(os.getenv("NEXUS_ASK_CANDIDATES", "4"))
 # Preguntas que piden una lista ("¿qué clientes...?", "¿cuáles...?"): más candidatos para juntar
 ASK_CANDIDATES_LIST = int(os.getenv("NEXUS_ASK_CANDIDATES_LIST", "8"))
-NOISE_DISTANCE = float(os.getenv("NEXUS_NOISE_DISTANCE", "1.05"))
+NOISE_DISTANCE = float(os.getenv("NEXUS_NOISE_DISTANCE", "1.08"))  # síntesis de varias notas: hasta 1,06
 WORKER_ENABLED = os.getenv("NEXUS_WORKER", "on").lower() == "on"
 WORKER_INTERVAL = int(os.getenv("NEXUS_WORKER_INTERVAL", "20"))
 MAX_ATTEMPTS = int(os.getenv("NEXUS_MAX_ATTEMPTS", "3"))

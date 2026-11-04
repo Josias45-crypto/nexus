@@ -1,3 +1,10 @@
+"""Búsqueda híbrida: vectores (embeddings por OpenRouter) + palabras (FTS5), fusionadas con RRF.
+
+Si los embeddings no están disponibles (OpenRouter no responde), cae a solo palabras: los
+resultados llevan "solo_texto" y quien responde lo dice con naturalidad (SOLO_TEXTO).
+"""
+
+import logging
 import re
 
 from config import settings
@@ -5,11 +12,15 @@ from config import settings
 import sqlite_vec
 
 from core import events
-from core.db import connect
+from core.db import VEC, connect
 from core.memory import parse_meta
 from providers.embeddings import get_embedder
+from providers.openrouter import ChatUnavailable
+
+log = logging.getLogger("nexus.search")
 
 RRF_K = 60  # constante estándar de Reciprocal Rank Fusion
+SOLO_TEXTO = "(Ahora mismo solo pude buscar por palabras, no por significado: puede que se me escape algo.)"
 
 
 def _fts_query(query: str) -> str:
@@ -51,16 +62,20 @@ def _rare_rows(conn, query: str) -> set[int]:
 
 
 async def search(query: str, k: int = 5, publish: bool = True) -> list[dict]:
-    qvec = await get_embedder().embed_query(query)
+    try:
+        qvec = await get_embedder().embed_query(query)
+    except ChatUnavailable as exc:
+        log.warning("Embeddings no disponibles (%s): búsqueda solo por palabras", exc.reason)
+        qvec = None
     pool = k * 4
     fts = _fts_query(query)
 
     with connect() as conn:
         vec_rows = conn.execute(
-            "SELECT rowid, distance FROM vec_chunks"
+            f"SELECT rowid, distance FROM {VEC}"
             " WHERE embedding MATCH ? AND k = ? ORDER BY distance",
             (sqlite_vec.serialize_float32(qvec), pool),
-        ).fetchall()
+        ).fetchall() if qvec else []
         fts_rows = (
             conn.execute(
                 "SELECT rowid FROM chunks_fts WHERE chunks_fts MATCH ? ORDER BY rank LIMIT ?",
@@ -77,12 +92,11 @@ async def search(query: str, k: int = 5, publish: bool = True) -> list[dict]:
         fts_ids |= rare_ids
         # Los que solo encontró la búsqueda por palabras también reciben su distancia real,
         # para que el umbral NEXUS_MAX_DISTANCE se aplique a todos por igual
-        qblob = sqlite_vec.serialize_float32(qvec)
-        for r in fts_rows:
+        for r in fts_rows if qvec else []:
             if r["rowid"] not in distances:
                 row = conn.execute(
-                    "SELECT vec_distance_l2(embedding, ?) AS d FROM vec_chunks WHERE rowid = ?",
-                    (qblob, r["rowid"]),
+                    f"SELECT vec_distance_l2(embedding, ?) AS d FROM {VEC} WHERE rowid = ?",
+                    (sqlite_vec.serialize_float32(qvec), r["rowid"]),
                 ).fetchone()
                 if row:
                     distances[r["rowid"]] = row["d"]
@@ -112,6 +126,7 @@ async def search(query: str, k: int = 5, publish: bool = True) -> list[dict]:
                         "termino_raro": cid in rare_ids,
                         "score": round(scores[cid], 5),
                         "distance": round(d, 4) if d is not None else None,
+                        "solo_texto": qvec is None,
                     }
                 )
     if publish:
@@ -125,8 +140,9 @@ def relevant(hits: list[dict], max_distance: float | None = None, margin: float 
     m = settings.FTS_MARGIN if margin is None else margin
     return [
         h for h in hits
-        if h["distance"] is not None
-        and (h["distance"] <= t or (h.get("coincide_texto") and h["distance"] <= t + m))
+        if (h.get("solo_texto") and h.get("coincide_texto"))
+        or (h["distance"] is not None
+            and (h["distance"] <= t or (h.get("coincide_texto") and h["distance"] <= t + m)))
     ]
 
 

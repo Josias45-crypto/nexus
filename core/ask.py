@@ -2,7 +2,7 @@ import re
 
 from config import settings
 from core import citations, profile, verify
-from core.search import publish_recall, search
+from core.search import SOLO_TEXTO, publish_recall, search
 from providers.openrouter import get_client
 
 NO_INFO = "No tengo información sobre eso en mi memoria."
@@ -46,7 +46,7 @@ def candidates(hits: list[dict], limit: int | None = None) -> list[dict]:
     rest = [
         h for h in hits
         if not h.get("termino_raro")
-        and h["distance"] is not None and h["distance"] <= settings.NOISE_DISTANCE
+        and (h.get("solo_texto") or (h["distance"] is not None and h["distance"] <= settings.NOISE_DISTANCE))
     ]
     return (rare + rest)[: limit or settings.ASK_CANDIDATES]
 
@@ -89,9 +89,12 @@ async def ask(question: str, k: int | None = None, contexto: str = "") -> dict:
         pool = hits + [h for h in found if h not in hits]
         hits = (about_entities(question, pool) or [])[:limit]
     else:
-        hits = candidates(await search(question, limit, publish=False), limit)
+        found = await search(question, limit, publish=False)
+        hits = candidates(found, limit)
+    # Sin embeddings (OpenRouter no responde) se buscó solo por palabras: se dice al final
+    solo_texto = any(h.get("solo_texto") for h in found)
     if not hits:
-        return {"answer": NO_INFO, "sources": [], "llm": None, "tipo": "memoria"}
+        return {"answer": NO_INFO + (f" {SOLO_TEXTO}" if solo_texto else ""), "sources": [], "llm": None, "tipo": "memoria"}
     publish_recall("ask", hits)
 
     context = "\n\n".join(
@@ -136,16 +139,17 @@ async def ask(question: str, k: int | None = None, contexto: str = "") -> dict:
         llm = {**llm, "regenerada": True}
         if missing:
             answer = f"{answer}\n\n⚠ No pude verificar: {', '.join(missing)}"
+    aviso = f"\n\n{SOLO_TEXTO}" if solo_texto else ""
     if _says_no(answer):
         # Dijo que no sabe: mostrar fuentes sería engañoso
-        return {"answer": NO_INFO, "sources": [], "llm": llm, "tipo": "memoria"}
+        return {"answer": NO_INFO + aviso, "sources": [], "llm": llm, "tipo": "memoria"}
     if _is_empty_answer(answer):
         answer = "Esto es lo que encontré en mi memoria:\n" + hits[0]["content"][:500]
         backing = hits[:1]
     else:
         backing = citations.supporting(answer, hits)
     return {
-        "answer": answer, "sources": sources_for(backing), "llm": llm, "tipo": "memoria",
+        "answer": answer + aviso, "sources": sources_for(backing), "llm": llm, "tipo": "memoria",
         "sin_verificar": missing,
     }
 
