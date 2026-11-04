@@ -6,7 +6,7 @@ import time
 from datetime import datetime, timezone
 
 from config import settings
-from core import events, memory
+from core import clock, events, memory
 from core.db import connect
 from providers.embeddings import get_embedder
 from providers.openrouter import ChatUnavailable, get_client
@@ -26,7 +26,7 @@ SYSTEM = (
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return clock.now_utc().isoformat()
 
 
 async def _llm(prompt: str, used: list[dict]) -> str:

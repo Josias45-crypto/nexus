@@ -234,7 +234,7 @@ def _guardar_pref(p: str) -> None:
 def ajuste(texto: str) -> str | None:
     """Reglas baratas para cambiar los saludos por lenguaje natural. Devuelve la respuesta o None."""
     t = plano(texto)
-    if t.startswith(("recuerdame", "recordarme", "avisame")):
+    if re.search(r"\b(recuerdame|recordarme|avisame|recordatorio)\b", t):  # un recordatorio, no los saludos
         return None
     if RE_VUELVE.search(t):
         _guardar_pref("normal")

@@ -125,7 +125,7 @@ profundo = "Me tomé un momento extra para pensarlo bien, {trato}; esta respuest
 ayuda = """Escríbame como a una persona, {trato}, sin comandos. Por ejemplo:
 • «recuerda esto: Rosa paga los viernes» y lo guardo tal cual.
 • «¿cuánto me debe Rosa?» y lo busco en mi memoria.
-• «recuérdame mañana a las 9 llamar a Pedro».
+• «recuérdame mañana a las 9 am llamar al proveedor».
 • «¿qué recordatorios tengo?», «ya lo hice», «cancela el recordatorio 3».
 • «analiza a fondo…» o «dame tu opinión…» para pensarlo con más cuidado (cuesta un poco más).
 También puede mandarme fotos, documentos y notas de voz: los veo y los escucho. Los videos los guardo."""

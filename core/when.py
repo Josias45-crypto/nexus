@@ -52,7 +52,7 @@ RE_TRIGGER = re.compile(
     re.I,
 )
 RE_RELATIVE = re.compile(
-    rf"\b(dentro de|en)\s+(media hora|{_NUM}\s+(segundos?|segs?|minutos?|mins?|horas?|d[ií]as?|semanas?))\b", re.I
+    rf"\b(dentro de|en)\s+(media hora|{_NUM}\s+(segundos?|segs?|minutos?|mins?|horas?|hrs?|d[ií]as?|semanas?))\b", re.I
 )
 RE_PASADO = re.compile(r"\bpasado\s+ma[nñ]ana\b", re.I)
 # "mañana" como día, no "de la mañana"
@@ -190,6 +190,8 @@ def _clean_task(text: str) -> str:
     text = re.sub(r"\s+", " ", text).strip(" ,.;:-")
     # restos típicos tras quitar la fecha ("llamar a Pedro el", "de")
     text = re.sub(r"\s+(el|la|a|de|para|por|en)$", "", text, flags=re.I).strip(" ,.;:-")
+    # cortesía al final que no es parte de la tarea («… x fa», «… por favor», «… gracias»)
+    text = re.sub(r"[\s,]*\b((muchas )?gracias|x ?fa|por favor|porfa|plis)\W*$", "", text, flags=re.I).strip(" ,.;:-")
     return text
 
 
@@ -209,9 +211,23 @@ def _ambigua(c: _Clock, fecha: date, con_dia: bool) -> dict:
     return {"fecha": fecha.isoformat(), "h": c.hour, "m": c.minute, "con_dia": con_dia}
 
 
+# Lo que se escribe apurado por chat: «mñn», «x la tarde», «d la noche», «a ls 5»
+ABREVIATURAS = [(re.compile(r"\bm[nñ]{1,2}a?n?a?\b(?<!mana)", re.I), "mañana"), (re.compile(r"\bx\s+(la|el|las)\b", re.I), r"por \1"),
+                (re.compile(r"\bd\s+(la|el)\b", re.I), r"de \1"), (re.compile(r"\ba\s+ls\b", re.I), "a las"),
+                (re.compile(r"\bmanana\b", re.I), "mañana"), (re.compile(r"\bmiercoles\b", re.I), "miércoles"),
+                (re.compile(r"\bsabado\b", re.I), "sábado")]
+
+
+def normalizar(text: str) -> str:
+    for rx, nuevo in ABREVIATURAS:
+        text = rx.sub(nuevo, text)
+    return text
+
+
 def parse(text: str, now: datetime) -> Parsed | None:
     """Devuelve la fecha local entendida y la tarea, o None si no hay fecha reconocible.
     `now` es la hora local actual (naive)."""
+    text = normalizar(text)
     rest = text
     day: date | None = None
     tod: time | None = None
@@ -226,7 +242,7 @@ def parse(text: str, now: datetime) -> Parsed | None:
                 delta = timedelta(seconds=n)
             elif unit.startswith("min"):
                 delta = timedelta(minutes=n)
-            elif unit.startswith("hora"):
+            elif unit.startswith(("hora", "hr")):
                 delta = timedelta(hours=n)
             elif unit.startswith("semana"):
                 delta = timedelta(weeks=n)

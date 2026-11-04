@@ -3,6 +3,7 @@ from collections import Counter
 from datetime import date, datetime, timedelta
 
 from core.clock import LOCAL_TZ
+from core import clock
 from core.db import connect
 
 
@@ -11,7 +12,7 @@ def _local_day(iso: str) -> date:
 
 
 def growth(days: int = 14) -> dict:
-    today = datetime.now(LOCAL_TZ).date()
+    today = clock.now_local().date()
     with connect() as conn:
         events = conn.execute("SELECT created_at, kind, status FROM events").fetchall()
         chunks = conn.execute(

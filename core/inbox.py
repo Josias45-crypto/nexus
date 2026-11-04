@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import BinaryIO
 
 from config import settings
-from core import events
+from core import clock, events
 from core.db import connect
 
 RAW_DIR = Path(settings.DATA_DIR) / "raw"
@@ -94,7 +94,7 @@ def save_stream(
         if dup:
             return dup
 
-        now = datetime.now(timezone.utc)
+        now = clock.now_utc()
         event_id = uuid.uuid4().hex
         safe_name = safe_filename(filename)
         folder = RAW_DIR / f"{now:%Y}" / f"{now:%m}" / f"{now:%d}"
