@@ -129,6 +129,26 @@ class WhenTest(unittest.TestCase):
                 self.assertEqual(p.when.strftime("%Y-%m-%d %H:%M"), expected)
                 self.assertEqual(p.task, task)
 
+    def test_parte_del_dia_dice_am_o_pm(self):
+        """«de la tarde», «de la noche», «de la mañana» y «mediodía» no se preguntan (Fase 4)."""
+        casos = [
+            ("recuérdame mañana a las 3 de la tarde pagar la luz", datetime(2026, 10, 8, 15, 0), "pagar la luz"),
+            ("recuérdame hoy a las 9 de la noche cerrar caja", datetime(2026, 10, 7, 21, 0), "cerrar caja"),
+            ("recuérdame mañana a las 7 de la mañana ir al banco", datetime(2026, 10, 8, 7, 0), "ir al banco"),
+            ("recuérdame mañana a las tres de la tarde llamar", datetime(2026, 10, 8, 15, 0), "llamar"),
+            ("recuérdame mañana al mediodía almorzar con Piter", datetime(2026, 10, 8, 12, 0), "almorzar con Piter"),
+            ("recuérdame hoy a las 12 del mediodía comer", datetime(2026, 10, 7, 12, 0), "comer"),
+            # «el viernes 9»: el 9 es el día del mes cuando además hay una hora
+            ("recuérdame el viernes 9 a las 3 de la tarde pagarle a Tralvex", datetime(2026, 10, 9, 15, 0), "pagarle a Tralvex"),
+        ]
+        for texto, cuando, tarea in casos:
+            with self.subTest(texto=texto):
+                p = parse(texto, NOW)
+                self.assertEqual((p.when, p.task), (cuando, tarea))
+                self.assertIsNone(p.ambigua, "no pregunta am/pm")
+        with self.assertRaisesRegex(Ambiguous, "no cae viernes"):
+            parse("recuérdame el viernes 10 a las 3 de la tarde pagar", NOW)
+
     def test_sin_fecha(self):
         self.assertIsNone(parse("recuérdame comprar leche", NOW))
         self.assertIsNone(parse("recuérdame el 31 de febrero algo", NOW))

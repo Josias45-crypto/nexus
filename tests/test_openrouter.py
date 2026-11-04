@@ -280,6 +280,10 @@ class TestVerYOir(Base):
         self.assertEqual(data["text"], "hola")
         self.assertEqual((info["proveedor"], info["costo_usd"], info["segundos"]), ("openrouter-audio", 0.00003, 9.2))
         self.assertEqual(ledger.rows[-1]["proveedor"], "openrouter-audio")
+        self.assertNotIn("options", body["provider"])
+        asyncio.run(c.transcribir(b"OggS", "ogg", vocabulario=["IGV", "Yape"]))
+        self.assertEqual(s.bodies[-1]["provider"]["options"]["deepinfra"], {"prompt": "IGV, Yape"})
+        self.assertTrue(s.bodies[-1]["provider"]["zdr"])
         s2 = Script(httpx.Response(402))
         c2 = OpenRouter(KEY, "m", None, FakeLedger(), httpx.MockTransport(s2), audio_model="a")
         with self.assertRaises(ChatUnavailable) as e:

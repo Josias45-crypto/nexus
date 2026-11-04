@@ -5,15 +5,17 @@ Uso:
                          [--audio ruta.wav --audio-phrase "frase"] [--chaos]
 
 Sin --url levanta una instancia temporal aislada (contenedor nexus-e2e, puerto 8001) con la
-misma imagen y el mismo Ollama, pero con datos y respaldos en una carpeta temporal que se
-borra al terminar: la memoria real no se toca. Requiere `docker compose up -d` previo.
+misma imagen, pero con datos y respaldos en una carpeta temporal que se borra al terminar: la
+memoria real no se toca. Requiere la imagen construida (`docker compose build core`).
 Con NEXUS_E2E_IMAGE=<imagen> usa esa imagen (p. ej. `docker build -t nexus-core:prueba .`).
 Con --url prueba contra esa instancia (y deja en ella los datos sintéticos).
 
-Usa solo datos sintéticos marcados con un id de corrida único. El chat usa OpenRouter de verdad
-(la clave de .env; cuesta centavos). Ver y oír (caso 23): una sola llamada real de visión; el audio
-va por el mismo camino del bot con la transcripción simulada (--audio sí transcribe de verdad). --chaos levanta una segunda instancia aislada con una clave
-inválida para simular OpenRouter inalcanzable.
+Usa solo datos sintéticos marcados con un id de corrida único. El chat y los embeddings usan
+OpenRouter de verdad (la clave de .env; cuesta centavos). Ver y oír (caso 23): una sola llamada real
+de visión; el audio va por el mismo camino del bot con la transcripción simulada (--audio sí
+transcribe de verdad). --chaos levanta una segunda instancia aislada sin salida a OpenRouter (un
+proxy que no responde): el original se guarda, el procesamiento espera y la búsqueda cae a solo
+palabras.
 """
 
 import argparse
@@ -206,16 +208,12 @@ def _imagen() -> str:
 @contextmanager
 def isolated_instance(extra_env: dict | None = None, image: str | None = None,
                       name: str | None = None, port: int | None = None):
-    """Contenedor temporal con datos propios; usa la red y la imagen (o la indicada) de la
-    instalación en marcha (nexus-core y nexus-ollama deben estar arriba)."""
+    """Contenedor temporal con datos propios y la imagen de la instalación en marcha (o la
+    indicada). Ya no necesita Ollama: chat, visión, audio y embeddings van por OpenRouter."""
     try:
         image = image or _imagen()
-        network = _docker(
-            "inspect", "nexus-ollama", "-f",
-            "{{range $k, $v := .NetworkSettings.Networks}}{{$k}}{{end}}",
-        )
     except RuntimeError as e:
-        raise SystemExit(f"Levanta NEXUS antes (docker compose up -d): {e}")
+        raise SystemExit(f"Construye la imagen antes (docker compose build core): {e}")
     name, port = name or E2E_NAME, port or E2E_PORT
 
     subprocess.run(["docker", "rm", "-f", name], capture_output=True)
@@ -223,7 +221,7 @@ def isolated_instance(extra_env: dict | None = None, image: str | None = None,
     (work / "data").mkdir()
     (work / "backups").mkdir()
     cmd = [
-        "run", "-d", "--rm", "--name", name, "--network", network,
+        "run", "-d", "--rm", "--name", name,
         "-p", f"127.0.0.1:{port}:8000",
     ]
     # Primero el .env y después los -e: las variables de la prueba mandan
@@ -275,7 +273,8 @@ class Suite:
         d = self.api.ok("GET", "/health")
         if d.get("status") != "ok":
             raise Fail(f"status={d.get('status')}")
-        return f"modelo {d.get('llm_model')}, embeddings {d['ollama']['ok']}"
+        e = d["embeddings"]
+        return f"modelo {d.get('llm_model')}, embeddings {e['modelo']} ({e['dimension']}), vectores {e['con_vector']}/{e['trozos']}"
 
     def t2_text(self):
         resp = self.api.ok("POST", "/inbox/text", {"text": self.short_text, "source": "e2e"})
@@ -414,16 +413,16 @@ class Suite:
         return f"copia con {b['eventos_en_la_copia']} de {current} eventos; requeue ok"
 
     def t10_chaos(self):
-        """OpenRouter inalcanzable (clave inválida) en una segunda instancia aislada: el original
-        se guarda, la digestión queda en cola con reintentos y el bot responde una línea clara."""
+        """OpenRouter inalcanzable (un proxy que no responde) en una segunda instancia aislada: el
+        original se guarda intacto, el procesamiento (embeddings) queda en espera con pausa creciente
+        y sin gastar intentos, /ask cae a la búsqueda por palabras y lo dice, y el bot responde una
+        línea clara."""
         if not self.args.chaos:
             raise Skip("sin --chaos")
-        text = (f"Dato sintético de caos {self.tag}: el río ficticio Ondarel{self.rid} fluye hacia el norte. "
-                + " ".join(f"En el tramo {i} la corriente arrastra piedras y hojas secas." for i in range(40)))
+        text = f"Dato sintético de caos {self.tag}: el río ficticio Ondarel{self.rid} fluye hacia el norte."
         with isolated_instance(CHAOS_ENV, name=CHAOS_NAME, port=CHAOS_PORT) as url:
             api = Api(url)
             eid = event_id(api.ok("POST", "/inbox/text", {"text": text, "source": "e2e"}))
-            wait_status(api, eid, PROCESS_TIMEOUT)  # trocear y embeddings son locales: no esperan
             raw = _docker("exec", CHAOS_NAME, "python", "-c", (
                 "import hashlib, sqlite3; c = sqlite3.connect('/data/nexus.db');"
                 f"p, h = c.execute(\"SELECT raw_path, sha256 FROM events WHERE id = '{eid}'\").fetchone();"
@@ -431,10 +430,10 @@ class Suite:
             ))
             if raw != "True":
                 raise Fail("el original no quedó guardado intacto")
-            first = self._chaos_digest(eid, 1)
+            first = self._chaos_espera(eid, 1)
             r = api.ok("POST", "/ask", {"question": f"¿Hacia dónde fluye el río Ondarel{self.rid}?"})
-            if r.get("tipo") != "aviso" or "\n" in r["answer"].strip() or "OpenRouter" not in r["answer"]:
-                raise Fail(f"/ask no dio un aviso de una línea: {r.get('answer')!r}")
+            if "solo pude buscar por palabras" not in r["answer"]:
+                raise Fail(f"/ask no dijo que buscó solo por palabras: {r.get('answer')!r}")
             bot = subprocess.run(
                 ["docker", "exec", CHAOS_NAME, "python", "-m", "channels.simulado",
                  "--url", "http://localhost:8000", "--tag", self.rid, "--step", "caos"],
@@ -442,33 +441,30 @@ class Suite:
             )
             if bot.returncode != 0:
                 raise Fail("bot: " + bot.stdout[-300:])
-            second = self._chaos_digest(eid, 2)  # tras la pausa vuelve a intentar
-            logs = subprocess.run(["docker", "logs", CHAOS_NAME], capture_output=True, text=True)
-            if CHAOS_KEY in logs.stdout + logs.stderr:
-                raise Fail("la clave apareció en los registros")
-        return (f"original intacto; digestión en cola {second['veces']} veces sin gastar intentos "
-                f"{second['fila']}; pausa {first['pausa']} s -> {second['pausa']} s; "
-                f"/ask y bot: {r['answer'][:50]!r}")
+            second = self._chaos_espera(eid, 2)  # tras la pausa vuelve a intentar
+        return (f"original intacto; procesamiento en espera {second['veces']} veces sin gastar intentos "
+                f"{second['fila']}; pausa {first['pausa']} s -> {second['pausa']} s; /ask por palabras")
 
-    def _chaos_digest(self, eid: str, times: int) -> dict:
-        """Espera a que la digestión de eid se haya puesto en cola `times` veces (cada vuelta es
+    def _chaos_espera(self, eid: str, times: int) -> dict:
+        """Espera a que el procesamiento de eid haya quedado en espera `times` veces (cada vuelta es
         un reintento tras la pausa) sin gastar intentos ni quedar 'failed'."""
         deadline = time.monotonic() + 300
-        mark = f"Digestión en cola (clave): {eid}"
+        mark = f"Procesar {eid} queda en espera"
+        n, row = 0, ""
         while time.monotonic() < deadline:
             logs = subprocess.run(["docker", "logs", CHAOS_NAME], capture_output=True, text=True)
             n = (logs.stdout + logs.stderr).count(mark)
             row = _docker("exec", CHAOS_NAME, "python", "-c", (
                 "import sqlite3; c = sqlite3.connect('/data/nexus.db');"
-                f"print(c.execute(\"SELECT status, attempts, error FROM digests WHERE event_id = '{eid}'\").fetchone())"
+                f"print(c.execute(\"SELECT status, attempts FROM events WHERE id = '{eid}'\").fetchone())"
             ))
-            if row.startswith("('failed'") or row.startswith("('done'"):
-                raise Fail(f"la digestión no quedó en cola: {row}")
-            if n >= times and row.startswith("('retry', 0,"):
+            if row != "('pending', 0)":
+                raise Fail(f"el evento no quedó en espera sin gastar intentos: {row}")
+            if n >= times:
                 w = Api(f"http://127.0.0.1:{CHAOS_PORT}").ok("GET", "/worker")["llm"]
                 return {"veces": n, "pausa": w["pausa_s"], "fila": row}
             time.sleep(3)
-        raise Fail(f"la digestión no se reintentó (en cola {n} vez/veces, fila {row})")
+        raise Fail(f"el procesamiento no se reintentó (en espera {n} vez/veces, fila {row})")
 
     def t11_channel(self):
         if not self.isolated:
@@ -614,7 +610,7 @@ class Suite:
              "tests.test_openrouter", "tests.test_questions", "tests.test_chunker", "tests.test_senses",
              "tests.test_verify", "tests.test_reminders_flow", "tests.test_conversa", "tests.test_charla",
              "tests.test_filtro", "tests.test_recordatorios", "tests.test_persona", "tests.test_iniciativa", "tests.test_busqueda_olvido",
-             "tests.test_medios"],
+             "tests.test_medios", "tests.test_embeddings"],
             capture_output=True, text=True, timeout=120,
         )
         if r.returncode != 0:
@@ -819,7 +815,7 @@ from providers import openrouter
 tag = sys.argv[1]
 TEXTO = f"Isabel, recuérdame mañana a las 10 am llamar al contador Quelvar{tag}."
 
-async def transcribir(self, audio, formato, idioma="es"):
+async def transcribir(self, audio, formato, idioma="es", vocabulario=()):
     return ({"text": TEXTO, "segments": [{"start": 0, "end": 3, "text": TEXTO, "avg_logprob": -0.2, "no_speech_prob": 0.01}]},
             {"proveedor": "openrouter-audio", "modelo": "simulado", "costo_usd": 0.0})
 
@@ -853,10 +849,9 @@ asyncio.run(main())
 ISOLATED_ENV = {"NEXUS_SCHEDULER_INTERVAL": "2", "NEXUS_REMINDER_RETRY_MIN": "0.1"}
 # Sin tope de gasto en la prueba (la instancia aislada empieza con su propio registro de uso)
 ISOLATED_ENV["NEXUS_DAILY_BUDGET_USD"] = ""
-# Caso 10: segunda instancia con una clave inválida (OpenRouter responde 401) y worker rápido
+# Caso 10: segunda instancia sin salida a OpenRouter (un proxy HTTPS que no responde) y worker rápido
 CHAOS_NAME, CHAOS_PORT = "nexus-e2e-caos", 8002
-CHAOS_KEY = "clave-invalida-e2e-caos"
-CHAOS_ENV = ISOLATED_ENV | {"OPENROUTER_API_KEYS": CHAOS_KEY, "NEXUS_WORKER_INTERVAL": "3"}
+CHAOS_ENV = ISOLATED_ENV | {"HTTPS_PROXY": "http://127.0.0.1:9", "NEXUS_WORKER_INTERVAL": "3"}
 
 
 def main() -> int:
@@ -864,7 +859,7 @@ def main() -> int:
     p.add_argument("--url", help="instancia existente (sin esto, se usa una aislada temporal)")
     p.add_argument("--audio", help="archivo de audio a transcribir")
     p.add_argument("--audio-phrase", help="frase que debe aparecer en la transcripción")
-    p.add_argument("--chaos", action="store_true", help="simula OpenRouter inalcanzable (clave inválida)")
+    p.add_argument("--chaos", action="store_true", help="simula OpenRouter inalcanzable (proxy que no responde)")
     args = p.parse_args()
 
     if args.url:

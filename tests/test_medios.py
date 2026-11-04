@@ -66,7 +66,7 @@ class IAFalsa:
         self.llamadas["ver"] += 1
         return json.dumps(self.vision, ensure_ascii=False), {"modelo": self.vision_model, "costo_usd": 0.0001}
 
-    async def transcribir(self, audio, formato, idioma="es"):
+    async def transcribir(self, audio, formato, idioma="es", vocabulario=()):
         import av
 
         with av.open(io.BytesIO(audio)) as c:
@@ -274,6 +274,27 @@ class AudioTest(Base):
         self.assertEqual([s["text"].strip() for s in buenos], ["Mañana pago la luz."])
         self.assertFalse(dudosa)
         self.assertTrue(medios.limpiar_transcripcion(segs[:4])[1], "solo alucinaciones: dudosa")
+
+    def test_vocabulario_del_negocio(self):
+        vocab = medios.config()["vocabulario"]
+        self.assertIn("IGV", vocab)
+        self.assertEqual(medios.corregir_vocabulario("Recuérdame pagar el IGB a la SUNAT", vocab),
+                         "Recuérdame pagar el IGV a la SUNAT")
+        self.assertEqual(medios.corregir_vocabulario("la voleta y la Factura", vocab), "la boleta y la Factura")
+        self.assertEqual(medios.corregir_vocabulario("vamos a la playa", vocab), "vamos a la playa")
+        texto = "Pagar el IGB a la SUNAT."
+        self.ia.transcripcion = {"text": texto, "segments": [{"start": 0, "end": 3, "text": texto, "avg_logprob": -0.2}]}
+        self.ia.vocab = None
+        original = self.ia.transcribir
+
+        async def con_vocab(audio, formato, idioma="es", vocabulario=()):
+            self.ia.vocab = list(vocabulario)
+            return await original(audio, formato, idioma)
+
+        self.ia.transcribir = con_vocab
+        self.enviar(("reunion.wav", wav(2), "audio/wav"))
+        self.assertEqual(self.ia.vocab, vocab, "el vocabulario va como indicación")
+        self.assertIn("IGV", medios.get(self.items[0]["id"])["texto"])
 
     def test_transcripcion_vacia_no_se_inventa(self):
         self.ia.transcripcion = {"text": "", "segments": []}

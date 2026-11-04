@@ -292,7 +292,7 @@ class OlvidoTest(Base):
         self.assertEqual(self.conteo(q.format("chunks"), self.rosa1, self.rosa2), 0)
         self.assertEqual(self.conteo(q.format("digests"), self.rosa1, self.rosa2), 0)
         self.assertEqual(self.conteo("SELECT COUNT(*) FROM chunks_fts WHERE chunks_fts MATCH 'Rosa'"), 0)
-        self.assertEqual(self.conteo("SELECT COUNT(*) FROM vec_chunks"), self.conteo("SELECT COUNT(*) FROM chunks"))
+        self.assertEqual(self.conteo(f"SELECT COUNT(*) FROM {db.VEC}"), self.conteo("SELECT COUNT(*) FROM chunks"))
         self.assertEqual(self.conteo("SELECT COUNT(*) FROM events"), 1, "Tralvex sigue")
         for raw in raws:
             self.assertFalse(raw.exists(), "original borrado")
