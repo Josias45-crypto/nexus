@@ -32,7 +32,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from core import ask, charla, citations, clock, filtro, inbox, iniciativa, internet, medios, olvido, pendientes, persona, processor, questions, reminders, when
+from core import ask, charla, citations, clock, filtro, inbox, iniciativa, internet, medios, nombres, olvido, pendientes, persona, processor, questions, reminders, when
 from core.db import connect
 from core.search import relevant, search
 from providers.openrouter import ChatUnavailable, get_client
@@ -741,12 +741,23 @@ async def _hablar(accion: str, texto: str, chat_id: str, profundo: bool) -> Resp
     if not mensajes or mensajes[-1]["role"] != "user":
         mensajes.append({"role": "user", "content": texto})
     modelo = client.deep_model if profundo and client.deep_model else None
-    salida, info = await client.chat_ex(
-        [{"role": "system", "content": _sistema(accion, hits, profundo, bool(RE_DETALLE.search(plano(texto))))}, *mensajes],
-        model=modelo, temperature=TEMPERATURA[accion], razonar=bool(modelo),
-        max_tokens=TOKENS_PROFUNDO if profundo else TOKENS[accion],
-    )
+    pedido = [{"role": "system", "content": _sistema(accion, hits, profundo, bool(RE_DETALLE.search(plano(texto))))}, *mensajes]
+    opciones = dict(model=modelo, temperature=TEMPERATURA[accion], razonar=bool(modelo),
+                    max_tokens=TOKENS_PROFUNDO if profundo else TOKENS[accion])
+    salida, info = await client.chat_ex(pedido, **opciones)
     salida = sin_segun(sin_avisos(filtro.limpiar(salida))) or persona.frase("no_entendi")
+    # Ningún nombre de persona inventado («señor Joaquín»): debe salir de su ficha, sus notas o la
+    # conversación. Si aparece, se regenera una vez; si insiste, un respaldo fijo.
+    fuentes = [charla.ficha_texto(), charla.resumen(), texto, *(h["content"] for h in hits), *(m["texto"] for m in previos)]
+    if malos := nombres.inventados(salida, fuentes):
+        log.warning("Respuesta con nombre(s) inventado(s) (%d): se regenera", len(malos))
+        salida, info = await client.chat_ex(
+            [*pedido, {"role": "assistant", "content": salida}, {"role": "user", "content": nombres.instruccion(malos)}], **opciones)
+        salida = sin_segun(sin_avisos(filtro.limpiar(salida))) or persona.frase("no_entendi")
+        if nombres.inventados(salida, fuentes):
+            log.warning("El nombre inventado persiste: respaldo")
+            return Respuesta(persona.frase("respaldo_charla" if accion in ("charlar", "guardado") else "respaldo_analisis"),
+                             accion, None, llm=info)
     nivel = None
     if hits and accion not in ("charlar", "guardado"):
         respaldo = citations.supporting(salida, hits)

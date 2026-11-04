@@ -33,7 +33,7 @@ import re
 import unicodedata
 from datetime import date, datetime, time, timedelta
 
-from core import briefing, charla, clock, outbox, persona, when
+from core import briefing, charla, clock, nombres, outbox, persona, when
 from core.db import connect
 from providers.openrouter import get_client
 
@@ -419,6 +419,8 @@ def verificar(texto: str, tipo: str, ctx: str, previos: list[str]) -> str | None
     for w in plano(t).split():
         if w in NUMEROS and str(NUMEROS[w]) not in cifras and w not in palabras:
             return f"cifra {w}"
+    if malos := nombres.inventados(t, [ctx]):  # «Buenos días, señor Joaquín»: nombre de persona inventado
+        return f"nombre {malos[0]}"
     for m in RE_NOMBRE.finditer(t):
         antes = t[: m.start()].rstrip()
         if not antes or antes[-1] in ".!?¿¡:\"«":
@@ -460,7 +462,8 @@ def _respaldo(tipo: str, previos: list[str]) -> str:
 
 
 async def redactar(tipo: str, now: datetime) -> dict:
-    """El saludo (sin la agenda): {texto, fuente, detalle, ctx}. Una sola llamada a la IA."""
+    """El saludo (sin la agenda): {texto, fuente, detalle, ctx}. Una llamada a la IA; otra solo si
+    inventó un nombre de persona."""
     ctx = contexto(tipo, now)
     previos = _previos()
     agenda = (f"Hoy tiene {len(ctx['agenda_hoy'])} recordatorio(s); puedes aludir a cómo pinta el día."
@@ -474,12 +477,17 @@ async def redactar(tipo: str, now: datetime) -> dict:
     permitido = "\n".join((ctx["texto"], ctx["ahora"], " ".join(persona.get()["trato"]["tratamientos"])))
     detalle = None
     try:
-        salida, _ = await get_client().chat_ex(
-            [{"role": "system", "content": sistema},
-             {"role": "user", "content": "(Es la hora de tu saludo. Escríbelo ahora, solo el mensaje.)"}],
-            temperature=TEMPERATURA, max_tokens=TOKENS)
+        pedido = [{"role": "system", "content": sistema},
+                  {"role": "user", "content": "(Es la hora de tu saludo. Escríbelo ahora, solo el mensaje.)"}]
+        salida, _ = await get_client().chat_ex(pedido, temperature=TEMPERATURA, max_tokens=TOKENS)
         salida = (salida or "").strip().strip('"«»').strip()
         detalle = verificar(salida, tipo, permitido, previos)
+        if detalle and (malos := nombres.inventados(salida, [permitido])):  # un nombre inventado: otra vez
+            salida, _ = await get_client().chat_ex(
+                [*pedido, {"role": "assistant", "content": salida}, {"role": "user", "content": nombres.instruccion(malos)}],
+                temperature=TEMPERATURA, max_tokens=TOKENS)
+            salida = (salida or "").strip().strip('"«»').strip()
+            detalle = verificar(salida, tipo, permitido, previos)
     except Exception as exc:  # IA caída, sin saldo, tope diario...
         salida, detalle = "", f"IA: {type(exc).__name__}"
     if detalle:

@@ -27,6 +27,7 @@ SECCIONES = ("identidad", "trato", "caracter", "especialidades", "capacidades", 
 RECORDATORIOS = ("previo", "hora", "insistencia1", "insistencia2", "insistencia3", "retrasado", "creado",
                  "hecho", "pospuesto", "cancelado", "cuando")
 FRASES = ("guardado", "cierre", "gracias", "despedida", "noche", "no_entendi", "archivo", "duplicado",
+          "respaldo_charla", "respaldo_analisis",
           "sin_memoria", "profundo", "ayuda")
 
 
@@ -68,6 +69,10 @@ def get() -> dict:
 
 def nombre() -> str:
     return get()["identidad"]["nombre"]
+
+
+def nombre_jefe() -> str:
+    return str(get()["trato"].get("nombre_jefe") or "").strip()
 
 
 def tratamiento() -> str:
