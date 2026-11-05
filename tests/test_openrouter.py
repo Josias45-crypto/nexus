@@ -245,6 +245,16 @@ class TestOpenRouter(Base):
 
 
 
+class TestRazonamientoObligatorio(Base):
+    def test_modelo_que_no_deja_apagar_el_razonamiento(self):
+        s = Script(httpx.Response(400, json={"error": {"message": "Reasoning is mandatory for this endpoint and cannot be disabled."}}), ok)
+        texto, _ = asyncio.run(client(s).chat_ex(MSG, max_tokens=200))
+        self.assertTrue(texto)
+        self.assertEqual(s.bodies[0]["reasoning"], {"enabled": False})
+        self.assertEqual(s.bodies[1]["reasoning"], {"max_tokens": 512}, "reintenta con el mínimo")
+        self.assertGreaterEqual(s.bodies[1]["max_tokens"], 1024)
+
+
 class TestVerYOir(Base):
     def test_vision_con_politica_de_datos_y_su_modelo(self):
         s, ledger = Script(ok), FakeLedger()

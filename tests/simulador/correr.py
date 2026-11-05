@@ -26,8 +26,9 @@ def imagen() -> str:
     return os.environ.get("NEXUS_E2E_IMAGE") or "isabelle-core:prueba"
 
 
-def contenedor(nombre: str, datos: Path, salida: Path, *comando: str) -> list[str]:
+def contenedor(nombre: str, datos: Path, salida: Path, *comando: str, modelo: str | None = None) -> list[str]:
     return ["docker", "run", "--rm", "--name", nombre, "--env-file", str(REPO / ".env"),
+            *(["-e", f"NEXUS_OPENROUTER_MODEL={modelo}"] if modelo else []),
             "-e", "NEXUS_DATA_DIR=/data", "-e", "NEXUS_BACKUP_HOURS=0", "-e", "NEXUS_WORKER=off",
             "-e", "NEXUS_DAILY_BUDGET_USD=", "-e", "NEXUS_INTERNAL_TOKEN=simulador-" + nombre,
             "-v", f"{datos}:/data", "-v", f"{REPO / 'tests'}:/app/tests:ro", "-v", f"{salida}:/out",
@@ -44,6 +45,7 @@ def main() -> int:
     p.add_argument("--piloto", action="store_true")
     p.add_argument("--sin-juez", action="store_true")
     p.add_argument("--solo", help="lista de escenarios (para repetir lo fallado), p. ej. rec_tarde,correccion")
+    p.add_argument("--modelo", help="otro modelo diario para Isabelle (Parte 4: ¿lo resuelve el potente?)")
     a = p.parse_args()
     if a.piloto:
         a.mundos, a.sesiones, a.potente = 1, 6, 2
@@ -54,7 +56,7 @@ def main() -> int:
         datos = Path(tempfile.mkdtemp(prefix=f"isabelle-sim{i}-"))
         cmd = contenedor(f"isabelle-sim{i}", datos, salida, "tests.simulador.sesiones", "--mundo", str(i),
                          "--sesiones", str(a.sesiones), "--dias", str(a.dias), "--tope-usd", f"{a.tope_usd / a.mundos:.4f}",
-                         "--salida", f"/out/mundo{i}.json", *(["--solo", a.solo] if a.solo else []))
+                         "--salida", f"/out/mundo{i}.json", *(["--solo", a.solo] if a.solo else []), modelo=a.modelo)
         subprocess.run(["docker", "rm", "-f", f"isabelle-sim{i}"], capture_output=True)
         log = open(salida / f"mundo{i}.log", "w")
         procesos.append((i, subprocess.Popen(cmd, stdout=log, stderr=subprocess.STDOUT), datos))

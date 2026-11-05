@@ -49,6 +49,8 @@ renombran al final.
 4. Embeddings sin Ollama (fuera Ollama).
 5. Web.
 6. Servidor.
+7. Persona humana, recordatorios confiables y simulador definitivo (hecha: ver abajo).
+8. Voz: notas de voz de Isabelle con texto a voz (pendiente).
 Desde la Fase 4 todo modelo va por OpenRouter; en la máquina quedan la base, los originales y los respaldos.
 
 ## Propósito
@@ -128,6 +130,23 @@ núcleo es genérico; lo propio del rubro vive en profiles/*.toml.
   (docker compose -p nexus ...).
 - Web por HTTP opcional: NEXUS_BIND=0.0.0.0 (por defecto 127.0.0.1); cookie Secure según
   NEXUS_COOKIE_SECURE (auto: esquema o X-Forwarded-Proto); /login avisa «Conexión sin cifrar».
+- Persona humana (core/personaje.py): Isabelle actúa como persona; nunca menciona su naturaleza salvo
+  pedido expreso («sal del personaje», «¿eres una IA?» en serio: responde con sinceridad y pregunta si
+  vuelve). [biografia] en isabelle.toml con «### COMPLETAR ###» (no inventa lo vacío ni hechos físicos);
+  errores en su voz y el detalle solo con «dime qué pasó» (OpenRouter.ultimo_fallo). Autorretrato:
+  «esta eres tú» guarda su apariencia (kv personaje:apariencia) y entra al prompt; la web la muestra.
+  La charla (conversa._sin_romper) regenera una vez y luego respaldo si inventa nombres, rompe el
+  personaje, promete un aviso que no creó o supone cosas de él.
+- Recordatorios confiables: «recuérdame» se detecta en cualquier parte del mensaje (antes, tras un
+  saludo, la charla decía «queda anotado» sin crear nada); «no, era el jueves» corrige el último.
+  Programador en su propio bucle (sin esperar a los saludos), despierta a la hora exacta, marca de
+  vida y vigilante (reinicia el bucle; reenvía lo vencido > 2 min con «(retrasado)» y alerta);
+  /health trae recordatorios_atrasados. Buzón: entregado solo con el acuse (message_id) y reintentos
+  con espera creciente (POST /outbox/{id}/fallo, retry_after de Telegram); el canal revisa cada 5 s.
+  scripts/diagnostico_remoto.sh (solo lectura) en el servidor.
+- Simulador (tests/simulador/): jefe simulado por el camino del bot real, reloj simulado, 37
+  escenarios, juez de IA; tests/tiempo_real.py prueba 42 min con el reloj real; informe en
+  tests/informe_definitivo.md.
 
 ## Cómo probar
 `python3 tests/e2e.py --audio <wav> --audio-phrase <palabra> --chaos` (24 casos, instancia
@@ -147,4 +166,7 @@ Antes de probar cambios de código: `docker compose build core`. También: `test
 ## Pendiente
 - Fases 2 a 6 de Isabelle (arriba). La 6 es desplegar en el VPS (Ubuntu 24.04, 16 GB, 8 vCPU,
   sin GPU) solo por Tailscale y SSH con llave; respaldos sincronizados a la laptop.
+- Fase 8: notas de voz de Isabelle (texto a voz).
+- La foto de perfil del bot de Telegram se cambia a mano en @BotFather (/setuserpic); el
+  autorretrato de la conversación no la cambia.
 - Ideas: timestamps finos en audio, regenerar resúmenes con un mejor modelo, fechas de Excel.

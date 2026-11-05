@@ -36,6 +36,8 @@ RE_ESO = re.compile(r"^(?:eso|esto|lo ultimo|la ultima nota|lo que te (?:dije|ac
 RE_TODO = re.compile(r"^(?:todo|todas las notas|todos los archivos|todas)\s+(?:lo\s+)?(?:de|sobre|acerca de)\s+")
 RE_RELLENO = re.compile(r"^(?:lo|la|las|los|el|una?)?\s*(?:nota|notas|archivo|archivos|dato|datos|info|informacion|que te dije)?\s*"
                         r"(?:de|del|sobre|acerca de|con)?\s+")
+# Lo que sigue al término y no es parte de él: coma, punto o relleno («ya nomás», «no te preocupes»)
+RE_COLA = re.compile(r"\s*[,;.!?]\s*|\s+(?:ya nomas|nomas|no te preocupes|por favor|x ?fa|porfa|gracias|pues)\b")
 RE_SI = re.compile(r"^si\b")
 RE_NO = re.compile(r"^(no|nop|nada|cancela|cancelalo|mejor no|dejalo|olvidalo no|ninguna|ninguno)\b")
 RE_TODAS = re.compile(r"\b(todas|todos|ambas|ambos|las dos|los dos|las tres)\b")
@@ -177,7 +179,9 @@ def pedir(texto: str, channel: str, chat_id: str) -> str | None:
         plan = _plan(ids, None)
     else:
         todo = bool(RE_TODO.match(resto))
-        termino = _original(texto, RE_RELLENO.sub("", RE_TODO.sub("", resto), count=1).strip() or resto)
+        limpio = RE_RELLENO.sub("", RE_TODO.sub("", resto), count=1).strip() or resto
+        limpio = RE_COLA.split(limpio)[0].strip() or limpio  # «zorvel777, ya nomás no te preocupes» -> «zorvel777»
+        termino = _original(texto, limpio)
         ids = _buscar(termino, maximo + 1)
         if len(ids) > maximo:
             return (f"Sobre «{termino}» tengo más de {maximo} cosas, {t}; no borro tanto de una vez. "

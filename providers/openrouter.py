@@ -106,10 +106,11 @@ class Ledger(Protocol):
 
 
 class _CallError(Exception):
-    def __init__(self, status: int | None, retry_after: float | None = None):
+    def __init__(self, status: int | None, retry_after: float | None = None, razonar_obligatorio: bool = False):
         super().__init__(f"HTTP {status}" if status else "sin respuesta")
         self.status = status
         self.retry_after = retry_after
+        self.razonar_obligatorio = razonar_obligatorio  # el modelo no deja apagar el razonamiento
 
     @property
     def transient(self) -> bool:
@@ -206,8 +207,14 @@ class OpenRouter:
             r = await client.post(url, headers={"Authorization": f"Bearer {self._key}"}, json=body)
         except httpx.HTTPError:
             raise _CallError(None) from None
-        if r.status_code >= 400:  # sin el cuerpo: podría repetir parte del prompt
-            raise _CallError(r.status_code, _retry_after(r.headers.get("retry-after")))
+        if r.status_code >= 400:  # sin el cuerpo en el registro: podría repetir parte del prompt
+            obligatorio = False
+            if r.status_code == 400:
+                try:
+                    obligatorio = "reasoning is mandatory" in str(r.json().get("error", {}).get("message", "")).lower()
+                except ValueError:
+                    pass
+            raise _CallError(r.status_code, _retry_after(r.headers.get("retry-after")), obligatorio)
         try:
             data = r.json()
             if url == URL_AUDIO:
@@ -309,7 +316,15 @@ class OpenRouter:
         for i, m in enumerate(modelos):
             body["model"] = m
             try:
-                data = await self._post_retrying(body)
+                try:
+                    data = await self._post_retrying(body)
+                except _CallError as err:
+                    if not err.razonar_obligatorio:
+                        raise
+                    # Hay modelos que no dejan apagar el razonamiento: el mínimo, y se reintenta
+                    body["reasoning"] = {"max_tokens": 512}
+                    body["max_tokens"] = max(body.get("max_tokens") or 0, 1024)
+                    data = await self._post_retrying(body)
                 break
             except _CallError as err:
                 # Respaldo del potente: solo si está caído, limitado o no existe (404)

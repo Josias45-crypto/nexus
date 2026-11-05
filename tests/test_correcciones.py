@@ -94,6 +94,69 @@ class Ronda1Test(Base):
         self.assertNotIn("No encuentro", r["texto"])
 
 
+class Ronda2Test(Base):
+    """Lo que encontró la ronda 2 del simulador."""
+
+    def test_no_me_olvides_crea_el_recordatorio(self):
+        r = self.decir("Oe, no me olvides el miércoles a las 4 pm llamar al contador por la factura 313")
+        self.assertTrue(r["botones"])
+        [rec] = reminders.list_open(CHAT)
+        self.assertIn("llamar al contador", rec["text"])
+
+    def test_avisame_en_una_pregunta_sin_cuando_no_es_recordatorio(self):
+        self.decir("x fa, q clientes me deben plata?? necesito cobrar hoy, avisame xq no me acuerdo")
+        self.assertEqual(reminders.list_open(CHAT), [])
+
+    def test_la_correccion_solo_vale_justo_despues(self):
+        self.decir("recuérdame el miércoles a las 4 pm llamar al contador")
+        self.ia.chat_ex = self._charla("¿Algo más, jefe?")
+        self.decir("oye, una cosa del contador")
+        self.decir("no, era el jueves")
+        [rec] = reminders.list_open(CHAT)
+        self.assertEqual(clock.utc_to_local(rec["due_at"]).weekday(), 2, "sigue el miércoles")
+
+    def _charla(self, texto):
+        async def chat_ex(messages, **kw):
+            return texto, {}
+        return chat_ex
+
+    def test_cancelar_la_serie_cierra_lo_sin_confirmar(self):
+        from core.db import connect
+
+        self.decir("recuérdame todos los días a las 9 am revisar el inventario")
+        [rec] = reminders.list_open(CHAT)
+        with connect() as c:
+            c.execute("UPDATE reminders SET estado = 'sin_confirmar', proximo_envio = NULL WHERE id = ?", (rec["id"],))
+        sig = reminders.create("revisar el inventario", clock.now_utc().isoformat(), "simulado", CHAT)
+        with connect() as c:
+            c.execute("UPDATE reminders SET serie_id = ? WHERE id = ?", (rec["serie_id"] or rec["id"], sig["id"]))
+        reminders.cancelar_serie(rec["id"], CHAT)
+        self.assertEqual(reminders.list_open(CHAT, sin_confirmar=True), [])
+
+    def test_tarea_sin_relleno(self):
+        from core import when
+
+        p = when.parse("recuerdame en 2 horas q envie la coti a la clinica x fa no me olvide q es urgente", clock.now_local())
+        self.assertEqual(p.task, "envie la coti a la clinica")
+
+    def test_no_dice_que_ya_lo_tiene_anotado(self):
+        from core import conversa
+
+        self.assertTrue(conversa.RE_PROMESA.search("Ya lo tengo anotado de su nota, jefe."))
+
+    def test_lo_personal_no_va_a_internet(self):
+        from core import conversa
+
+        self.assertTrue(conversa._personal("¿cuánto me debe Eulogio Pumacahua?"))
+        self.assertFalse(conversa._personal("¿me dices quién ganó el mundial de 2022?"))
+
+    def test_olvido_sin_relleno(self):
+        from core import olvido
+
+        self.assertEqual(olvido.RE_COLA.split("zorvel777 ya nomas no te preocupes por eso")[0], "zorvel777")
+        self.assertEqual(olvido.RE_COLA.split("lo de tralvex, gracias")[0], "lo de tralvex")
+
+
 class CharlaTest(Base):
     def charla(self, *respuestas: str) -> dict:
         cola = list(respuestas)

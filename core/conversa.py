@@ -125,12 +125,17 @@ RE_RECORDATORIO = re.compile(r"^\s*(recu[eé]rdame|recordarme|av[ií]same)\b", r
 # busca en todo el mensaje y se atiende desde ahí. Antes solo se miraba al inicio y la charla
 # respondía «queda anotado» sin crear nada (así se perdían recordatorios).
 RE_PIDE_RECORDATORIO = re.compile(r"\b(recu[eé]rd[ae]me|recordarme|av[ií]same|ponme un recordatorio|agend[aá]me)\b", re.I)
+# A mitad del mensaje, el pedido vale si trae un cuándo («x fa, ¿qué clientes me deben? avísame» no es un aviso)
+RE_PIDE_EN_MEDIO = re.compile(r"\b(recu[eé]rd[ae]me|recordarme|av[ií]same|ponme un recordatorio|agend[aá]me|ac[uú]erd[ae]me"
+                              r"|no me (olvides|dejes olvidar)|que no se me olvide)\b", re.I)
+RE_CUANDO = re.compile(r"\ben (un|una|media|\d+)\s*(min|hora|hr|d[ií]a|semana)|\btodos los\b|\bcada\b", re.I)
 # Lo que la charla NO puede afirmar sin que el código lo haya hecho: crear, cambiar o corregir avisos
 RE_PROMESA = re.compile(
     r"\b(le (recuerdo|aviso|recordar[eé]|avisar[eé])|se lo (recuerdo|recordar[eé]|aviso)|te (recuerdo|aviso|recordar[eé])"
     r"|queda(n)? (agendad|programad|anotad[oa] para)|recordatorio (creado|listo|guardado|cambiado|corregido|programado)"
     r"|^corregid[oa]|cambi[eé] (la hora|el d[ií]a|el recordatorio)|lo (agend|program)[eé]|ya qued[oó] (agendad|programad)"
     r"|ya (lo |la )?(olvid|borr|elimin)[eé]|(lo |la )?(olvid|borr|elimin)[eé] (de mi memoria|todo)"
+    r"|ya (lo |la )?tengo (anotad|agendad|apuntad)"
     r"|(ma[nñ]ana|luego|m[aá]s tarde|en un rato)( a primera hora)? (lo|la|le|se lo) (reviso|veo|busco|hago|mando|env[ií]o|averiguo))",
     re.I | re.M)
 # «no, era el jueves», «mejor a las 5»: corrige el último recordatorio creado (15 min)
@@ -291,6 +296,22 @@ async def _corregir(texto: str, channel: str, chat_id: str) -> Respuesta | None:
         return None
     hecho = reminders.posponer(r["id"], clock.local_to_utc(nuevo).isoformat(), chat_id)
     return _listo(hecho, corregido=True) if hecho else None
+
+
+def _con_cuando(texto: str) -> bool:
+    """El pedido trae un día, una hora o un plazo («en 2 horas», «todos los lunes»)."""
+    return bool(RE_DIA_EN.search(texto) or RE_HORA_EN.search(texto) or RE_CUANDO.search(texto))
+
+
+def _como_pedido(texto: str) -> str:
+    """«no me olvides el miércoles…», «acuérdame…» -> «recuérdame …» (lo que entiende when.parse)."""
+    return re.sub(r"^(ac[uú]erd[ae]me|no me (olvides|dejes olvidar)|que no se me olvide)\b", "recuérdame", texto, flags=re.I)
+
+
+def olvidar_ultimo_recordatorio(channel: str, chat_id: str) -> None:
+    """Pasó otro turno: «no, era el jueves» ya no corrige el recordatorio de antes."""
+    with connect() as conn:
+        conn.execute("DELETE FROM kv WHERE key = ?", (K_ULTIMO_REC.format(channel, chat_id),))
 
 
 def _activo(rid: int, chat_id: str, sin_confirmar: bool = True) -> dict | None:
@@ -511,8 +532,8 @@ async def _reglas(textos: list[str], channel: str, chat_id: str, anterior: str |
         return Respuesta(r, "iniciativa")
     if RE_RECORDATORIO.match(texto):
         return await _recordatorio(texto, channel, chat_id)
-    if (m := RE_PIDE_RECORDATORIO.search(texto)) and "?" not in texto[m.start():]:
-        return await _recordatorio(texto[m.start():], channel, chat_id)
+    if (m := RE_PIDE_EN_MEDIO.search(texto)) and "?" not in texto[m.start():] and _con_cuando(texto[m.start():]):
+        return await _recordatorio(_como_pedido(texto[m.start():]), channel, chat_id)
     if RE_LISTA.search(p):
         return _lista_recordatorios(chat_id)
     if RE_HECHO.match(p):
@@ -727,6 +748,15 @@ async def _resolver_web(texto: str, channel: str, chat_id: str) -> Respuesta | N
     return None
 
 
+def _personal(pregunta: str) -> bool:
+    """Pregunta de su vida o su negocio con un nombre propio: la respuesta solo puede estar en su
+    cerebro, y el nombre no debe viajar al buscador."""
+    from core import verify
+
+    nombres = [e for e in verify.question_entities(pregunta) if not any(c.isdigit() for c in e)]
+    return bool(internet.RE_PERSONAL.search(plano(pregunta)) and nombres)
+
+
 async def _preguntar(consulta: str, texto: str = "", channel: str = "", chat_id: str = "") -> Respuesta:
     r = await ask.ask(consulta, contexto=_ahora())
     if not (r.get("answer") or "").startswith(ask.NO_INFO):
@@ -752,6 +782,8 @@ async def _preguntar(consulta: str, texto: str = "", channel: str = "", chat_id:
         )
         texto = texto[:1].upper() + texto[1:]
         return Respuesta(texto, "preguntar", None, llm=info)
+    if salida.startswith("NO_SE") and _personal(consulta):  # «¿cuánto me debe Eulogio?»: eso no se busca afuera
+        return Respuesta(f"No lo tengo anotado, {persona.tratamiento()}. ¿Me lo cuenta?", "preguntar", None, llm=info)
     if salida.startswith("NO_SE"):  # el modelo no lo sabe: internet, salvo que pidió no buscar
         if sin_internet or not channel:
             return Respuesta(internet.texto("no_buscar"), "preguntar", None, llm=info)
@@ -945,6 +977,8 @@ async def conversar(textos: list[str], channel: str, chat_id: str) -> dict:
         _en_curso -= 1
     if r.accion != "aviso":  # los avisos de OpenRouter salen tal cual
         r.texto = persona.dosificar(r.texto)
+    if r.accion != "recordatorio":  # «no, era el jueves» solo corrige lo del turno anterior
+        olvidar_ultimo_recordatorio(channel, chat_id)
     charla.agregar("isabelle", sin_avisos(r.texto) or r.texto, chat_id, r.accion)
     log.info("Turno: %d mensaje(s), acción %s, nivel %s, %d caracteres", len(textos), r.accion, r.nivel, len(r.texto))
     return r.dict()

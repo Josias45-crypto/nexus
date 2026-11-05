@@ -4,7 +4,7 @@
 
 - Crea por el camino del bot recordatorios a +2, +3 (sin confirmar: 3 insistencias), +5, +10 y +35
   min (este tiene aviso previo a +5). Insistencias cada 5 min (NEXUS_REMINDER_RETRY_MIN=5).
-- Un «canal» simulado dentro del contenedor reparte el buzón como el bot real (cada 15 s) y anota
+- Un «canal» simulado dentro del contenedor reparte el buzón como el bot real (cada 5 s) y anota
   la hora de cada entrega; su primer envío de «Tarea05» falla como un 429 de Telegram.
 - A los ~11,5 min reinicia el contenedor; de ~20 a ~25 min corta su red (OpenRouter caído) y pide
   un saludo a esa hora para que el programador intente usar la IA durante el corte.
@@ -54,7 +54,7 @@ class Canal(SimChannel):
         return [len(self.sent)]
 async def main():
     ch = Canal([OWNER]); nx = NexusClient("http://localhost:8000"); bot = Assistant(ch, nx, {OWNER}, pausa=False)
-    cada = float(os.getenv("NEXUS_CHANNEL_OUTBOX_SECONDS", "15"))
+    cada = float(os.getenv("NEXUS_CHANNEL_OUTBOX_SECONDS", "5"))
     while True:
         try:
             await bot.deliver_outbox()

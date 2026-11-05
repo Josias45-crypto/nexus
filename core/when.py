@@ -192,6 +192,10 @@ def _clean_task(text: str) -> str:
     text = re.sub(r"\s+(el|la|a|de|para|por|en)$", "", text, flags=re.I).strip(" ,.;:-")
     # cortesía al final que no es parte de la tarea («… x fa», «… por favor», «… gracias»)
     text = re.sub(r"[\s,]*\b((muchas )?gracias|x ?fa|por favor|porfa|plis)\W*$", "", text, flags=re.I).strip(" ,.;:-")
+    # relleno de quien escribe apurado: «q envíe la coti x fa no me olvide q es urgente» -> «envíe la coti»
+    text = re.sub(r"[\s,]+(x ?fa|por favor|porfa|plis)\b.*$", "", text, flags=re.I)
+    text = re.sub(r"[\s,]+(no (me|se me) (olvide|vaya a olvidar|vaya a pasar)|q(ue)? es urgente|es urgente)\b.*$", "", text, flags=re.I)
+    text = re.sub(r"^(q|que)\s+", "", text, flags=re.I).strip(" ,.;:-")
     return text
 
 

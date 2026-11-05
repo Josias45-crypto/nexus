@@ -71,6 +71,11 @@ class Jefe:
         except Exception:
             return base
         nuevo = (nuevo or "").strip().strip('"«»')
+        # «Claro, acá te va el mensaje reescrito: …»: el preámbulo del modelo no es del jefe
+        nuevo = re.sub(r"^(claro|aqu[ií]|ac[aá]|listo|por supuesto|ok)\b[^\n:]{0,80}(reescrit|mensaje|versi[oó]n)[^\n:]*:\s*",
+                       "", nuevo, flags=re.I).strip().strip('"«»')
+        if re.search(r"reescrit|aqu[ií] (tienes|va)|ac[aá] (te va|tienes)", nuevo, re.I):
+            return base
         plano = sin_tildes(nuevo.lower())
         if not nuevo or len(nuevo) > 3 * len(texto) + 80 or any(sin_tildes(c.lower()) not in plano for c in conservar):
             return base  # perdió un dato clave: la versión fija

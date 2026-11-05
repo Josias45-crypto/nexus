@@ -217,8 +217,19 @@ El script solo lee del servidor (rsync sin `--delete`) y avisa si la última cop
 
 ## Qué vigilar
 
+Si un recordatorio no llegó, corre en el servidor (solo lee; no muestra el texto de ningún mensaje):
+
+```bash
+cd ~/isabelle && scripts/diagnostico_remoto.sh
+```
+
+Imprime la hora y la zona del servidor y del contenedor, el estado del programador (`/health`:
+`recordatorios_atrasados`, marca de vida, vigilante), los últimos 20 recordatorios y sus avisos con
+la demora de entrega y el acuse de Telegram, el buzón pendiente y los errores de Telegram de 24 h.
+
 | Qué | Cómo |
 |---|---|
+| Recordatorios | `scripts/diagnostico_remoto.sh` (atrasados = 0, programador vivo) |
 | Contenedores | `docker compose ps` (los dos «healthy») |
 | Memoria | `docker stats --no-stream` (núcleo < 1 GB, bot < 256 MB) |
 | Logs | `docker compose logs --tail 50 core` (rotan solos: 10 MB × 3) |

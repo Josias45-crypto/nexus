@@ -446,14 +446,16 @@ def cerrar(rid: int, estado: str, chat_id: str | None = None, respuesta: str | N
 
 
 def cancelar_serie(rid: int, chat_id: str | None = None) -> list[dict]:
-    """Cancela todas las ocurrencias abiertas de la serie de rid (sin crear la siguiente)."""
+    """Cancela todas las ocurrencias abiertas o sin confirmar de la serie de rid (sin crear la siguiente)."""
     r = get(rid)
     if not r or (chat_id and r["chat_id"] != chat_id):
         return []
-    marks = ",".join("?" * len(ABIERTOS))
+    estados = ABIERTOS + ("sin_confirmar",)  # también lo que quedó sin confirmar: la serie entera se va
+    marks = ",".join("?" * len(estados))
     with connect() as conn:
         ids = [x["id"] for x in conn.execute(
-            f"SELECT id FROM reminders WHERE serie_id = ? AND estado IN ({marks})", (r["serie_id"] or rid, *ABIERTOS)
+            f"SELECT id FROM reminders WHERE (serie_id = ? OR id = ?) AND estado IN ({marks})",
+            (r["serie_id"] or rid, r["serie_id"] or rid, *estados)
         )]
         conn.execute(
             f"UPDATE reminders SET estado = 'cancelado', proximo_envio = NULL, done_at = ?,"

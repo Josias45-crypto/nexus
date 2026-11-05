@@ -19,6 +19,11 @@ con una variable) y la memoria, los originales y los embeddings viven en tu máq
 
 - **Entiende** texto, PDF, Word, Excel, PowerPoint, EPUB, correos `.eml` y `.zip` sin IA
   ([formatos](docs/FORMATOS.md)).
+- **Persona humana:** Isabelle actúa como una secretaria de carne y hueso (biografía en
+  `[biografia]` de `profiles/isabelle.toml`, campos «### COMPLETAR ###» que no inventa). No dice que
+  es IA salvo que se lo pidas en serio («sal del personaje», «¿eres una IA?»); los fallos técnicos
+  los cuenta en su voz y el detalle con «dime qué pasó». «Esta eres tú» con una foto fija su
+  apariencia. La foto de perfil del bot se cambia en @BotFather.
 - **Ve y oye** (Fase 3, por OpenRouter con zdr): comenta cada foto con naturalidad y como mucho una
   pregunta («¡qué ternura! ¿cómo se llama?»; «se llama Max» queda ligado a la foto); de boletas,
   facturas y capturas extrae los datos y pide confirmar las cifras («Leí S/ 450.00; ¿es
@@ -183,6 +188,8 @@ python3 tests/muestra_iniciativa.py        # una semana simulada de saludos (Ope
 python3 tests/muestra_busqueda_olvido.py   # 10 charlas de búsqueda y «olvida eso» (3 búsquedas reales)
 python3 tests/muestra_ver_oir.py           # 10 casos de fotos, PDF, notas de voz y video (OpenRouter real)
 python3 tests/muestra_web.py               # capturas de la web en un Chromium sin interfaz (Docker)
+python3 tests/simulador/correr.py --piloto # simulador: jefe simulado + juez de IA (completo: --mundos 5 --sesiones 60)
+python3 tests/tiempo_real.py               # recordatorios 42 min con el reloj real (reinicio y corte de red)
 python3 tests/e2e.py --chaos --audio voz.wav --audio-phrase "una palabra del audio"
 python3 tests/eval_ventas.py --label prueba    # 21 notas y 17 preguntas de ventas (aislada)
 python3 tests/informe.py                   # qué funciona hoy en TU instalación (instancia real)

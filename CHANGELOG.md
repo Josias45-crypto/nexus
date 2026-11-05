@@ -5,6 +5,31 @@ AAAA-MM-DD.
 
 ## [Sin publicar]
 
+### Agregado (persona humana, recordatorios confiables y simulador definitivo)
+- Isabelle actúa como una persona: nunca dice que es IA, bot, modelo o programa ni nombra a
+  OpenRouter; los fallos técnicos los dice en su voz («se me cortó la conexión») y el detalle solo
+  con «dime qué pasó». Válvula de honestidad: si él pide salir del personaje o pregunta en serio si
+  es una IA, responde con sinceridad y pregunta si vuelve. Biografía en `[biografia]` con
+  «### COMPLETAR ###» (no inventa lo vacío ni hechos físicos: «estoy llegando a la oficina»).
+- Autorretrato: una foto con «esta eres tú» pasa a ser su apariencia (solo lo visible, sin
+  identificar a nadie); entra a su contexto y la web la muestra junto al chat.
+- La charla no puede inventar nombres, prometer avisos u olvidos que no hizo ni suponer cómo está
+  él: se regenera una vez y, si insiste, un respaldo fijo (verificado por código).
+- Recordatorios que no avisaban (causa raíz): si el pedido no iba al inicio del mensaje («Buenas,
+  Isabelle. Recuérdame…»), la charla respondía «queda anotado» sin crear nada. Ahora se detecta en
+  todo el mensaje y «no, era el jueves» corrige el último.
+- Programador de recordatorios en su propio bucle (antes esperaba a los saludos, que usan IA),
+  despierta a la hora del próximo aviso; marca de vida y vigilante (reinicia el bucle, reenvía lo
+  vencido > 2 min con «(retrasado)» y alerta); `/health` con `recordatorios_atrasados`. Entregado solo
+  con el acuse de Telegram (message_id); reintentos con espera creciente y el `retry_after` de un
+  429; el canal revisa el buzón cada 5 s. `scripts/diagnostico_remoto.sh` (solo lectura).
+- Ráfagas de mensajes en una sola respuesta (el canal espera 1,2 s); abreviaturas del chat en fechas
+  (mñn, x la tarde, 2 hrs); un «hoy» del preámbulo ya no se toma como pregunta por fecha; la nota
+  guardada se procesa al instante; se cancela también lo que quedó sin confirmar.
+- `tests/simulador/`: jefe simulado con perfiles por el camino del bot real, 37 escenarios, reloj
+  simulado de 30 días, juez de IA; `tests/tiempo_real.py` (42 min con el reloj real) e informe en
+  `tests/informe_definitivo.md`.
+
 ### Cambiado
 - El chat va solo por OpenRouter con un cliente único (`providers/openrouter.py`): reintentos
   1/2/4 s, avisos de una línea (402, 429, clave, caída), uso y costo en `/usage`, tope diario sin
